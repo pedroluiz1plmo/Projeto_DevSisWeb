@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/dice.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RPG Hub - Sistema de Gerenciamento de Fichas</title>
+    <!-- Google Fonts: Outfit, Cinzel (RPG style) e JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/index.css" />
+  </head>
+  <body>
+    <div id="app" class="app-container">
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="logo-icon">🎲</div>
+          <div class="logo-text">
+            <h2>RPG HUB</h2>
+            <span class="badge badge-unemat">UNEMAT • Eng. Software</span>
+          </div>
+        </div>
+
+        <nav class="nav-menu">
+          <button id="nav-dashboard" class="nav-item active" data-tab="dashboard">
+            <span class="nav-icon">📊</span>
+            <span class="nav-label">Início & Metodologia</span>
+          </button>
+          
+          <div class="nav-section-title">VISÃO DO JOGADOR</div>
+          <button id="nav-personagens" class="nav-item" data-tab="personagens">
+            <span class="nav-icon">👤</span>
+            <span class="nav-label">Fichas (UC01)</span>
+          </button>
+          <button id="nav-wizard" class="nav-item" data-tab="wizard">
+            <span class="nav-icon">✨</span>
+            <span class="nav-label">Criar Guiado (UC02)</span>
+          </button>
+          <button id="nav-inventario" class="nav-item" data-tab="inventario">
+            <span class="nav-icon">🎒</span>
+            <span class="nav-label">Inventário (UC03)</span>
+          </button>
+          <button id="nav-magias" class="nav-item" data-tab="magias">
+            <span class="nav-icon">⚡</span>
+            <span class="nav-label">Magias & Habilidades (UC04)</span>
+          </button>
+          <button id="nav-dados" class="nav-item" data-tab="dados">
+            <span class="nav-icon">🎯</span>
+            <span class="nav-label">Rolagem de Dados (UC05)</span>
+          </button>
+
+          <div class="nav-section-title">VISÃO DO MESTRE (GM)</div>
+          <button id="nav-campanhas" class="nav-item" data-tab="campanhas">
+            <span class="nav-icon">📜</span>
+            <span class="nav-label">Campanhas (UC06)</span>
+          </button>
+          <button id="nav-npcs" class="nav-item" data-tab="npcs">
+            <span class="nav-icon">🐉</span>
+            <span class="nav-label">NPCs & Monstros (UC07)</span>
+          </button>
+          <button id="nav-iniciativa" class="nav-item" data-tab="iniciativa">
+            <span class="nav-icon">⚔️</span>
+            <span class="nav-label">Iniciativa & Combate (UC08)</span>
+          </button>
+
+          <div class="nav-section-title">ENGENHARIA & ARQUITETURA</div>
+          <button id="nav-uml" class="nav-item" data-tab="uml">
+            <span class="nav-icon">📐</span>
+            <span class="nav-label">Modelagem UML Viva</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="user-profile-badge">
+            <div class="avatar">🧙‍♂️</div>
+            <div class="user-details">
+              <span class="user-name">Pedro & Danny</span>
+              <span class="user-role">Prof. Maricy Caregnato</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content Container -->
+      <main class="main-content">
+        <!-- Topbar -->
+        <header class="topbar">
+          <div class="page-title-container">
+            <h1 id="page-title">Painel Geral e Metodologias</h1>
+            <p id="page-subtitle">Sistema de Gerenciamento de Fichas e Arquitetura de Software</p>
+          </div>
+          <div class="topbar-actions">
+            <div class="character-quick-select">
+              <label for="active-character-select">Personagem Ativo:</label>
+              <select id="active-character-select" class="custom-select"></select>
+            </div>
+            <button id="btn-quick-roll-d20" class="btn btn-glow" title="Rolar d20 rápido">
+              🎲 Rolar d20
+            </button>
+          </div>
+        </header>
+
+        <!-- Dynamic Content Area -->
+        <section id="content-area" class="content-body">
+          <!-- Views will be injected here dynamically -->
+        </section>
+      </main>
+
+      <!-- Toast Container for Notifications and Dice Roll Animations -->
+      <div id="toast-container" class="toast-container"></div>
+
+      <!-- Quick Dice Roll Modal -->
+      <div id="dice-modal" class="modal-backdrop hidden">
+        <div class="modal-content glass-card">
+          <div class="modal-header">
+            <h3>🎯 Rolagem de Dados Criptográfica (UC05)</h3>
+            <button id="btn-close-dice-modal" class="btn-icon">✕</button>
+          </div>
+          <div class="modal-body" id="dice-modal-body">
+            <!-- Dynamic Dice Body -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
