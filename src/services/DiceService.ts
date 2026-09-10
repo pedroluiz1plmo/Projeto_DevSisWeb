@@ -23,7 +23,7 @@ export class DiceService {
   }
 
   /**
-   * Implementa o fluxo do UC05: Realizar Rolagem de Dados
+  * Realiza uma rolagem de dados com aleatoriedade criptográfica.
    */
   public static rolarD20(
     periciaOuAtributo: string,

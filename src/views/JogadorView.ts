@@ -8,7 +8,7 @@ export class JogadorView {
         <div class="glass-card" style="text-align: center; padding: 48px 24px;">
           <h3>🧙‍♂️ Nenhum personagem selecionado</h3>
           <p style="color: var(--text-muted); margin: 12px 0 20px 0;">Crie seu primeiro herói através do assistente guiado passo a passo.</p>
-          <button id="btn-goto-wizard" class="btn btn-primary">✨ Iniciar Criação Guiada (UC02)</button>
+          <button id="btn-goto-wizard" class="btn btn-primary">✨ Criar meu personagem</button>
         </div>
       `;
     }
@@ -100,7 +100,7 @@ export class JogadorView {
         <!-- Atributos Base & Rolagens Rápidas -->
         <div class="glass-card" style="margin-bottom: 24px;">
           <div class="glass-card-header">
-            <h3>⚡ Atributos e Testes (Clique para Rolar d20 - UC05)</h3>
+            <h3>⚡ Atributos e Testes (clique para rolar d20)</h3>
             <span style="font-size: 0.8rem; color: var(--text-muted);">Automação de modificadores em tempo real</span>
           </div>
 
@@ -149,7 +149,7 @@ export class JogadorView {
           <div class="glass-card">
             <div class="glass-card-header">
               <h3>🎒 Inventário Rápido</h3>
-              <button id="btn-goto-inventario-full" class="btn btn-secondary" style="font-size: 0.8rem; padding: 4px 10px;">Ver Completo (UC03)</button>
+              <button id="btn-goto-inventario-full" class="btn btn-secondary" style="font-size: 0.8rem; padding: 4px 10px;">Ver completo</button>
             </div>
             
             <div class="weight-container">
@@ -185,7 +185,7 @@ export class JogadorView {
           <div class="glass-card">
             <div class="glass-card-header">
               <h3>⚡ Magias e Habilidades</h3>
-              <button id="btn-goto-magias-full" class="btn btn-secondary" style="font-size: 0.8rem; padding: 4px 10px;">Gerenciar (UC04)</button>
+              <button id="btn-goto-magias-full" class="btn btn-secondary" style="font-size: 0.8rem; padding: 4px 10px;">Gerenciar</button>
             </div>
             <div style="max-height: 240px; overflow-y: auto;">
               ${personagemAtivo.magiasHabilidades.length === 0 ? '<p style="color: var(--text-dim); font-size: 0.85rem;">Nenhuma magia ou habilidade cadastrada.</p>' : `
@@ -212,7 +212,7 @@ export class JogadorView {
     return `
       <div class="glass-card" style="max-width: 800px; margin: 0 auto;">
         <div class="glass-card-header">
-          <h3>✨ Assistente de Criação Guiada de Personagem (UC02)</h3>
+          <h3>✨ Criação guiada de personagem</h3>
           <span class="badge badge-unemat">Redução de Carga Cognitiva</span>
         </div>
 
@@ -252,7 +252,7 @@ export class JogadorView {
                 <option value="D&D 5e">Dungeons & Dragons 5ª Edição</option>
                 <option value="Tormenta 20">Tormenta 20</option>
                 <option value="Pathfinder 2e">Pathfinder 2ª Edição</option>
-                <option value="Custom">Sistema Customizado da Comunidade (UC09)</option>
+                <option value="Custom">Sistema customizado da comunidade</option>
               </select>
             </div>
           </div>
@@ -303,7 +303,7 @@ export class JogadorView {
               </div>
             </div>
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-              Validação de Regras (UC02): Valores permitidos entre <strong>8 e 18</strong>.
+              Distribua os atributos entre <strong>8 e 18</strong>.
             </p>
 
             <div class="grid-3">
@@ -369,7 +369,7 @@ export class JogadorView {
       <div class="glass-card">
         <div class="glass-card-header">
           <div>
-            <h3>🎒 Gerenciamento de Inventário (UC03)</h3>
+            <h3>🎒 Gerenciamento de Inventário</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted);">Personagem: <strong>${personagem.nomePersonagem}</strong> (Força: ${personagem.atributos.forca})</p>
           </div>
           <button id="btn-add-item-modal" class="btn btn-primary">+ Adicionar Item</button>
@@ -463,7 +463,7 @@ export class JogadorView {
       <div class="glass-card">
         <div class="glass-card-header">
           <div>
-            <h3>⚡ Gestão de Magias e Habilidades (UC04)</h3>
+            <h3>⚡ Gestão de Magias e Habilidades</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted);">Personagem: <strong>${personagem.nomePersonagem}</strong> (${personagem.classe})</p>
           </div>
           <button id="btn-add-spell-modal" class="btn btn-primary">+ Nova Magia/Habilidade</button>
@@ -528,7 +528,7 @@ export class JogadorView {
       <div class="glass-card">
         <div class="glass-card-header">
           <div>
-            <h3>🎯 Rolagem de Dados de Alta Fidelidade (UC05)</h3>
+            <h3>🎯 Rolagem de Dados</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted);">
               Algoritmo Criptográfico <code>crypto.getRandomValues</code> com cálculo automático de modificadores
             </p>

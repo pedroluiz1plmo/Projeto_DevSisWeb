@@ -13,7 +13,7 @@ export class MestreView {
       <div class="glass-card">
         <div class="glass-card-header">
           <div>
-            <h3 style="color: var(--gm-accent);">📜 Gestão de Campanhas & Lore (UC06)</h3>
+            <h3 style="color: var(--gm-accent);">📜 Gestão de Campanhas e Lore</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted);">Organização dos grupos de jogadores, lore e repositório de aventuras</p>
           </div>
           <button id="btn-add-campanha-modal" class="btn btn-glow">+ Nova Campanha</button>
@@ -114,7 +114,7 @@ export class MestreView {
       <div class="glass-card">
         <div class="glass-card-header">
           <div>
-            <h3 style="color: var(--gm-accent);">🐉 Gestão de NPCs e Bestiário (UC07)</h3>
+            <h3 style="color: var(--gm-accent);">🐉 Gestão de NPCs e Bestiário</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted);">Fichas simplificadas para controle tático do Mestre</p>
           </div>
           <button id="btn-add-npc-modal" class="btn btn-primary">+ Novo Monstro/NPC</button>
@@ -203,7 +203,7 @@ export class MestreView {
       <div class="glass-card">
         <div class="glass-card-header">
           <div>
-            <h3 style="color: var(--gm-accent);">⚔️ Painel de Ordem de Iniciativa & Combate (UC08)</h3>
+            <h3 style="color: var(--gm-accent);">⚔️ Painel de Ordem de Iniciativa e Combate</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted);">Organização dinâmica de turnos e status de combate</p>
           </div>
           <div style="display: flex; gap: 10px;">

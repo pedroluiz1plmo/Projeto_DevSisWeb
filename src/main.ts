@@ -12,7 +12,6 @@ import { DiceService, type ResultadoRolagem } from './services/DiceService';
 import { DashboardView } from './views/DashboardView';
 import { JogadorView } from './views/JogadorView';
 import { MestreView } from './views/MestreView';
-import { UmlView } from './views/UmlView';
 
 class AppController {
   private personagens: Personagem[] = [];
@@ -104,16 +103,15 @@ class AppController {
     const subtitleEl = document.getElementById('page-subtitle');
 
     const titulos: Record<string, { title: string; sub: string }> = {
-      dashboard: { title: 'Painel Geral e Metodologias', sub: 'Visão de Engenharia de Software e Status do RPG Hub' },
-      personagens: { title: 'Ficha do Personagem (UC01)', sub: 'Consulta e alteração contínua de atributos e atributos derivados' },
-      wizard: { title: 'Criar Personagem Guiado (UC02)', sub: 'Assistente passo a passo com regras oficiais e validação de atributos' },
-      inventario: { title: 'Gerenciamento de Inventário (UC03)', sub: 'Cálculo de peso unitário, capacidade máxima e alerta de sobrecarga' },
-      magias: { title: 'Magias e Habilidades (UC04)', sub: 'Cadastro e consulta de feitiços, custos de mana e efeitos' },
-      dados: { title: 'Rolagem de Dados (UC05)', sub: 'Sorteio com alta entropia criptográfica e destaque para críticos' },
-      campanhas: { title: 'Campanhas do Mestre (UC06)', sub: 'Gestão de grupos de jogadores, lore e repositório da mesa' },
-      npcs: { title: 'Bestiário e NPCs (UC07)', sub: 'Fichas simplificadas de monstros e ameaças do mestre' },
-      iniciativa: { title: 'Iniciativa & Combate (UC08)', sub: 'Painel para organização da ordem de turnos durante o combate' },
-      uml: { title: 'Modelagem UML do Sistema', sub: 'Diagramas de Classes, Atividades, Sequência e Casos de Uso renderizados' }
+      dashboard: { title: 'RPG Hub', sub: 'Seu espaço para criar personagens e viver aventuras' },
+      personagens: { title: 'Ficha do Personagem', sub: 'Consulte e atualize os atributos do seu herói' },
+      wizard: { title: 'Criar Personagem', sub: 'Monte seu personagem passo a passo' },
+      inventario: { title: 'Inventário', sub: 'Organize os itens da sua aventura' },
+      magias: { title: 'Magias e Habilidades', sub: 'Consulte os poderes do seu personagem' },
+      dados: { title: 'Rolagem de Dados', sub: 'Faça testes e acompanhe os resultados' },
+      campanhas: { title: 'Campanhas do Mestre', sub: 'Organize grupos e histórias' },
+      npcs: { title: 'Bestiário e NPCs', sub: 'Gerencie criaturas e personagens da história' },
+      iniciativa: { title: 'Iniciativa e Combate', sub: 'Organize a ordem dos turnos' }
     };
 
     if (titleEl && subtitleEl && titulos[tabName]) {
@@ -187,18 +185,12 @@ class AppController {
         this.bindIniciativaEvents();
         break;
 
-      case 'uml':
-        container.innerHTML = UmlView.render();
-        this.bindUmlEvents();
-        UmlView.renderDiagram('classes');
-        break;
-
       default:
         container.innerHTML = DashboardView.render(this.personagens, this.campanhas, this.npcs);
     }
   }
 
-  /* ================= FICHA (UC01) EVENTS ================= */
+  /* ================= FICHA EVENTS ================= */
   private bindFichaEvents(): void {
     const p = this.personagemAtivo;
     if (!p) {
@@ -276,7 +268,7 @@ class AppController {
     document.getElementById('btn-goto-magias-full')?.addEventListener('click', () => this.switchTab('magias'));
   }
 
-  /* ================= WIZARD (UC02) EVENTS ================= */
+  /* ================= WIZARD EVENTS ================= */
   private bindWizardEvents(): void {
     const btnNext = document.getElementById('btn-wizard-next') as HTMLButtonElement;
     const btnPrev = document.getElementById('btn-wizard-prev') as HTMLButtonElement;
@@ -310,7 +302,7 @@ class AppController {
       } else if (this.wizardStep === 2) {
         this.wizardStep = 3;
       } else if (this.wizardStep === 3) {
-        // Validação de atributos (UC02 Exceção: Atributos Inválidos 8 a 18)
+        // Validação dos atributos informados pelo jogador.
         const forca = parseInt((document.getElementById('w-forca') as HTMLInputElement).value, 10);
         const destreza = parseInt((document.getElementById('w-destreza') as HTMLInputElement).value, 10);
         const constituicao = parseInt((document.getElementById('w-constituicao') as HTMLInputElement).value, 10);
@@ -453,7 +445,7 @@ class AppController {
     `;
   }
 
-  /* ================= INVENTÁRIO (UC03) EVENTS ================= */
+  /* ================= INVENTÁRIO EVENTS ================= */
   private bindInventarioEvents(): void {
     const p = this.personagemAtivo;
     if (!p) return;
@@ -496,7 +488,7 @@ class AppController {
     });
   }
 
-  /* ================= MAGIAS (UC04) EVENTS ================= */
+  /* ================= MAGIAS EVENTS ================= */
   private bindMagiasEvents(): void {
     const p = this.personagemAtivo;
     if (!p) return;
@@ -541,7 +533,7 @@ class AppController {
     });
   }
 
-  /* ================= DADOS (UC05) EVENTS ================= */
+  /* ================= DADOS EVENTS ================= */
   private bindDadosEvents(): void {
     const p = this.personagemAtivo;
 
@@ -613,7 +605,7 @@ class AppController {
     }
   }
 
-  /* ================= CAMPANHAS (UC06) EVENTS ================= */
+  /* ================= CAMPANHAS EVENTS ================= */
   private bindCampanhasEvents(): void {
     const modal = document.getElementById('modal-add-campanha');
     document.getElementById('btn-add-campanha-modal')?.addEventListener('click', () => {
@@ -660,7 +652,7 @@ class AppController {
     });
   }
 
-  /* ================= NPCS (UC07) EVENTS ================= */
+  /* ================= NPCS EVENTS ================= */
   private bindNpcsEvents(): void {
     const modal = document.getElementById('modal-add-npc');
     document.getElementById('btn-add-npc-modal')?.addEventListener('click', () => {
@@ -719,7 +711,7 @@ class AppController {
     });
   }
 
-  /* ================= INICIATIVA (UC08) EVENTS ================= */
+  /* ================= INICIATIVA EVENTS ================= */
   private bindIniciativaEvents(): void {
     document.getElementById('btn-add-init-personagem')?.addEventListener('click', () => {
       const sel = document.getElementById('select-init-personagem') as HTMLSelectElement;
@@ -810,20 +802,6 @@ class AppController {
         if (id) {
           this.mestre.removerCombatente(id);
           this.renderCurrentView();
-        }
-      });
-    });
-  }
-
-  /* ================= UML EVENTS ================= */
-  private bindUmlEvents(): void {
-    document.querySelectorAll('.btn-switch-uml').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.btn-switch-uml').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const diag = btn.getAttribute('data-diagram') as any;
-        if (diag) {
-          UmlView.renderDiagram(diag);
         }
       });
     });
