@@ -91,6 +91,12 @@
               <label for="active-character-select">Personagem Ativo:</label>
               <select id="active-character-select" class="custom-select"></select>
             </div>
+             <button id="btn-popup-nota" class="btn btn-secondary" title="Bloco de Notas">
+              📝 Nota
+            </button>
+            <button id="btn-popup-missao" class="btn btn-secondary" title="Quadro de Missões">
+              📜 Missão
+            </button>
             <button id="btn-quick-roll-d20" class="btn btn-glow" title="Rolar d20 rápido">
               🎲 Rolar d20
             </button>
@@ -115,6 +121,82 @@
           </div>
           <div class="modal-body" id="dice-modal-body">
             <!-- Dynamic Dice Body -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Pop-up de Nota -->
+      <div id="modal-nota" class="modal-backdrop hidden">
+        <div class="modal-content glass-card modal-popup-lg">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <h3>📝 Bloco de Notas</h3>
+              <span id="badge-total-notas" class="popup-badge">0 notas</span>
+            </div>
+            <button id="btn-close-nota-modal" class="btn-icon">✕</button>
+          </div>
+          <div class="modal-body">
+            <!-- Formulário Nova Nota -->
+            <form id="form-nova-nota" class="popup-form-box">
+              <div class="form-group">
+                <label for="input-nota-titulo">Título:</label>
+                <input type="text" id="input-nota-titulo" class="form-control" placeholder="Ex: Pista na taverna, Nome do ferreiro..." required />
+              </div>
+              <div class="form-group">
+                <label for="input-nota-conteudo">Anotação:</label>
+                <textarea id="input-nota-conteudo" class="form-control" rows="3" placeholder="Escreva segredos, senhas, lembretes de sessão..." required></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">
+                ➕ Adicionar Nota
+              </button>
+            </form>
+
+            <div class="popup-section-title">
+              <h4>Anotações Salvas</h4>
+            </div>
+            <div id="lista-notas" class="popup-cards-list">
+              <!-- Cards de notas inseridos via TypeScript -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Pop-up de Missão -->
+      <div id="modal-missao" class="modal-backdrop hidden">
+        <div class="modal-content glass-card modal-popup-lg">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <h3>📜 Quadro de Missões</h3>
+              <span id="badge-total-missoes" class="popup-badge">0 ativas</span>
+            </div>
+            <button id="btn-close-missao-modal" class="btn-icon">✕</button>
+          </div>
+          <div class="modal-body">
+            <!-- Formulário Nova Missão -->
+            <form id="form-nova-missao" class="popup-form-box">
+              <div class="form-group">
+                <label for="input-missao-titulo">Título da Missão:</label>
+                <input type="text" id="input-missao-titulo" class="form-control" placeholder="Ex: Resgatar o anão ferreiro..." required />
+              </div>
+              <div class="form-group">
+                <label for="input-missao-descricao">Objetivo / Detalhes:</label>
+                <textarea id="input-missao-descricao" class="form-control" rows="2" placeholder="Descreva o local, perigos ou requisitos..." required></textarea>
+              </div>
+              <div class="form-group">
+                <label for="input-missao-recompensa">Recompensa (opcional):</label>
+                <input type="text" id="input-missao-recompensa" class="form-control" placeholder="Ex: 100 PO, 300 XP, Amuleto de Proteção" />
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">
+                ⚔️ Adicionar Missão
+              </button>
+            </form>
+
+            <div class="popup-section-title">
+              <h4>Missões da Jornada</h4>
+            </div>
+            <div id="lista-missoes" class="popup-cards-list">
+              <!-- Cards de missões inseridos via TypeScript -->
+            </div>
           </div>
         </div>
       </div>

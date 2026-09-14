@@ -6,6 +6,8 @@ import { Campanha } from './models/Campanha';
 import { NPC } from './models/NPC';
 import { Item } from './models/Item';
 import { MagiaHabilidade } from './models/MagiaHabilidade';
+import { Nota } from './models/Nota';
+import { Missao } from './models/Missao';
 import { StorageService } from './services/StorageService';
 import { DiceService, type ResultadoRolagem } from './services/DiceService';
 
@@ -18,6 +20,8 @@ class AppController {
   private campanhas: Campanha[] = [];
   private npcs: NPC[] = [];
   private historicoDados: ResultadoRolagem[] = [];
+  private notas: Nota[] = [];
+  private missoes: Missao[] = [];
 
   private jogador: Jogador;
   private mestre: Mestre;
@@ -32,6 +36,8 @@ class AppController {
     this.npcs = StorageService.carregarNPCs();
     this.campanhas = StorageService.carregarCampanhas(this.personagens, this.npcs);
     this.historicoDados = StorageService.carregarHistoricoDados();
+    this.notas = StorageService.carregarNotas();
+    this.missoes = StorageService.carregarMissoes();
 
     // Inicializar atores conforme UML
     this.jogador = new Jogador('user-jog-1', 'Jogador Aventureiro', 'jogador@unemat.br', this.personagens);
@@ -88,6 +94,223 @@ class AppController {
         document.getElementById('dice-modal')?.classList.add('hidden');
       });
     }
+
+    // Inicializar eventos dos pop-ups de Nota e Missão
+    this.initPopupEvents();
+  }
+
+  /* ================= POP-UPS NOTA E MISSÃO ================= */
+  private initPopupEvents(): void {
+    const btnNota = document.getElementById('btn-popup-nota');
+    const btnMissao = document.getElementById('btn-popup-missao');
+    const modalNota = document.getElementById('modal-nota');
+    const modalMissao = document.getElementById('modal-missao');
+    const btnCloseNota = document.getElementById('btn-close-nota-modal');
+    const btnCloseMissao = document.getElementById('btn-close-missao-modal');
+
+    // Inicializar contadores nos badges
+    this.renderNotas();
+    this.renderMissoes();
+
+    // Abertura dos pop-ups
+    btnNota?.addEventListener('click', () => {
+      this.renderNotas();
+      modalNota?.classList.remove('hidden');
+    });
+
+    btnMissao?.addEventListener('click', () => {
+      this.renderMissoes();
+      modalMissao?.classList.remove('hidden');
+    });
+
+    // Fechamento via botão ✕
+    btnCloseNota?.addEventListener('click', () => {
+      modalNota?.classList.add('hidden');
+    });
+
+    btnCloseMissao?.addEventListener('click', () => {
+      modalMissao?.classList.add('hidden');
+    });
+
+    // Fechamento ao clicar fora do card (no backdrop)
+    modalNota?.addEventListener('click', (e) => {
+      if (e.target === modalNota) modalNota.classList.add('hidden');
+    });
+
+    modalMissao?.addEventListener('click', (e) => {
+      if (e.target === modalMissao) modalMissao.classList.add('hidden');
+    });
+
+    // Fechamento ao pressionar a tecla Escape
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        modalNota?.classList.add('hidden');
+        modalMissao?.classList.add('hidden');
+      }
+    });
+
+    // Submissão do formulário de Nota
+    const formNota = document.getElementById('form-nova-nota') as HTMLFormElement | null;
+    formNota?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const tituloInput = document.getElementById('input-nota-titulo') as HTMLInputElement | null;
+      const conteudoInput = document.getElementById('input-nota-conteudo') as HTMLTextAreaElement | null;
+      if (!tituloInput || !conteudoInput) return;
+
+      const titulo = tituloInput.value.trim();
+      const conteudo = conteudoInput.value.trim();
+      if (!titulo || !conteudo) return;
+
+      const novaNota = new Nota(titulo, conteudo);
+      this.notas.unshift(novaNota);
+      StorageService.salvarNotas(this.notas);
+
+      tituloInput.value = '';
+      conteudoInput.value = '';
+      this.renderNotas();
+      this.showToast(`Nota "${novaNota.titulo}" anotada com sucesso!`);
+    });
+
+    // Submissão do formulário de Missão
+    const formMissao = document.getElementById('form-nova-missao') as HTMLFormElement | null;
+    formMissao?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const tituloInput = document.getElementById('input-missao-titulo') as HTMLInputElement | null;
+      const descInput = document.getElementById('input-missao-descricao') as HTMLTextAreaElement | null;
+      const recInput = document.getElementById('input-missao-recompensa') as HTMLInputElement | null;
+      if (!tituloInput || !descInput) return;
+
+      const titulo = tituloInput.value.trim();
+      const descricao = descInput.value.trim();
+      const recompensa = recInput?.value.trim() || '';
+      if (!titulo || !descricao) return;
+
+      const novaMissao = new Missao(titulo, descricao, recompensa);
+      this.missoes.unshift(novaMissao);
+      StorageService.salvarMissoes(this.missoes);
+
+      tituloInput.value = '';
+      descInput.value = '';
+      if (recInput) recInput.value = '';
+      this.renderMissoes();
+      this.showToast(`Missão "${novaMissao.titulo}" adicionada ao quadro!`);
+    });
+  }
+
+  private renderNotas(): void {
+    const lista = document.getElementById('lista-notas');
+    const badge = document.getElementById('badge-total-notas');
+    if (badge) {
+      badge.textContent = `${this.notas.length} ${this.notas.length === 1 ? 'nota' : 'notas'}`;
+    }
+
+    if (!lista) return;
+
+    if (this.notas.length === 0) {
+      lista.innerHTML = `<div class="popup-empty-state">Nenhuma anotação registrada ainda. Crie uma nota acima!</div>`;
+      return;
+    }
+
+    lista.innerHTML = this.notas.map(n => `
+      <div class="popup-note-item" data-id="${n.idNota}">
+        <div class="popup-note-header">
+          <span class="popup-note-title">${this.escapeHtml(n.titulo)}</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="popup-note-date">${n.dataCriacao}</span>
+            <button class="btn-icon btn-delete-nota" data-id="${n.idNota}" title="Excluir Nota" style="color: var(--danger); font-size: 0.95rem; padding: 2px 4px;">🗑️</button>
+          </div>
+        </div>
+        <div class="popup-note-body">${this.escapeHtml(n.conteudo)}</div>
+      </div>
+    `).join('');
+
+    lista.querySelectorAll<HTMLButtonElement>('.btn-delete-nota').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute('data-id');
+        if (id) {
+          const removida = this.notas.find(n => n.idNota === id);
+          this.notas = this.notas.filter(n => n.idNota !== id);
+          StorageService.salvarNotas(this.notas);
+          this.renderNotas();
+          this.showToast(`Nota "${removida?.titulo || ''}" removida.`);
+        }
+      });
+    });
+  }
+
+  private renderMissoes(): void {
+    const lista = document.getElementById('lista-missoes');
+    const badge = document.getElementById('badge-total-missoes');
+    const ativas = this.missoes.filter(m => m.status === 'em_progresso').length;
+
+    if (badge) {
+      badge.textContent = `${ativas} ${ativas === 1 ? 'ativa' : 'ativas'}`;
+    }
+
+    if (!lista) return;
+
+    if (this.missoes.length === 0) {
+      lista.innerHTML = `<div class="popup-empty-state">Nenhuma missão cadastrada. Crie uma missão acima!</div>`;
+      return;
+    }
+
+    lista.innerHTML = this.missoes.map(m => {
+      const isConcluida = m.status === 'concluida';
+      return `
+        <div class="popup-mission-item ${m.status}" data-id="${m.idMissao}">
+          <button class="popup-mission-toggle btn-toggle-missao" data-id="${m.idMissao}" title="${isConcluida ? 'Reabrir Missão' : 'Concluir Missão'}">
+            ${isConcluida ? '✅' : '⏳'}
+          </button>
+          <div class="popup-mission-content">
+            <div class="popup-mission-title">${this.escapeHtml(m.titulo)}</div>
+            <div class="popup-mission-desc">${this.escapeHtml(m.descricao)}</div>
+            <div class="popup-mission-footer">
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <span class="mission-status-tag ${m.status}">
+                  ${isConcluida ? 'Concluída' : 'Em Progresso'}
+                </span>
+                ${m.recompensa ? `<span class="mission-reward-tag">🎁 ${this.escapeHtml(m.recompensa)}</span>` : ''}
+              </div>
+              <button class="btn-icon btn-delete-missao" data-id="${m.idMissao}" title="Excluir Missão" style="color: var(--danger); font-size: 0.95rem; padding: 2px 4px;">🗑️</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    lista.querySelectorAll<HTMLButtonElement>('.btn-toggle-missao').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        const missao = this.missoes.find(m => m.idMissao === id);
+        if (missao) {
+          missao.toggleStatus();
+          StorageService.salvarMissoes(this.missoes);
+          this.renderMissoes();
+          this.showToast(missao.status === 'concluida' ? `Missão "${missao.titulo}" concluída!` : `Missão "${missao.titulo}" reaberta.`);
+        }
+      });
+    });
+
+    lista.querySelectorAll<HTMLButtonElement>('.btn-delete-missao').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute('data-id');
+        if (id) {
+          const removida = this.missoes.find(m => m.idMissao === id);
+          this.missoes = this.missoes.filter(m => m.idMissao !== id);
+          StorageService.salvarMissoes(this.missoes);
+          this.renderMissoes();
+          this.showToast(`Missão "${removida?.titulo || ''}" excluída.`);
+        }
+      });
+    });
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   private switchTab(tabName: string): void {

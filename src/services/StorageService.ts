@@ -3,6 +3,8 @@ import { Campanha } from '../models/Campanha';
 import { NPC } from '../models/NPC';
 import { Item } from '../models/Item';
 import { MagiaHabilidade } from '../models/MagiaHabilidade';
+import { Nota } from '../models/Nota';
+import { Missao } from '../models/Missao';
 import type { ResultadoRolagem } from './DiceService';
 
 export class StorageService {
@@ -10,6 +12,8 @@ export class StorageService {
   private static readonly KEY_CAMPANHAS = 'rpg_campanhas_v1';
   private static readonly KEY_NPCS = 'rpg_npcs_v1';
   private static readonly KEY_DICE_HISTORY = 'rpg_dice_history_v1';
+  private static readonly KEY_NOTAS = 'rpg_notas_v1';
+  private static readonly KEY_MISSOES = 'rpg_missoes_v1';
 
   public static salvarPersonagens(personagens: Personagem[]): void {
     localStorage.setItem(this.KEY_PERSONAGENS, JSON.stringify(personagens));
@@ -125,6 +129,82 @@ export class StorageService {
     } catch {
       return [];
     }
+  }
+
+  public static salvarNotas(notas: Nota[]): void {
+    localStorage.setItem(this.KEY_NOTAS, JSON.stringify(notas));
+  }
+
+  public static carregarNotas(): Nota[] {
+    const raw = localStorage.getItem(this.KEY_NOTAS);
+    if (!raw) {
+      const padrao = this.obterNotasDemonstracao();
+      this.salvarNotas(padrao);
+      return padrao;
+    }
+    try {
+      const parsed: any[] = JSON.parse(raw);
+      return parsed.map(n => new Nota(n.titulo, n.conteudo, n.dataCriacao, n.idNota));
+    } catch (e) {
+      console.error('Erro ao ler notas:', e);
+      return this.obterNotasDemonstracao();
+    }
+  }
+
+  public static salvarMissoes(missoes: Missao[]): void {
+    localStorage.setItem(this.KEY_MISSOES, JSON.stringify(missoes));
+  }
+
+  public static carregarMissoes(): Missao[] {
+    const raw = localStorage.getItem(this.KEY_MISSOES);
+    if (!raw) {
+      const padrao = this.obterMissoesDemonstracao();
+      this.salvarMissoes(padrao);
+      return padrao;
+    }
+    try {
+      const parsed: any[] = JSON.parse(raw);
+      return parsed.map(m => new Missao(m.titulo, m.descricao, m.recompensa, m.status, m.dataCriacao, m.idMissao));
+    } catch (e) {
+      console.error('Erro ao ler missões:', e);
+      return this.obterMissoesDemonstracao();
+    }
+  }
+
+  private static obterNotasDemonstracao(): Nota[] {
+    return [
+      new Nota(
+        'Pistas sobre a Caverna da Onda de Eco',
+        'Gundren Rockseeker mencionou que o mapa estava dividido em duas partes. O drow chamado "Aranha Negra" parece estar vigiando os arredores.'
+      ),
+      new Nota(
+        'Contato em Phandalin',
+        'Entregar a carroça nas Provisões de Barthen. Falar com Elmar Barthen sobre rumores da região e repor rações.'
+      )
+    ];
+  }
+
+  private static obterMissoesDemonstracao(): Missao[] {
+    return [
+      new Missao(
+        'Escolta até Phandalin',
+        'Conduzir a carroça de suprimentos com segurança pela Trilha da Tribo até a vila de Phandalin.',
+        '10 PO por aventureiro',
+        'concluida'
+      ),
+      new Missao(
+        'Resgatar Gundren e Sildar',
+        'Localizar o Esconderijo Cragmaw dos goblins para resgatar os anões capturados.',
+        '250 XP + 50 PO',
+        'em_progresso'
+      ),
+      new Missao(
+        'Confrontar os Redbrands',
+        'Neutralizar a gangue de mercenários na taverna do Gigante Adormecido.',
+        '300 XP + Acesso à Mansão',
+        'em_progresso'
+      )
+    ];
   }
 
   private static obterPersonagensDemonstracao(): Personagem[] {
