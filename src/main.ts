@@ -8,6 +8,8 @@ import { Item } from './models/Item';
 import { MagiaHabilidade } from './models/MagiaHabilidade';
 import { Nota } from './models/Nota';
 import { Missao } from './models/Missao';
+import type { SistemaPasta } from './models/SistemaPasta';
+import type { MonstroPasta } from './models/MonstroPasta';
 import { StorageService } from './services/StorageService';
 import { DiceService, type ResultadoRolagem } from './services/DiceService';
 
@@ -22,11 +24,24 @@ class AppController {
   private historicoDados: ResultadoRolagem[] = [];
   private notas: Nota[] = [];
   private missoes: Missao[] = [];
+  private campanhaEmEdicaoId: string | null = null;
+  private sistemaItens: SistemaPasta[] = [];
+  private monstroItens: MonstroPasta[] = [];
 
   private jogador: Jogador;
   private mestre: Mestre;
 
   private personagemAtivoId: string | null = null;
+  private pastaSistemaAtualId: string | null = null;
+  private fichaSistemaEmEdicaoId: string | null = null;
+  private criandoFichaSistema = false;
+  private criandoFichaGuiada = false;
+  private fichaRolagemSelecionadaId: string | null = null;
+  private fichaInventarioSelecionadaId: string | null = null;
+  private sistemaFichaEmCriacao: string | null = null;
+  private pastaMonstroAtualId: string | null = null;
+  private monstroEmEdicaoId: string | null = null;
+  private criandoMonstro = false;
   private currentTab: string = 'dashboard';
   private wizardStep: number = 1;
 
@@ -38,6 +53,8 @@ class AppController {
     this.historicoDados = StorageService.carregarHistoricoDados();
     this.notas = StorageService.carregarNotas();
     this.missoes = StorageService.carregarMissoes();
+    this.sistemaItens = StorageService.carregarSistemaPastas();
+    this.monstroItens = StorageService.carregarMonstroPastas();
 
     // Inicializar atores conforme UML
     this.jogador = new Jogador('user-jog-1', 'Jogador Aventureiro', 'jogador@unemat.br', this.personagens);
@@ -73,9 +90,16 @@ class AppController {
     const charSelect = document.getElementById('active-character-select') as HTMLSelectElement;
     if (charSelect) {
       charSelect.addEventListener('change', (e) => {
-        this.personagemAtivoId = (e.target as HTMLSelectElement).value;
+        const selected = (e.target as HTMLSelectElement).value;
+        if (selected.startsWith('ficha:')) {
+          this.fichaRolagemSelecionadaId = selected.slice('ficha:'.length);
+        } else {
+          this.personagemAtivoId = selected;
+          this.fichaRolagemSelecionadaId = null;
+        }
         this.renderCurrentView();
-        this.showToast(`Personagem ativo: ${this.personagemAtivo?.nomePersonagem}`);
+        const ficha = this.sistemaItens.find(item => item.id === this.fichaRolagemSelecionadaId);
+        this.showToast(ficha ? `Ficha ativa: ${ficha.nome} (${ficha.sistema})` : `Personagem ativo: ${this.personagemAtivo?.nomePersonagem}`);
       });
     }
 
@@ -332,14 +356,24 @@ class AppController {
       inventario: { title: 'Inventário', sub: 'Organize os itens da sua aventura' },
       magias: { title: 'Magias e Habilidades', sub: 'Consulte os poderes do seu personagem' },
       dados: { title: 'Rolagem de Dados', sub: 'Faça testes e acompanhe os resultados' },
+      'inventario-sistemas': { title: 'Inventário', sub: 'Organize os itens da ficha selecionada' },
+      sistemas: { title: 'Sistemas', sub: 'Organize fichas por sistema, campanha e personagem' },
       campanhas: { title: 'Campanhas do Mestre', sub: 'Organize grupos e histórias' },
-      npcs: { title: 'Bestiário e NPCs', sub: 'Gerencie criaturas e personagens da história' },
+      npcs: { title: 'Monstros', sub: 'Organize fichas de monstros por sistema e campanha' },
       iniciativa: { title: 'Iniciativa e Combate', sub: 'Organize a ordem dos turnos' }
     };
 
     if (titleEl && subtitleEl && titulos[tabName]) {
       titleEl.innerText = titulos[tabName].title;
       subtitleEl.innerText = titulos[tabName].sub;
+    }
+
+    if (tabName === 'sistemas') {
+      this.pastaSistemaAtualId = null;
+      this.fichaSistemaEmEdicaoId = null;
+      this.criandoFichaSistema = false;
+      this.criandoFichaGuiada = false;
+      this.sistemaFichaEmCriacao = null;
     }
 
     this.renderCurrentView();
@@ -349,11 +383,14 @@ class AppController {
     const select = document.getElementById('active-character-select') as HTMLSelectElement;
     if (!select) return;
 
+    const fichas = this.sistemaItens.filter(item => item.tipo === 'ficha');
     select.innerHTML = this.personagens.map(p => 
       `<option value="${p.idPersonagem}" ${p.idPersonagem === this.personagemAtivoId ? 'selected' : ''}>${p.nomePersonagem} (${p.classe})</option>`
+    ).join('') + fichas.map(ficha =>
+      `<option value="ficha:${ficha.id}" ${ficha.id === this.fichaRolagemSelecionadaId ? 'selected' : ''}>${ficha.nome} (${ficha.sistema})</option>`
     ).join('');
 
-    if (this.personagens.length === 0) {
+    if (this.personagens.length === 0 && fichas.length === 0) {
       select.innerHTML = `<option value="">Nenhum Personagem</option>`;
     }
   }
@@ -383,34 +420,542 @@ class AppController {
         this.bindInventarioEvents();
         break;
 
+      case 'inventario-sistemas':
+        container.innerHTML = JogadorView.renderInventarioSistemas(this.sistemaItens.filter(item => item.tipo === 'ficha'), this.fichaInventarioSelecionadaId);
+        this.bindInventarioSistemasEvents();
+        break;
+
       case 'magias':
         container.innerHTML = JogadorView.renderMagias(this.personagemAtivo);
         this.bindMagiasEvents();
         break;
 
       case 'dados':
-        container.innerHTML = JogadorView.renderRoladorDados(this.personagemAtivo, this.historicoDados);
+        container.innerHTML = JogadorView.renderRoladorDados(this.personagemAtivo, this.sistemaItens.filter(item => item.tipo === 'ficha'), this.fichaRolagemSelecionadaId, this.historicoDados);
         this.bindDadosEvents();
         break;
 
+      case 'sistemas':
+        if (this.criandoFichaGuiada) {
+          container.innerHTML = JogadorView.renderFichaGuiada(this.sistemaItens, this.pastaSistemaAtualId);
+        } else if (this.criandoFichaSistema && !this.sistemaFichaEmCriacao) {
+          container.innerHTML = JogadorView.renderSeletorFicha();
+        } else {
+          container.innerHTML = JogadorView.renderSistemas(
+            this.sistemaItens,
+            this.pastaSistemaAtualId,
+            this.fichaSistemaEmEdicaoId
+              ? this.sistemaItens.find(item => item.id === this.fichaSistemaEmEdicaoId) || null
+              : this.criandoFichaSistema
+                ? {
+                  id: '', nome: '', tipo: 'ficha', sistema: this.sistemaFichaEmCriacao || 'Call of Cthulhu', descricao: '',
+                  parentId: this.pastaSistemaAtualId, dataCriacao: '', dados: {}
+                }
+                : null
+          );
+        }
+        this.bindSistemasEvents();
+        break;
+
       case 'campanhas':
-        container.innerHTML = MestreView.renderCampanhas(this.campanhas, this.personagens, this.npcs);
+        container.innerHTML = MestreView.renderCampanhas(
+          this.campanhas,
+          this.personagens,
+          this.npcs,
+          this.sistemaItens.filter(item => item.tipo === 'ficha'),
+          this.monstroItens
+        );
         this.bindCampanhasEvents();
         break;
 
       case 'npcs':
-        container.innerHTML = MestreView.renderNPCs(this.npcs);
-        this.bindNpcsEvents();
+        container.innerHTML = MestreView.renderMonstros(this.monstroItens, this.pastaMonstroAtualId, this.monstroEmEdicaoId ? this.monstroItens.find(item => item.id === this.monstroEmEdicaoId) || null : null, this.criandoMonstro);
+        this.bindMonstrosEvents();
         break;
 
       case 'iniciativa':
-        container.innerHTML = MestreView.renderIniciativa(this.mestre, this.personagens, this.npcs);
+        container.innerHTML = MestreView.renderIniciativa(
+          this.mestre,
+          this.personagens,
+          this.npcs,
+          this.sistemaItens.filter(item => item.tipo === 'ficha'),
+          this.monstroItens
+        );
         this.bindIniciativaEvents();
         break;
 
       default:
         container.innerHTML = DashboardView.render(this.personagens, this.campanhas, this.npcs);
     }
+  }
+
+  /* ================= INVENTARIO DE FICHAS EVENTS ================= */
+  private bindInventarioSistemasEvents(): void {
+    const fichas = this.sistemaItens.filter(item => item.tipo === 'ficha');
+    const select = document.getElementById('inventory-sheet-select') as HTMLSelectElement | null;
+    if (select) {
+      if (!this.fichaInventarioSelecionadaId || !fichas.some(ficha => ficha.id === this.fichaInventarioSelecionadaId)) {
+        this.fichaInventarioSelecionadaId = select.value || null;
+      }
+      select.addEventListener('change', event => {
+        this.fichaInventarioSelecionadaId = (event.target as HTMLSelectElement).value || null;
+        this.renderCurrentView();
+      });
+    }
+
+    const ficha = fichas.find(item => item.id === this.fichaInventarioSelecionadaId) || fichas[0];
+    if (!ficha) return;
+    ficha.inventario ||= [];
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-remove-system-item').forEach(button => {
+      button.addEventListener('click', () => {
+        ficha.inventario = ficha.inventario?.filter(item => item.id !== button.dataset.id) || [];
+        StorageService.salvarSistemaPastas(this.sistemaItens);
+        this.renderCurrentView();
+      });
+    });
+
+    document.getElementById('form-add-system-item')?.addEventListener('submit', event => {
+      event.preventDefault();
+      const value = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value.trim() || '';
+      const nome = value('system-item-name');
+      if (!nome) return;
+      ficha.inventario ||= [];
+      ficha.inventario.push({
+        id: crypto.randomUUID(),
+        nome,
+        quantidade: Math.max(1, Number(value('system-item-quantity')) || 1),
+        peso: Math.max(0, Number(value('system-item-weight')) || 0),
+        descricao: value('system-item-description')
+      });
+      StorageService.salvarSistemaPastas(this.sistemaItens);
+      this.showToast(`Item "${nome}" adicionado ao inventário.`);
+      this.renderCurrentView();
+    });
+  }
+
+  /* ================= SISTEMAS EVENTS ================= */
+  private bindSistemasEvents(): void {
+    const guidedForm = document.getElementById('form-ficha-guided') as HTMLFormElement | null;
+    if (guidedForm) {
+      const guidedSystem = document.getElementById('guided-system') as HTMLSelectElement | null;
+      const updateGuidedTemplate = () => {
+        const template = guidedSystem?.value === 'D&D' ? 'dnd' : guidedSystem?.value === 'Vampiro: A Máscara' ? 'vampire' : 'coc';
+        document.querySelectorAll('.guided-template').forEach(element => element.classList.add('hidden'));
+        document.getElementById(`guided-template-${template}`)?.classList.remove('hidden');
+      };
+      guidedSystem?.addEventListener('change', updateGuidedTemplate);
+      updateGuidedTemplate();
+
+      const setGuidedValue = (id: string, value: number): void => {
+        const field = document.getElementById(id) as HTMLInputElement | null;
+        if (field) field.value = String(value);
+      };
+      const rollGuidedDnd = () => {
+        const values = Array.from({ length: 6 }, () => {
+          const rolls = Array.from({ length: 4 }, () => DiceService.sortearNumero(1, 6)).sort((a, b) => a - b);
+          return rolls.slice(1).reduce((sum, value) => sum + value, 0);
+        });
+        ['str', 'dex', 'con', 'int', 'wis', 'cha'].forEach((attribute, index) => setGuidedValue(`guided-dnd-${attribute}`, values[index]));
+      };
+      const rollGuidedCoc = () => {
+        const roll = (count: number, bonus = 0) => {
+          let total = bonus;
+          for (let index = 0; index < count; index++) total += DiceService.sortearNumero(1, 6);
+          return total * 5;
+        };
+        ['str', 'con', 'dex', 'app', 'pow', 'edu'].forEach(attribute => setGuidedValue(`guided-coc-${attribute}`, roll(3)));
+        setGuidedValue('guided-coc-siz', roll(2, 6));
+        setGuidedValue('guided-coc-int', roll(2, 6));
+        setGuidedValue('guided-coc-luck', roll(3));
+      };
+      const distributeGuidedVampire = () => {
+        const groups = [
+          ['strength', 'dexterity', 'stamina'],
+          ['charisma', 'manipulation', 'composure'],
+          ['intelligence', 'wits', 'resolve']
+        ];
+        [7, 5, 3].forEach((points, groupIndex) => {
+          const group = groups[groupIndex];
+          group.forEach(attribute => setGuidedValue(`guided-vampire-${attribute}`, 1));
+          for (let point = 0; point < points; point++) {
+            const attribute = group[point % group.length];
+            const field = document.getElementById(`guided-vampire-${attribute}`) as HTMLInputElement | null;
+            if (field) field.value = String(Number(field.value || 1) + 1);
+          }
+        });
+      };
+      document.getElementById('btn-guided-roll-dnd')?.addEventListener('click', rollGuidedDnd);
+      document.getElementById('btn-guided-roll-coc')?.addEventListener('click', rollGuidedCoc);
+      document.getElementById('btn-guided-roll-vampire')?.addEventListener('click', distributeGuidedVampire);
+
+      document.getElementById('btn-cancel-ficha-guided')?.addEventListener('click', () => {
+        this.criandoFichaGuiada = false;
+        this.criandoFichaSistema = false;
+        this.renderCurrentView();
+      });
+
+      guidedForm.addEventListener('submit', event => {
+        event.preventDefault();
+        const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value.trim() || '';
+        const destination = value('guided-destination');
+        const sistema = value('guided-system');
+        const prefixo = sistema === 'D&D' ? 'guided-dnd' : sistema === 'Vampiro: A Máscara' ? 'guided-vampire' : 'guided-coc';
+        const nome = value(`${prefixo}-name`);
+        if (!nome) {
+          this.showToast('Informe o nome do personagem para continuar.');
+          return;
+        }
+        if (!destination) {
+          this.showToast('Escolha uma pasta para salvar a ficha.');
+          return;
+        }
+
+        const dados: Record<string, string | number> = {
+          guidedConcept: value(`${prefixo}-concept`),
+          guidedGoal: value(`${prefixo}-goal`),
+          guidedBackground: value(`${prefixo}-background`) || value(`${prefixo}-story`),
+          guidedOccupation: value(`${prefixo}-occupation`),
+          guidedAge: value(`${prefixo}-age`),
+          guidedClass: value(`${prefixo}-class`),
+          guidedRace: value(`${prefixo}-race`),
+          guidedLevel: value(`${prefixo}-level`),
+          guidedClan: value(`${prefixo}-clan`),
+          guidedGeneration: value(`${prefixo}-generation`),
+          guidedPredator: value(`${prefixo}-predator`)
+        };
+        guidedForm.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea').forEach(input => {
+          if (input.id === 'guided-system' || input.id === 'guided-destination' || input.id === `${prefixo}-name`) return;
+          if (input.value.trim()) dados[input.id] = input.value.trim();
+        });
+        this.sistemaItens.push({
+          id: crypto.randomUUID(),
+          nome,
+          tipo: 'ficha',
+          sistema,
+          descricao: dados.guidedConcept?.toString() || '',
+          parentId: destination,
+          dataCriacao: new Date().toLocaleDateString('pt-BR'),
+          dados
+        });
+        StorageService.salvarSistemaPastas(this.sistemaItens);
+        this.updateCharacterSelector();
+        this.criandoFichaGuiada = false;
+        this.criandoFichaSistema = false;
+        this.showToast('Ficha criada. Você pode completar os detalhes no editor completo.');
+        this.renderCurrentView();
+      });
+      return;
+    }
+
+    const inlineForm = document.getElementById('form-ficha-inline') as HTMLFormElement | null;
+    if (inlineForm) {
+      const cocTabs = inlineForm.querySelectorAll<HTMLButtonElement>('.coc-sheet-tab');
+      cocTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const target = tab.dataset.cocTab;
+          if (!target) return;
+          cocTabs.forEach(item => item.classList.toggle('active', item === tab));
+          inlineForm.querySelectorAll<HTMLElement>('.coc-sheet-panel').forEach(panel => {
+            panel.classList.toggle('active', panel.dataset.cocPanel === target);
+          });
+        });
+      });
+
+      const setFieldValue = (id: string, value: number): void => {
+        const field = document.getElementById(id) as HTMLInputElement | null;
+        if (field) field.value = String(value);
+      };
+      const rollDice = (sides: number, count: number, bonus = 0): number => {
+        let total = bonus;
+        for (let index = 0; index < count; index++) total += DiceService.sortearNumero(1, sides);
+        return total;
+      };
+      const rollDndAttributes = () => {
+        const values = Array.from({ length: 6 }, () => {
+          const rolls = Array.from({ length: 4 }, () => DiceService.sortearNumero(1, 6)).sort((a, b) => a - b);
+          return rolls.slice(1).reduce((sum, value) => sum + value, 0);
+        });
+        ['str', 'dex', 'con', 'int', 'wis', 'cha'].forEach((attribute, index) => setFieldValue(`inline-dnd-${attribute}`, values[index]));
+        this.showToast(`D&D: atributos rolados com 4d6, descartando o menor: ${values.join(', ')}.`);
+      };
+      const rollCocAttributes = () => {
+        const standard = ['str', 'con', 'dex', 'app', 'pow', 'edu'].map(() => rollDice(6, 3) * 5);
+        const size = rollDice(6, 2, 6) * 5;
+        const intelligence = rollDice(6, 2, 6) * 5;
+        ['str', 'con', 'dex', 'app', 'pow', 'edu'].forEach((attribute, index) => setFieldValue(`inline-coc-${attribute}`, standard[index]));
+        setFieldValue('inline-coc-siz', size);
+        setFieldValue('inline-coc-int', intelligence);
+        setFieldValue('inline-coc-luck', rollDice(6, 3) * 5);
+        this.showToast('Call of Cthulhu: atributos rolados pelas fórmulas oficiais da ficha.');
+      };
+      const distributeVampireAttributes = () => {
+        const groups = [
+          ['strength', 'dexterity', 'stamina'],
+          ['charisma', 'manipulation', 'composure'],
+          ['intelligence', 'wits', 'resolve']
+        ];
+        const points = [7, 5, 3];
+        groups.forEach((group, groupIndex) => {
+          const shuffled = [...group].sort(() => DiceService.sortearNumero(0, 1) === 0 ? -1 : 1);
+          shuffled.forEach(attribute => setFieldValue(`inline-vampire-${attribute}`, 1));
+          for (let point = 0; point < points[groupIndex]; point++) {
+            const target = shuffled[point % shuffled.length];
+            const field = document.getElementById(`inline-vampire-${target}`) as HTMLInputElement | null;
+            if (field) field.value = String(Number(field.value || 1) + 1);
+          }
+        });
+        this.showToast('Vampiro: atributos distribuídos pela regra V5 (7/5/3).');
+      };
+      document.getElementById('btn-roll-dnd-attributes')?.addEventListener('click', rollDndAttributes);
+      document.getElementById('btn-roll-coc-attributes')?.addEventListener('click', rollCocAttributes);
+      document.getElementById('btn-roll-vampire-attributes')?.addEventListener('click', distributeVampireAttributes);
+
+      document.getElementById('btn-cancel-ficha-inline')?.addEventListener('click', () => {
+        this.fichaSistemaEmEdicaoId = null;
+        this.criandoFichaSistema = false;
+        this.criandoFichaGuiada = false;
+        this.sistemaFichaEmCriacao = null;
+        this.renderCurrentView();
+      });
+
+      inlineForm.addEventListener('submit', event => {
+        event.preventDefault();
+        const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value.trim() || '';
+        const destinationId = value('inline-ficha-destination');
+        const destination = this.sistemaItens.find(item => item.id === destinationId && item.tipo === 'pasta');
+        if (!destination) {
+          this.showToast('Escolha uma pasta válida para salvar a ficha.');
+          return;
+        }
+        const fichaAtual = this.fichaSistemaEmEdicaoId
+          ? this.sistemaItens.find(item => item.id === this.fichaSistemaEmEdicaoId)
+          : undefined;
+        const dados: Record<string, string | number> = {};
+        document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('#form-ficha-inline input, #form-ficha-inline textarea').forEach(input => {
+          if (input.id === 'inline-ficha-name' || input.id === 'inline-ficha-description') return;
+          const key = input.id.replace(/^inline-/, '');
+          if (input.value.trim()) dados[key] = input.value.trim();
+        });
+
+        if (fichaAtual) {
+          fichaAtual.nome = value('inline-ficha-name') || fichaAtual.nome;
+          fichaAtual.descricao = value('inline-ficha-description');
+          fichaAtual.parentId = destination.id;
+          fichaAtual.dados = dados;
+        } else {
+          this.sistemaItens.push({
+            id: crypto.randomUUID(),
+            nome: value('inline-ficha-name') || 'Novo investigador',
+            tipo: 'ficha',
+            sistema: this.sistemaFichaEmCriacao || 'Call of Cthulhu',
+            descricao: value('inline-ficha-description'),
+            parentId: destination.id,
+            dataCriacao: new Date().toLocaleDateString('pt-BR'),
+            dados
+          });
+        }
+
+        StorageService.salvarSistemaPastas(this.sistemaItens);
+        this.updateCharacterSelector();
+        this.fichaSistemaEmEdicaoId = null;
+        this.criandoFichaSistema = false;
+        this.sistemaFichaEmCriacao = null;
+        this.showToast('Ficha salva com sucesso.');
+        this.renderCurrentView();
+      });
+      return;
+    }
+
+    const modal = document.getElementById('modal-sistema-item');
+    const form = document.getElementById('form-sistema-item') as HTMLFormElement | null;
+    const itemIdInput = document.getElementById('sistema-item-id') as HTMLInputElement | null;
+    const itemTypeInput = document.getElementById('sistema-item-type') as HTMLInputElement | null;
+    const nameInput = document.getElementById('sistema-item-name') as HTMLInputElement | null;
+    const descriptionInput = document.getElementById('sistema-item-description') as HTMLTextAreaElement | null;
+    const folderDestinationGroup = document.getElementById('sistema-folder-destination-group');
+    const folderDestinationSelect = document.getElementById('sistema-folder-destination') as HTMLSelectElement | null;
+    const saveFolderButton = document.getElementById('btn-salvar-pasta');
+    const modalTitle = document.getElementById('modal-sistema-title');
+
+    const getFolderPath = (folder: SistemaPasta): string => {
+      const path: string[] = [folder.nome];
+      let parentId = folder.parentId;
+      while (parentId) {
+        const parent = this.sistemaItens.find(item => item.id === parentId && item.tipo === 'pasta');
+        if (!parent) break;
+        path.unshift(parent.nome);
+        parentId = parent.parentId;
+      }
+      return path.join(' / ');
+    };
+
+    const isDescendant = (folderId: string, possibleAncestorId: string): boolean => {
+      let parentId = this.sistemaItens.find(item => item.id === folderId)?.parentId || null;
+      while (parentId) {
+        if (parentId === possibleAncestorId) return true;
+        parentId = this.sistemaItens.find(item => item.id === parentId)?.parentId || null;
+      }
+      return false;
+    };
+
+    const updateFolderDestinations = (selectedId: string | null, editingId = '') => {
+      if (!folderDestinationSelect) return;
+      const folders = this.sistemaItens.filter(folder =>
+        folder.tipo === 'pasta' && folder.id !== editingId && !isDescendant(folder.id, editingId)
+      );
+      folderDestinationSelect.innerHTML = [
+        '<option value="">🗂️ Sistemas (pasta raiz)</option>',
+        ...folders.map(folder => `<option value="${folder.id}" ${folder.id === selectedId ? 'selected' : ''}>📁 ${this.escapeHtml(getFolderPath(folder))}</option>`)
+      ].join('');
+      if (selectedId && !folders.some(folder => folder.id === selectedId)) {
+        folderDestinationSelect.value = '';
+      }
+    };
+
+    const closeModal = () => modal?.classList.add('hidden');
+    const openModal = (tipo: 'pasta', item?: SistemaPasta) => {
+      if (itemIdInput) itemIdInput.value = item?.id || '';
+      if (itemTypeInput) itemTypeInput.value = item?.tipo || tipo;
+      if (nameInput) nameInput.value = item?.nome || '';
+      if (descriptionInput) descriptionInput.value = item?.descricao || '';
+      if (modalTitle) modalTitle.textContent = item ? `Editar ${item.tipo}` : `Nova ${tipo}`;
+      if (saveFolderButton) saveFolderButton.textContent = item ? 'Salvar alterações' : 'Criar pasta';
+      folderDestinationGroup?.classList.toggle('hidden', tipo !== 'pasta');
+      if (tipo === 'pasta') {
+        updateFolderDestinations(item?.parentId ?? this.pastaSistemaAtualId, item?.id || '');
+      }
+      modal?.classList.remove('hidden');
+      nameInput?.focus();
+    };
+
+    document.getElementById('btn-close-sistema-modal')?.addEventListener('click', closeModal);
+    modal?.addEventListener('click', event => {
+      if (event.target === modal) closeModal();
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-open-sistema-item').forEach(button => {
+      button.addEventListener('click', () => {
+        const id = button.dataset.id || null;
+        this.pastaSistemaAtualId = id;
+        this.fichaSistemaEmEdicaoId = null;
+        this.criandoFichaSistema = false;
+        this.criandoFichaGuiada = false;
+        this.sistemaFichaEmCriacao = null;
+        this.renderCurrentView();
+      });
+    });
+
+    document.getElementById('btn-sistema-up')?.addEventListener('click', () => {
+      const pastaAtual = this.sistemaItens.find(item => item.id === this.pastaSistemaAtualId);
+      this.pastaSistemaAtualId = pastaAtual?.parentId || null;
+      this.fichaSistemaEmEdicaoId = null;
+      this.criandoFichaSistema = false;
+      this.criandoFichaGuiada = false;
+      this.sistemaFichaEmCriacao = null;
+      this.renderCurrentView();
+    });
+
+    document.getElementById('btn-new-sistema-folder')?.addEventListener('click', () => openModal('pasta'));
+    document.getElementById('btn-new-sistema-sheet')?.addEventListener('click', () => {
+      this.fichaSistemaEmEdicaoId = null;
+      this.criandoFichaSistema = true;
+      this.sistemaFichaEmCriacao = null;
+      this.renderCurrentView();
+    });
+
+    document.getElementById('btn-open-ficha-guided')?.addEventListener('click', () => {
+      this.criandoFichaGuiada = true;
+      this.criandoFichaSistema = false;
+      this.renderCurrentView();
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-select-sistema-inline').forEach(button => {
+      button.addEventListener('click', () => {
+        this.sistemaFichaEmCriacao = button.dataset.sistema || 'Call of Cthulhu';
+        this.renderCurrentView();
+      });
+    });
+
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-edit-sistema-item').forEach(button => {
+      button.addEventListener('click', () => {
+        const item = this.sistemaItens.find(entry => entry.id === button.dataset.id);
+        if (!item) return;
+        if (item.tipo === 'ficha') {
+          this.fichaSistemaEmEdicaoId = item.id;
+          this.criandoFichaSistema = false;
+          this.sistemaFichaEmCriacao = null;
+          this.renderCurrentView();
+        } else {
+          openModal('pasta', item);
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-delete-sistema-item').forEach(button => {
+      button.addEventListener('click', () => {
+        const item = this.sistemaItens.find(entry => entry.id === button.dataset.id);
+        if (!item || !confirm(`Excluir ${item.tipo} "${item.nome}"?`)) return;
+
+        const idsParaExcluir = new Set([item.id]);
+        let encontrouFilho = true;
+        while (encontrouFilho) {
+          encontrouFilho = false;
+          this.sistemaItens.forEach(entry => {
+            if (entry.parentId && idsParaExcluir.has(entry.parentId) && !idsParaExcluir.has(entry.id)) {
+              idsParaExcluir.add(entry.id);
+              encontrouFilho = true;
+            }
+          });
+        }
+
+        this.sistemaItens = this.sistemaItens.filter(entry => !idsParaExcluir.has(entry.id));
+        StorageService.salvarSistemaPastas(this.sistemaItens);
+        this.showToast(`${item.tipo === 'pasta' ? 'Pasta' : 'Ficha'} excluída.`);
+        this.renderCurrentView();
+      });
+    });
+
+    form?.addEventListener('submit', event => {
+      event.preventDefault();
+      const nome = nameInput?.value.trim() || '';
+      const descricao = descriptionInput?.value.trim() || '';
+      const id = itemIdInput?.value || '';
+      const tipo = itemTypeInput?.value as 'pasta' | 'ficha';
+      const folderParentId = folderDestinationSelect?.value || null;
+      const destinationFolder = folderParentId
+        ? this.sistemaItens.find(item => item.id === folderParentId && item.tipo === 'pasta')
+        : undefined;
+      if (!nome) return;
+
+      if (id) {
+        const item = this.sistemaItens.find(entry => entry.id === id);
+        if (item) {
+          item.nome = nome;
+          item.descricao = descricao;
+          if (tipo === 'pasta') {
+            item.parentId = folderParentId;
+            item.sistema = destinationFolder?.sistema || item.sistema;
+          }
+        }
+      } else {
+        this.sistemaItens.push({
+          id: crypto.randomUUID(),
+          nome,
+          tipo,
+          sistema: destinationFolder?.sistema || 'Personalizado',
+          descricao,
+          parentId: tipo === 'pasta' ? folderParentId : this.pastaSistemaAtualId,
+          dataCriacao: new Date().toLocaleDateString('pt-BR')
+        });
+      }
+
+      StorageService.salvarSistemaPastas(this.sistemaItens);
+      closeModal();
+      this.showToast(`${tipo === 'pasta' ? 'Pasta' : 'Ficha'} salva com sucesso.`);
+      this.renderCurrentView();
+    });
   }
 
   /* ================= FICHA EVENTS ================= */
@@ -760,11 +1305,30 @@ class AppController {
   private bindDadosEvents(): void {
     const p = this.personagemAtivo;
 
+    document.getElementById('dice-sheet-select')?.addEventListener('change', event => {
+      const selected = (event.target as HTMLSelectElement).value;
+      this.fichaRolagemSelecionadaId = selected === 'legacy' ? null : selected || null;
+      this.renderCurrentView();
+    });
+
     document.querySelectorAll('.btn-roll-action').forEach(btn => {
       btn.addEventListener('click', () => {
         const attr = btn.getAttribute('data-attr') || 'Atributo';
-        const mod = parseInt(btn.getAttribute('data-mod') || '0', 10);
-        this.executarRolagemD20(`Teste de ${attr}`, mod, p?.nomePersonagem);
+        const valor = parseInt(btn.getAttribute('data-value') || '0', 10);
+        const sistema = btn.getAttribute('data-system') || 'D&D';
+        const nome = this.fichaRolagemSelecionadaId
+          ? this.sistemaItens.find(ficha => ficha.id === this.fichaRolagemSelecionadaId)?.nome
+          : p?.nomePersonagem;
+        if (sistema === 'Call of Cthulhu') {
+          const resultado = DiceService.rolarGenerico(100, 1, 0);
+          this.showToast(`🎲 ${attr}: d100(${resultado.total}) contra ${valor}%.`);
+        } else if (sistema === 'Vampiro: A Máscara') {
+          const resultado = DiceService.rolarGenerico(10, Math.max(1, valor), 0);
+          this.showToast(`🎲 ${attr}: ${valor}d10 = ${resultado.dados.join(', ')} | Sucessos: ${resultado.dados.filter(dado => dado >= 6).length}.`);
+        } else {
+          const modificador = Math.floor((valor - 10) / 2);
+          this.executarRolagemD20(`Teste de ${attr}`, modificador, nome);
+        }
       });
     });
 
@@ -831,8 +1395,31 @@ class AppController {
   /* ================= CAMPANHAS EVENTS ================= */
   private bindCampanhasEvents(): void {
     const modal = document.getElementById('modal-add-campanha');
-    document.getElementById('btn-add-campanha-modal')?.addEventListener('click', () => {
+    const nomeInput = document.getElementById('camp-nome') as HTMLInputElement | null;
+    const loreInput = document.getElementById('camp-lore') as HTMLTextAreaElement | null;
+    const modalTitle = document.getElementById('camp-modal-title');
+    const saveButton = document.getElementById('btn-salvar-nova-campanha');
+
+    const prepararModal = (campanha?: Campanha) => {
+      this.campanhaEmEdicaoId = campanha?.idCampanha || null;
+      if (nomeInput) nomeInput.value = campanha?.nomeCampanha || '';
+      if (loreInput) loreInput.value = campanha?.lore || '';
+      if (modalTitle) modalTitle.textContent = campanha ? '📜 Editar Campanha' : '📜 Criar Nova Campanha';
+      if (saveButton) saveButton.textContent = campanha ? 'Salvar alterações' : 'Salvar Campanha';
+      document.querySelectorAll<HTMLInputElement>('.chk-camp-personagem').forEach(check => {
+        check.checked = campanha?.personagens.some(personagem => personagem.idPersonagem === check.value) || false;
+      });
+      document.querySelectorAll<HTMLInputElement>('.chk-camp-ficha').forEach(check => {
+        check.checked = campanha?.fichas.some(ficha => ficha.id === check.value) || false;
+      });
+      document.querySelectorAll<HTMLInputElement>('.chk-camp-monstro').forEach(check => {
+        check.checked = campanha?.monstros.some(monstro => monstro.id === check.value) || false;
+      });
       modal?.classList.remove('hidden');
+    };
+
+    document.getElementById('btn-add-campanha-modal')?.addEventListener('click', () => {
+      prepararModal();
     });
 
     document.getElementById('btn-close-campanha-modal')?.addEventListener('click', () => {
@@ -850,15 +1437,38 @@ class AppController {
 
       const checks = document.querySelectorAll<HTMLInputElement>('.chk-camp-personagem:checked');
       const selecionados = Array.from(checks).map(c => this.personagens.find(p => p.idPersonagem === c.value)).filter(Boolean) as Personagem[];
+      const fichaChecks = document.querySelectorAll<HTMLInputElement>('.chk-camp-ficha:checked');
+      const fichas = Array.from(fichaChecks).map(c => this.sistemaItens.find(item => item.id === c.value)).filter(Boolean) as SistemaPasta[];
+      const monstroChecks = document.querySelectorAll<HTMLInputElement>('.chk-camp-monstro:checked');
+      const monstros = Array.from(monstroChecks).map(c => this.monstroItens.find(item => item.id === c.value)).filter(Boolean) as MonstroPasta[];
 
-      const nova = new Campanha(nome, lore, undefined, selecionados, this.npcs.slice(0, 2));
-      this.campanhas.push(nova);
-      this.mestre.adicionarCampanha(nova);
+      const campanhaExistente = this.campanhaEmEdicaoId
+        ? this.campanhas.find(campanha => campanha.idCampanha === this.campanhaEmEdicaoId)
+        : undefined;
+      if (campanhaExistente) {
+        campanhaExistente.nomeCampanha = nome;
+        campanhaExistente.lore = lore;
+        campanhaExistente.personagens = selecionados;
+        campanhaExistente.fichas = fichas;
+        campanhaExistente.monstros = monstros;
+      } else {
+        const nova = new Campanha(nome, lore, undefined, selecionados, [], undefined, fichas, monstros);
+        this.campanhas.push(nova);
+        this.mestre.adicionarCampanha(nova);
+      }
       StorageService.salvarCampanhas(this.campanhas);
 
       modal?.classList.add('hidden');
-      this.showToast(`Campanha "${nome}" criada com sucesso!`);
+      this.campanhaEmEdicaoId = null;
+      this.showToast(campanhaExistente ? `Campanha "${nome}" atualizada.` : `Campanha "${nome}" criada com sucesso!`);
       this.renderCurrentView();
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-edit-campanha').forEach(button => {
+      button.addEventListener('click', () => {
+        const campanha = this.campanhas.find(item => item.idCampanha === button.dataset.id);
+        if (campanha) prepararModal(campanha);
+      });
     });
 
     document.querySelectorAll('.btn-remove-campanha').forEach(btn => {
@@ -866,6 +1476,7 @@ class AppController {
         const id = btn.getAttribute('data-id');
         if (id && confirm('Deseja realmente remover esta campanha?')) {
           this.campanhas = this.campanhas.filter(c => c.idCampanha !== id);
+          if (this.campanhaEmEdicaoId === id) this.campanhaEmEdicaoId = null;
           this.mestre.removerCampanha(id);
           StorageService.salvarCampanhas(this.campanhas);
           this.showToast('Campanha removida.');
@@ -876,61 +1487,82 @@ class AppController {
   }
 
   /* ================= NPCS EVENTS ================= */
-  private bindNpcsEvents(): void {
-    const modal = document.getElementById('modal-add-npc');
-    document.getElementById('btn-add-npc-modal')?.addEventListener('click', () => {
-      modal?.classList.remove('hidden');
-    });
+  private bindMonstrosEvents(): void {
+    const inlineForm = document.getElementById('form-monstro-inline') as HTMLFormElement | null;
+    if (inlineForm) {
+      document.getElementById('btn-cancel-monstro')?.addEventListener('click', () => {
+        this.monstroEmEdicaoId = null;
+        this.criandoMonstro = false;
+        this.renderCurrentView();
+      });
+      inlineForm.addEventListener('submit', event => {
+        event.preventDefault();
+        const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value.trim() || '';
+        const destination = value('monstro-destination');
+        const dados: Record<string, string | number> = {};
+        inlineForm.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea').forEach(input => {
+          if (input.value.trim()) dados[input.id] = input.value.trim();
+        });
+        const atual = this.monstroEmEdicaoId ? this.monstroItens.find(item => item.id === this.monstroEmEdicaoId) : undefined;
+        if (atual) {
+          atual.nome = value('monstro-nome') || atual.nome;
+          atual.descricao = value('monstro-description');
+          atual.parentId = destination || null;
+          atual.dados = dados;
+        } else {
+          this.monstroItens.push({ id: crypto.randomUUID(), nome: value('monstro-nome') || 'Novo monstro', tipo: 'ficha', sistema: 'D&D', descricao: value('monstro-description'), parentId: destination || null, dataCriacao: new Date().toLocaleDateString('pt-BR'), dados });
+        }
+        StorageService.salvarMonstroPastas(this.monstroItens);
+        this.monstroEmEdicaoId = null;
+        this.criandoMonstro = false;
+        this.showToast('Ficha de monstro salva.');
+        this.renderCurrentView();
+      });
+      return;
+    }
 
-    document.getElementById('btn-close-npc-modal')?.addEventListener('click', () => {
-      modal?.classList.add('hidden');
-    });
-
-    document.getElementById('btn-salvar-novo-npc')?.addEventListener('click', () => {
-      const nome = (document.getElementById('npc-nome') as HTMLInputElement)?.value.trim();
-      const cr = (document.getElementById('npc-cr') as HTMLInputElement)?.value.trim() || 'CR 1';
-      const vida = parseInt((document.getElementById('npc-vida') as HTMLInputElement)?.value || '20', 10);
-      const ataques = (document.getElementById('npc-ataques') as HTMLTextAreaElement)?.value.trim() || 'Ataque Básico (+3, 1d6)';
-
-      if (!nome) {
-        alert('Informe o nome do monstro ou NPC.');
-        return;
-      }
-
-      const novo = new NPC(nome, cr, vida, ataques);
-      this.npcs.push(novo);
-      this.mestre.adicionarNPC(novo);
-      StorageService.salvarNPCs(this.npcs);
-
-      modal?.classList.add('hidden');
-      this.showToast(`Monstro "${nome}" cadastrado no Bestiário.`);
+    document.querySelectorAll<HTMLButtonElement>('.btn-open-monstro').forEach(button => button.addEventListener('click', () => {
+      this.pastaMonstroAtualId = button.dataset.id || null;
+      this.monstroEmEdicaoId = null;
+      this.criandoMonstro = false;
+      this.renderCurrentView();
+    }));
+    document.getElementById('btn-monstro-up')?.addEventListener('click', () => {
+      const atual = this.monstroItens.find(item => item.id === this.pastaMonstroAtualId);
+      this.pastaMonstroAtualId = atual?.parentId || null;
       this.renderCurrentView();
     });
-
-    document.querySelectorAll('.btn-npc-hp').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-id');
-        const delta = parseInt(btn.getAttribute('data-delta') || '0', 10);
-        const npc = this.npcs.find(n => n.idNpc === id);
-        if (npc) {
-          npc.atualizarVida(delta);
-          StorageService.salvarNPCs(this.npcs);
-          this.renderCurrentView();
-        }
-      });
+    document.getElementById('btn-new-monstro-sheet')?.addEventListener('click', () => {
+      this.monstroEmEdicaoId = null;
+      this.criandoMonstro = true;
+      this.renderCurrentView();
     });
-
-    document.querySelectorAll('.btn-remove-npc').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-id');
-        if (id && confirm('Remover este NPC do Bestiário?')) {
-          this.npcs = this.npcs.filter(n => n.idNpc !== id);
-          this.mestre.removerNPC(id);
-          StorageService.salvarNPCs(this.npcs);
-          this.showToast('NPC removido.');
-          this.renderCurrentView();
-        }
-      });
+    document.querySelectorAll<HTMLButtonElement>('.btn-edit-monstro').forEach(button => button.addEventListener('click', () => {
+      const item = this.monstroItens.find(entry => entry.id === button.dataset.id);
+      if (item) { this.monstroEmEdicaoId = item.id; this.criandoMonstro = false; this.renderCurrentView(); }
+    }));
+    document.querySelectorAll<HTMLButtonElement>('.btn-delete-monstro').forEach(button => button.addEventListener('click', () => {
+      const item = this.monstroItens.find(entry => entry.id === button.dataset.id);
+      if (!item || !confirm(`Excluir ${item.tipo === 'pasta' ? 'pasta' : 'ficha'} "${item.nome}"?`)) return;
+      const ids = new Set([item.id]);
+      let changed = true;
+      while (changed) { changed = false; this.monstroItens.forEach(entry => { if (entry.parentId && ids.has(entry.parentId) && !ids.has(entry.id)) { ids.add(entry.id); changed = true; } }); }
+      this.monstroItens = this.monstroItens.filter(entry => !ids.has(entry.id));
+      StorageService.salvarMonstroPastas(this.monstroItens);
+      this.renderCurrentView();
+    }));
+    const modal = document.getElementById('modal-monstro-folder');
+    document.getElementById('btn-new-monstro-folder')?.addEventListener('click', () => modal?.classList.remove('hidden'));
+    document.getElementById('btn-close-monstro-modal')?.addEventListener('click', () => modal?.classList.add('hidden'));
+    document.getElementById('form-monstro-folder')?.addEventListener('submit', event => {
+      event.preventDefault();
+      const name = (document.getElementById('monstro-folder-name') as HTMLInputElement).value.trim();
+      if (!name) return;
+      const parentId = (document.getElementById('monstro-folder-parent') as HTMLSelectElement).value || null;
+      this.monstroItens.push({ id: crypto.randomUUID(), nome: name, tipo: 'pasta', sistema: 'D&D', descricao: (document.getElementById('monstro-folder-description') as HTMLTextAreaElement).value.trim(), parentId, dataCriacao: new Date().toLocaleDateString('pt-BR') });
+      StorageService.salvarMonstroPastas(this.monstroItens);
+      modal?.classList.add('hidden');
+      this.renderCurrentView();
     });
   }
 
@@ -938,7 +1570,23 @@ class AppController {
   private bindIniciativaEvents(): void {
     document.getElementById('btn-add-init-personagem')?.addEventListener('click', () => {
       const sel = document.getElementById('select-init-personagem') as HTMLSelectElement;
-      const p = this.personagens.find(item => item.idPersonagem === sel?.value);
+      const selected = sel?.value || '';
+      const ficha = selected.startsWith('ficha:')
+        ? this.sistemaItens.find(item => item.id === selected.slice('ficha:'.length))
+        : undefined;
+      const p = this.personagens.find(item => item.idPersonagem === selected);
+      if (ficha) {
+        const dados = ficha.dados || {};
+        const prefixo = ficha.sistema === 'D&D' ? 'dnd' : ficha.sistema === 'Vampiro: A Máscara' ? 'vampire' : 'coc';
+        const ler = (campo: string, alternativo = '') => Number(dados[`${prefixo}-${campo}`] || dados[`inline-${prefixo}-${campo}`] || dados[`guided-${prefixo}-${campo}`] || dados[alternativo] || 0);
+        const destreza = ler(ficha.sistema === 'Vampiro: A Máscara' ? 'dexterity' : 'dex');
+        const pontosVida = ler(ficha.sistema === 'D&D' ? 'current-hp' : ficha.sistema === 'Vampiro: A Máscara' ? 'health' : 'hp') || 1;
+        const iniciativa = DiceService.sortearNumero(1, 20) + (ficha.sistema === 'D&D' ? Math.floor((destreza - 10) / 2) : Math.floor(destreza / 10));
+        this.mestre.adicionarCombatente({ id: crypto.randomUUID(), nome: ficha.nome, tipo: 'Personagem', iniciativa, vidaAtual: pontosVida, vidaMax: pontosVida, ca: ler('ac') || undefined });
+        this.showToast(`⚔️ ${ficha.nome} entrou na iniciativa.`);
+        this.renderCurrentView();
+        return;
+      }
       if (p) {
         const modDes = p.obterModificador('destreza');
         const d20 = DiceService.sortearNumero(1, 20);
@@ -961,7 +1609,22 @@ class AppController {
 
     document.getElementById('btn-add-init-npc')?.addEventListener('click', () => {
       const sel = document.getElementById('select-init-npc') as HTMLSelectElement;
-      const n = this.npcs.find(item => item.idNpc === sel?.value);
+      const selected = sel?.value || '';
+      const fichaMonstro = selected.startsWith('monstro:')
+        ? this.monstroItens.find(item => item.id === selected.slice('monstro:'.length))
+        : undefined;
+      const n = this.npcs.find(item => item.idNpc === selected);
+      if (fichaMonstro) {
+        const dados = fichaMonstro.dados || {};
+        const ler = (campo: string) => Number(dados[`inline-${campo}`] || dados[campo] || 0);
+        const vida = ler('monstro-current-hp') || ler('monstro-hp') || 1;
+        const destreza = ler('monstro-dex');
+        const iniciativa = DiceService.sortearNumero(1, 20) + Math.floor((destreza - 10) / 2);
+        this.mestre.adicionarCombatente({ id: crypto.randomUUID(), nome: fichaMonstro.nome, tipo: 'NPC', iniciativa, vidaAtual: vida, vidaMax: vida, ca: ler('monstro-ac') || undefined });
+        this.showToast(`🐉 ${fichaMonstro.nome} entrou na iniciativa.`);
+        this.renderCurrentView();
+        return;
+      }
       if (n) {
         const d20 = DiceService.sortearNumero(1, 20);
         const init = d20;
@@ -978,39 +1641,6 @@ class AppController {
         this.showToast(`🐉 ${n.nome} rolou iniciativa: ${init}`);
         this.renderCurrentView();
       }
-    });
-
-    document.getElementById('btn-auto-roll-initiative')?.addEventListener('click', () => {
-      this.mestre.limparIniciativa();
-
-      this.personagens.forEach(p => {
-        const modDes = p.obterModificador('destreza');
-        const init = DiceService.sortearNumero(1, 20) + modDes;
-        this.mestre.adicionarCombatente({
-          id: crypto.randomUUID(),
-          nome: p.nomePersonagem,
-          tipo: 'Personagem',
-          iniciativa: init,
-          vidaAtual: p.pontosVida,
-          vidaMax: p.pontosVidaMax,
-          ca: p.ca
-        });
-      });
-
-      this.npcs.forEach(n => {
-        const init = DiceService.sortearNumero(1, 20);
-        this.mestre.adicionarCombatente({
-          id: crypto.randomUUID(),
-          nome: n.nome,
-          tipo: 'NPC',
-          iniciativa: init,
-          vidaAtual: n.vida,
-          vidaMax: n.vidaMax
-        });
-      });
-
-      this.showToast('🎲 Todos os combatentes rolaram iniciativa e a ordem de turnos foi gerada!');
-      this.renderCurrentView();
     });
 
     document.getElementById('btn-limpar-iniciativa')?.addEventListener('click', () => {

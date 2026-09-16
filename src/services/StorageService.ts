@@ -5,6 +5,8 @@ import { Item } from '../models/Item';
 import { MagiaHabilidade } from '../models/MagiaHabilidade';
 import { Nota } from '../models/Nota';
 import { Missao } from '../models/Missao';
+import type { SistemaPasta } from '../models/SistemaPasta';
+import type { MonstroPasta } from '../models/MonstroPasta';
 import type { ResultadoRolagem } from './DiceService';
 
 export class StorageService {
@@ -14,6 +16,8 @@ export class StorageService {
   private static readonly KEY_DICE_HISTORY = 'rpg_dice_history_v1';
   private static readonly KEY_NOTAS = 'rpg_notas_v1';
   private static readonly KEY_MISSOES = 'rpg_missoes_v1';
+  private static readonly KEY_SISTEMA_PASTAS = 'rpg_sistema_pastas_v1';
+  private static readonly KEY_MONSTRO_PASTAS = 'rpg_monstro_pastas_v1';
 
   public static salvarPersonagens(personagens: Personagem[]): void {
     localStorage.setItem(this.KEY_PERSONAGENS, JSON.stringify(personagens));
@@ -29,7 +33,7 @@ export class StorageService {
 
     try {
       const parsed: any[] = JSON.parse(raw);
-      return parsed.map(p => {
+      const personagens = parsed.map(p => {
         const personagem = new Personagem(
           p.nomePersonagem,
           p.classe,
@@ -60,7 +64,9 @@ export class StorageService {
         }
 
         return personagem;
-      });
+      }).filter(personagem => !/valerius\s+vento-prateado/i.test(personagem.nomePersonagem));
+      this.salvarPersonagens(personagens);
+      return personagens;
     } catch (e) {
       console.error('Erro ao ler personagens do localStorage:', e);
       return this.obterPersonagensDemonstracao();
@@ -84,7 +90,16 @@ export class StorageService {
       return parsed.map(c => {
         const pers = todosPersonagens.filter(p => c.personagens?.some((cp: any) => cp.idPersonagem === p.idPersonagem));
         const npcs = todosNpcs.filter(n => c.npcs?.some((cn: any) => cn.idNpc === n.idNpc));
-        return new Campanha(c.nomeCampanha, c.lore, c.dataCriacao, pers, npcs, c.idCampanha);
+        return new Campanha(
+          c.nomeCampanha,
+          c.lore,
+          c.dataCriacao,
+          pers,
+          npcs,
+          c.idCampanha,
+          c.fichas || [],
+          c.monstros || []
+        );
       });
     } catch (e) {
       console.error('Erro ao carregar campanhas:', e);
@@ -169,6 +184,60 @@ export class StorageService {
       console.error('Erro ao ler missões:', e);
       return this.obterMissoesDemonstracao();
     }
+  }
+
+  public static salvarSistemaPastas(itens: SistemaPasta[]): void {
+    localStorage.setItem(this.KEY_SISTEMA_PASTAS, JSON.stringify(itens));
+  }
+
+  public static carregarSistemaPastas(): SistemaPasta[] {
+    const raw = localStorage.getItem(this.KEY_SISTEMA_PASTAS);
+    if (!raw) {
+      const padrao = this.obterSistemasDemonstracao();
+      this.salvarSistemaPastas(padrao);
+      return padrao;
+    }
+
+    try {
+      const parsed: Partial<SistemaPasta>[] = JSON.parse(raw);
+      return parsed.filter(item =>
+        typeof item.id === 'string' &&
+        typeof item.nome === 'string' &&
+        (item.tipo === 'pasta' || item.tipo === 'ficha') &&
+        typeof item.sistema === 'string' &&
+        typeof item.descricao === 'string' &&
+        (typeof item.parentId === 'string' || item.parentId === null) &&
+        typeof item.dataCriacao === 'string' &&
+        (item.dados === undefined || typeof item.dados === 'object')
+      ) as SistemaPasta[];
+    } catch (e) {
+      console.error('Erro ao carregar pastas de sistemas:', e);
+      return this.obterSistemasDemonstracao();
+    }
+  }
+
+  public static salvarMonstroPastas(itens: MonstroPasta[]): void {
+    localStorage.setItem(this.KEY_MONSTRO_PASTAS, JSON.stringify(itens));
+  }
+
+  public static carregarMonstroPastas(): MonstroPasta[] {
+    const raw = localStorage.getItem(this.KEY_MONSTRO_PASTAS);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as MonstroPasta[];
+    } catch (e) {
+      console.error('Erro ao carregar biblioteca de monstros:', e);
+      return [];
+    }
+  }
+
+  private static obterSistemasDemonstracao(): SistemaPasta[] {
+    const dataCriacao = new Date().toLocaleDateString('pt-BR');
+    return [
+      { id: crypto.randomUUID(), nome: 'Call of Cthulhu', tipo: 'pasta', sistema: 'Call of Cthulhu', descricao: 'Fichas e campanhas de horror investigativo.', parentId: null, dataCriacao },
+      { id: crypto.randomUUID(), nome: 'Vampiro: A Máscara', tipo: 'pasta', sistema: 'Vampiro: A Máscara', descricao: 'Fichas e crônicas do Mundo das Trevas.', parentId: null, dataCriacao },
+      { id: crypto.randomUUID(), nome: 'D&D', tipo: 'pasta', sistema: 'D&D', descricao: 'Fichas e aventuras de fantasia medieval.', parentId: null, dataCriacao }
+    ];
   }
 
   private static obterNotasDemonstracao(): Nota[] {

@@ -1,4 +1,5 @@
 import { Personagem } from '../models/Personagem';
+import type { SistemaInventarioItem, SistemaPasta } from '../models/SistemaPasta';
 import type { ResultadoRolagem } from '../services/DiceService';
 
 export class JogadorView {
@@ -243,7 +244,7 @@ export class JogadorView {
             <h4 style="margin-bottom: 16px;">Passo 1: Identidade e Sistema de Regras</h4>
             <div class="form-group">
               <label for="w-nome">Nome do Personagem:</label>
-              <input type="text" id="w-nome" class="form-control" placeholder="Ex: Valerius Vento-Prateado" value="Valerius Vento-Prateado" />
+              <input type="text" id="w-nome" class="form-control" placeholder="Ex: Aria Ventobravo" value="" />
             </div>
 
             <div class="form-group">
@@ -521,8 +522,264 @@ export class JogadorView {
     `;
   }
 
-  public static renderRoladorDados(personagem: Personagem | null, historico: ResultadoRolagem[]): string {
-    const mods = personagem ? personagem.calcularModificadores() : null;
+  public static renderSistemas(itens: SistemaPasta[], pastaAtualId: string | null, fichaEmEdicao: SistemaPasta | null = null): string {
+    const pastaAtual = pastaAtualId ? itens.find(item => item.id === pastaAtualId && item.tipo === 'pasta') : undefined;
+    const itensVisiveis = itens.filter(item => item.parentId === pastaAtualId);
+    const caminho: SistemaPasta[] = [];
+    let cursor = pastaAtual;
+
+    while (cursor) {
+      caminho.unshift(cursor);
+      cursor = cursor.parentId ? itens.find(item => item.id === cursor?.parentId && item.tipo === 'pasta') : undefined;
+    }
+
+    const titulo = pastaAtual?.nome || 'Sistemas de RPG';
+    const sistema = pastaAtual?.sistema || '';
+    const renderItem = (item: SistemaPasta) => `
+      <article class="system-drive-item ${item.tipo === 'ficha' ? 'system-sheet-item' : ''}">
+        <button class="system-drive-open btn-open-sistema-item" data-id="${item.id}" ${item.tipo === 'ficha' ? 'disabled' : ''}>
+          <span class="system-drive-icon">${item.tipo === 'pasta' ? '📁' : '📄'}</span>
+          <span class="system-drive-name">${this.escapeHtml(item.nome)}</span>
+          <span class="system-drive-description">${this.escapeHtml(item.descricao || 'Sem descrição')}</span>
+        </button>
+        <div class="system-drive-actions">
+          <button class="btn-icon btn-edit-sistema-item" data-id="${item.id}" title="Editar">✏️</button>
+          <button class="btn-icon btn-delete-sistema-item" data-id="${item.id}" title="Excluir">🗑️</button>
+        </div>
+      </article>
+    `;
+
+    return `
+      <div class="systems-workspace">
+        <div class="systems-heading">
+          <div>
+            <span class="systems-kicker">Biblioteca do jogador</span>
+            <h2>🗂️ ${this.escapeHtml(titulo)}</h2>
+            <p>${this.escapeHtml(pastaAtual?.descricao || 'Organize fichas por sistema, campanha e personagem.')}</p>
+          </div>
+          <div class="systems-actions">
+            ${pastaAtual ? '<button id="btn-sistema-up" class="btn btn-secondary">← Voltar</button>' : ''}
+            <button id="btn-new-sistema-folder" class="btn btn-secondary">📁 Nova pasta</button>
+            <button id="btn-new-sistema-sheet" class="btn btn-primary">📄 Nova ficha</button>
+          </div>
+        </div>
+
+        <nav class="systems-breadcrumb" aria-label="Navegação dos sistemas">
+          <button class="btn-breadcrumb btn-open-sistema-item" data-id="">Sistemas</button>
+          ${caminho.map(item => `<span>/</span><button class="btn-breadcrumb btn-open-sistema-item" data-id="${item.id}">${this.escapeHtml(item.nome)}</button>`).join('')}
+        </nav>
+
+        ${pastaAtual && sistema ? `<div class="system-context"><strong>${this.escapeHtml(sistema)}</strong><span>Crie subpastas para campanhas, mesas ou personagens.</span></div>` : ''}
+
+        ${fichaEmEdicao ? this.renderFichaEditor(fichaEmEdicao, itens) : ''}
+
+        <div class="systems-drive-grid ${fichaEmEdicao ? 'hidden' : ''}">
+          ${itensVisiveis.length === 0 ? '<div class="systems-empty"><span>📂</span><strong>Esta pasta está vazia</strong><p>Crie uma pasta ou ficha para começar a organizar este sistema.</p></div>' : itensVisiveis.map(renderItem).join('')}
+        </div>
+      </div>
+
+      <div id="modal-sistema-item" class="modal-backdrop hidden">
+        <div class="modal-content glass-card">
+          <div class="modal-header">
+            <h3 id="modal-sistema-title">Novo item</h3>
+            <button id="btn-close-sistema-modal" class="btn-icon">✕</button>
+          </div>
+          <form id="form-sistema-item">
+            <input type="hidden" id="sistema-item-id" />
+            <input type="hidden" id="sistema-item-type" />
+            <div class="form-group">
+              <label for="sistema-item-name">Nome:</label>
+              <input id="sistema-item-name" class="form-control" required maxlength="80" placeholder="Ex: Campanha principal" />
+            </div>
+            <div class="form-group">
+              <label for="sistema-item-description">Descrição:</label>
+              <textarea id="sistema-item-description" class="form-control" rows="3" maxlength="240" placeholder="Adicione uma descrição curta"></textarea>
+            </div>
+            <div id="sistema-folder-destination-group" class="form-group">
+              <label for="sistema-folder-destination">Salvar pasta em:</label>
+              <select id="sistema-folder-destination" class="custom-select"></select>
+              <small class="field-help">Escolha a pasta-pai. A pasta poderá ser movida novamente depois.</small>
+            </div>
+            <button id="btn-salvar-pasta" type="submit" class="btn btn-primary" style="width: 100%;">Criar pasta</button>
+          </form>
+        </div>
+      </div>
+    `;
+  }
+
+  public static renderSeletorFicha(): string {
+    return `
+      <section class="sheet-editor sheet-system-picker">
+        <div class="sheet-editor-header">
+          <div><span class="systems-kicker">Nova ficha</span><h3>Escolha o sistema</h3><p>Selecione o modelo que será usado para montar sua ficha.</p></div>
+          <button type="button" id="btn-cancel-ficha-inline" class="btn btn-secondary">Cancelar</button>
+        </div>
+        <div class="guided-entry">
+          <div><strong>🧭 Quer ajuda para começar?</strong><span>Use a criação guiada para responder perguntas simples antes de abrir a ficha completa.</span></div>
+          <button type="button" id="btn-open-ficha-guided" class="btn btn-secondary">🧭 Criar ficha guiada</button>
+        </div>
+        <p class="system-form-intro">Ou escolha um sistema para preencher a ficha completa:</p>
+        <div class="system-options system-options-inline">
+          <button type="button" class="system-option btn-select-sistema-inline" data-sistema="Call of Cthulhu"><span>🕯️</span><strong>Call of Cthulhu</strong><small>Investigação e horror cósmico</small></button>
+          <button type="button" class="system-option btn-select-sistema-inline" data-sistema="Vampiro: A Máscara"><span>🩸</span><strong>Vampiro: A Máscara</strong><small>Criação de personagem</small></button>
+          <button type="button" class="system-option btn-select-sistema-inline" data-sistema="D&D"><span>🐉</span><strong>D&D 5e</strong><small>Criação de personagem</small></button>
+        </div>
+      </section>
+    `;
+  }
+
+  public static renderFichaGuiada(itens: SistemaPasta[], pastaAtualId: string | null): string {
+    const pastas = itens.filter(item => item.tipo === 'pasta');
+    const caminho = (pasta: SistemaPasta): string => {
+      const partes = [pasta.nome];
+      let parentId = pasta.parentId;
+      while (parentId) {
+        const parent = itens.find(item => item.id === parentId && item.tipo === 'pasta');
+        if (!parent) break;
+        partes.unshift(parent.nome);
+        parentId = parent.parentId;
+      }
+      return partes.join(' / ');
+    };
+
+    return `
+      <form id="form-ficha-guided" class="sheet-editor guided-builder">
+        <div class="sheet-editor-header">
+          <div><span class="systems-kicker">Criação guiada</span><h3>🧭 Vamos criar sua ficha</h3><p>Responda às perguntas com suas próprias ideias. Você poderá completar os detalhes depois.</p></div>
+          <div class="systems-actions"><button type="button" id="btn-cancel-ficha-guided" class="btn btn-secondary">Cancelar</button><button type="submit" class="btn btn-primary">Continuar para ficha</button></div>
+        </div>
+        <div class="sheet-editor-section"><h4>1. Escolha o sistema</h4><div class="form-group"><label for="guided-system">Sistema da ficha:</label><select id="guided-system" class="custom-select" required><option value="Call of Cthulhu">🕯️ Call of Cthulhu</option><option value="Vampiro: A Máscara">🩸 Vampiro: A Máscara</option><option value="D&D">🐉 D&D 5e</option></select></div></div>
+        <div id="guided-template-coc" class="guided-template"><div class="sheet-editor-section"><h4>2. Quem é seu investigador?</h4><p class="guided-question">Escolha um nome, uma ocupação e a idade que combinam com alguém que se envolve com o inexplicável.</p><div class="grid-2"><div class="form-group"><label for="guided-coc-name">Nome do investigador:</label><input id="guided-coc-name" class="form-control" placeholder="Ex: Helena Duarte" /></div><div class="form-group"><label for="guided-coc-occupation">Ocupação:</label><input id="guided-coc-occupation" class="form-control" placeholder="Ex: Jornalista" /></div><div class="form-group"><label for="guided-coc-age">Idade:</label><input id="guided-coc-age" class="form-control" placeholder="Ex: 32" /></div><div class="form-group"><label for="guided-coc-concept">Conceito:</label><input id="guided-coc-concept" class="form-control" placeholder="Ex: Repórter obcecada por mistérios" /></div></div></div><div class="sheet-editor-section"><div class="sheet-section-heading"><div><h4>3. Atributos do investigador</h4><p class="attribute-rule-hint">3d6 × 5; TAM e INT usam 2d6+6 × 5.</p></div><button type="button" id="btn-guided-roll-coc" class="btn btn-secondary">🎲 Rolar atributos</button></div><div class="grid-3 coc-attribute-grid">${['str:FOR','con:CON','siz:TAM','dex:DES','app:APA','int:INT','pow:POD','edu:EDU','luck:Sorte'].map(item => { const [id, label] = item.split(':'); return `<div class="form-group"><label for="guided-coc-${id}">${label}</label><input id="guided-coc-${id}" class="form-control" type="number" min="0" max="100" /></div>`; }).join('')}</div></div><div class="sheet-editor-section"><h4>4. O que trouxe você ao horror?</h4><p class="guided-question">Conte o objetivo e o acontecimento que iniciou sua investigação.</p><div class="form-group"><label for="guided-coc-goal">Objetivo:</label><input id="guided-coc-goal" class="form-control" /></div><div class="form-group"><label for="guided-coc-background">História inicial:</label><textarea id="guided-coc-background" class="form-control" rows="4"></textarea></div></div></div>
+        <div id="guided-template-dnd" class="guided-template hidden"><div class="sheet-editor-section"><h4>2. Quem é seu aventureiro?</h4><p class="guided-question">Escolha um nome, uma raça, uma classe e um nível para imaginar seu papel no grupo.</p><div class="grid-2"><div class="form-group"><label for="guided-dnd-name">Nome do personagem:</label><input id="guided-dnd-name" class="form-control" placeholder="Ex: Kael" /></div><div class="form-group"><label for="guided-dnd-class">Classe:</label><input id="guided-dnd-class" class="form-control" placeholder="Ex: Guerreiro" /></div><div class="form-group"><label for="guided-dnd-race">Raça:</label><input id="guided-dnd-race" class="form-control" placeholder="Ex: Humano" /></div><div class="form-group"><label for="guided-dnd-level">Nível:</label><input id="guided-dnd-level" class="form-control" placeholder="Ex: 1" /></div><div class="form-group"><label for="guided-dnd-background">Antecedente:</label><input id="guided-dnd-background" class="form-control" placeholder="Ex: Soldado" /></div><div class="form-group"><label for="guided-dnd-concept">Conceito:</label><input id="guided-dnd-concept" class="form-control" placeholder="Ex: Protetor do vilarejo" /></div></div></div><div class="sheet-editor-section"><div class="sheet-section-heading"><div><h4>3. Atributos do aventureiro</h4><p class="attribute-rule-hint">4d6, descartando o menor dado.</p></div><button type="button" id="btn-guided-roll-dnd" class="btn btn-secondary">🎲 Rolar atributos</button></div><div class="grid-3 coc-attribute-grid">${['str:FOR','dex:DES','con:CON','int:INT','wis:SAB','cha:CAR'].map(item => { const [id, label] = item.split(':'); return `<div class="form-group"><label for="guided-dnd-${id}">${label}</label><input id="guided-dnd-${id}" class="form-control" type="number" min="1" max="30" /></div>`; }).join('')}</div></div><div class="sheet-editor-section"><h4>4. O que move sua aventura?</h4><p class="guided-question">Escolha um objetivo e escreva um pouco da sua origem.</p><div class="form-group"><label for="guided-dnd-goal">Objetivo:</label><input id="guided-dnd-goal" class="form-control" /></div><div class="form-group"><label for="guided-dnd-story">História inicial:</label><textarea id="guided-dnd-story" class="form-control" rows="4"></textarea></div></div></div>
+        <div id="guided-template-vampire" class="guided-template hidden"><div class="sheet-editor-section"><h4>2. Quem você se tornou?</h4><p class="guided-question">Defina o nome, conceito, clã e geração que moldam sua existência na noite.</p><div class="grid-2"><div class="form-group"><label for="guided-vampire-name">Nome do personagem:</label><input id="guided-vampire-name" class="form-control" placeholder="Ex: Bianca" /></div><div class="form-group"><label for="guided-vampire-concept">Conceito:</label><input id="guided-vampire-concept" class="form-control" placeholder="Ex: Herdeira exilada" /></div><div class="form-group"><label for="guided-vampire-clan">Clã:</label><input id="guided-vampire-clan" class="form-control" placeholder="Ex: Toreador" /></div><div class="form-group"><label for="guided-vampire-generation">Geração:</label><input id="guided-vampire-generation" class="form-control" placeholder="Ex: 12ª" /></div><div class="form-group"><label for="guided-vampire-predator">Tipo de predador:</label><input id="guided-vampire-predator" class="form-control" /></div></div></div><div class="sheet-editor-section"><div class="sheet-section-heading"><div><h4>3. Atributos da criatura</h4><p class="attribute-rule-hint">Distribuição V5: 7/5/3 pontos sobre atributos iniciados em 1.</p></div><button type="button" id="btn-guided-roll-vampire" class="btn btn-secondary">🎲 Distribuir atributos</button></div><div class="grid-3 coc-attribute-grid">${['strength:Força','dexterity:Destreza','stamina:Vigor','charisma:Carisma','manipulation:Manipulação','composure:Compostura','intelligence:Inteligência','wits:Raciocínio','resolve:Determinação'].map(item => { const [id, label] = item.split(':'); return `<div class="form-group"><label for="guided-vampire-${id}">${label}</label><input id="guided-vampire-${id}" class="form-control" type="number" min="1" max="5" /></div>`; }).join('')}</div></div><div class="sheet-editor-section"><h4>4. O que ainda importa?</h4><p class="guided-question">Escolha uma ambição e conte a história que trouxe você até esta crônica.</p><div class="form-group"><label for="guided-vampire-goal">Ambição:</label><input id="guided-vampire-goal" class="form-control" /></div><div class="form-group"><label for="guided-vampire-story">História inicial:</label><textarea id="guided-vampire-story" class="form-control" rows="4"></textarea></div></div></div>
+        <div class="sheet-editor-section"><h4>4. Onde guardar?</h4><div class="form-group"><label for="guided-destination">Salvar ficha em:</label><select id="guided-destination" class="custom-select">${pastas.map(pasta => `<option value="${pasta.id}" ${pasta.id === pastaAtualId ? 'selected' : ''}>📁 ${this.escapeHtml(caminho(pasta))}</option>`).join('')}</select></div></div>
+      </form>
+    `;
+  }
+
+  private static renderFichaEditor(ficha: SistemaPasta, itens: SistemaPasta[]): string {
+    const dados = ficha.dados || {};
+    const pastas = itens.filter(item => item.tipo === 'pasta');
+    const pastaCaminho = (pasta: SistemaPasta): string => {
+      const caminho: string[] = [pasta.nome];
+      let parentId = pasta.parentId;
+      while (parentId) {
+        const parent = itens.find(item => item.id === parentId && item.tipo === 'pasta');
+        if (!parent) break;
+        caminho.unshift(parent.nome);
+        parentId = parent.parentId;
+      }
+      return caminho.join(' / ');
+    };
+    const savedValue = (id: string): string => {
+      if (dados[id] !== undefined) return dados[id]?.toString() || '';
+      const normalizedId = id.replace(/^inline-/, '');
+      if (dados[normalizedId] !== undefined) return dados[normalizedId]?.toString() || '';
+      const savedKey = Object.keys(dados).find(key => key.endsWith(`-${normalizedId}`));
+      return savedKey ? dados[savedKey]?.toString() || '' : '';
+    };
+    const field = (id: string, label: string, type = 'text', placeholder = '') => `
+      <div class="form-group"><label for="${id}">${label}</label><input id="${id}" class="form-control" type="${type}" value="${this.escapeHtml(savedValue(id))}" placeholder="${placeholder}" /></div>
+    `;
+    const area = (id: string, label: string, rows: number) => `
+      <div class="form-group"><label for="${id}">${label}</label><textarea id="${id}" class="form-control" rows="${rows}">${this.escapeHtml(savedValue(id))}</textarea></div>
+    `;
+    const sistema = ficha.sistema;
+    const sistemaConfig = sistema === 'D&D'
+      ? { icone: '🐉', titulo: 'D&D 5e' }
+      : sistema === 'Vampiro: A Máscara'
+        ? { icone: '🩸', titulo: 'Vampiro: A Máscara' }
+        : { icone: '🕯️', titulo: 'Call of Cthulhu' };
+    let conteudo = '';
+    if (sistema === 'D&D') {
+      conteudo = `
+        <nav class="coc-sheet-tabs dnd-sheet-tabs" aria-label="Seções da ficha de D&D 5e"><button type="button" class="coc-sheet-tab active" data-coc-tab="principal">Principal</button><button type="button" class="coc-sheet-tab" data-coc-tab="equipamento">Equipamento</button><button type="button" class="coc-sheet-tab" data-coc-tab="magias">Magias</button><button type="button" class="coc-sheet-tab" data-coc-tab="detalhes">Detalhes</button></nav>
+        <div class="sheet-editor-section coc-sheet-panel active" data-coc-panel="principal"><h4>Identidade</h4><div class="grid-2">
+          ${field('inline-ficha-name', 'Nome do personagem', 'text', 'Nome usado na ficha')}${field('inline-dnd-player', 'Nome do jogador')}${field('inline-dnd-class', 'Classe')}${field('inline-dnd-level', 'Nível', 'number')}${field('inline-dnd-race', 'Raça')}${field('inline-dnd-background', 'Antecedente')}${field('inline-dnd-alignment', 'Alinhamento')}${field('inline-dnd-xp', 'Pontos de experiência', 'number')}${area('inline-ficha-description', 'Descrição e conceito', 2)}
+        </div><div class="sheet-section-heading"><div><h4>Atributos e modificadores</h4><p class="attribute-rule-hint">Distribuição automática: 4d6, descartando o menor dado.</p></div><button type="button" id="btn-roll-dnd-attributes" class="btn btn-secondary">🎲 Rolar atributos</button></div><div class="grid-3 coc-attribute-grid">
+          ${field('inline-dnd-str', 'FOR', 'number')}${field('inline-dnd-dex', 'DES', 'number')}${field('inline-dnd-con', 'CON', 'number')}${field('inline-dnd-int', 'INT', 'number')}${field('inline-dnd-wis', 'SAB', 'number')}${field('inline-dnd-cha', 'CAR', 'number')}
+        </div><h4>Combate</h4><div class="grid-3">
+          ${field('inline-dnd-ac', 'Classe de armadura', 'number')}${field('inline-dnd-initiative', 'Iniciativa')}${field('inline-dnd-speed', 'Deslocamento')}${field('inline-dnd-hp', 'Pontos de vida máximos', 'number')}${field('inline-dnd-current-hp', 'Pontos de vida atuais', 'number')}${field('inline-dnd-temp-hp', 'PV temporários', 'number')}${field('inline-dnd-hit-dice', 'Dados de vida')}${field('inline-dnd-proficiency', 'Bônus de proficiência')}
+        </div></div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="equipamento"><h4>Equipamento</h4>${area('inline-dnd-equipment', 'Equipamentos e tesouros', 7)}${area('inline-dnd-attacks', 'Armas e ataques', 5)}</div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="magias"><h4>Magias</h4>${area('inline-dnd-spells', 'Lista de magias e espaços', 8)}${area('inline-dnd-attacks', 'Ataques e conjuração', 4)}</div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="detalhes"><h4>Detalhes</h4>${area('inline-dnd-skills', 'Perícias e salvaguardas', 4)}${area('inline-dnd-personality', 'Traços de personalidade, ideais, vínculos e defeitos', 4)}${area('inline-dnd-backstory', 'História, aliados e organizações', 5)}</div>
+      `;
+    } else if (sistema === 'Vampiro: A Máscara') {
+      conteudo = `
+        <nav class="coc-sheet-tabs vampire-sheet-tabs" aria-label="Seções da ficha de Vampiro: A Máscara"><button type="button" class="coc-sheet-tab active" data-coc-tab="ficha">Ficha</button><button type="button" class="coc-sheet-tab" data-coc-tab="habilidade">Habilidade</button><button type="button" class="coc-sheet-tab" data-coc-tab="historia">História</button></nav>
+        <div class="sheet-editor-section coc-sheet-panel active" data-coc-panel="ficha"><h4>Identidade e crônica</h4><div class="grid-2">
+          ${field('inline-ficha-name', 'Nome do personagem', 'text', 'Nome usado na ficha')}${field('inline-vampire-player', 'Jogador')}${field('inline-vampire-chronicle', 'Crônica')}${field('inline-vampire-concept', 'Conceito')}${field('inline-vampire-clan', 'Clã')}${field('inline-vampire-generation', 'Geração')}${field('inline-vampire-sire', 'Senhor')}${field('inline-vampire-predator', 'Tipo de predador')}${field('inline-vampire-ambition', 'Ambição')}${field('inline-vampire-desire', 'Desejo')}${area('inline-ficha-description', 'Descrição do personagem', 2)}
+        </div><div class="sheet-section-heading"><div><h4>Atributos</h4><p class="attribute-rule-hint">Distribuição V5: atributos começam em 1 e recebem 7/5/3 pontos.</p></div><button type="button" id="btn-roll-vampire-attributes" class="btn btn-secondary">🎲 Distribuir atributos</button></div><div class="grid-3 coc-attribute-grid">
+          ${field('inline-vampire-strength', 'Força', 'number')}${field('inline-vampire-dexterity', 'Destreza', 'number')}${field('inline-vampire-stamina', 'Vigor', 'number')}${field('inline-vampire-charisma', 'Carisma', 'number')}${field('inline-vampire-manipulation', 'Manipulação', 'number')}${field('inline-vampire-composure', 'Compostura', 'number')}${field('inline-vampire-intelligence', 'Inteligência', 'number')}${field('inline-vampire-wits', 'Raciocínio', 'number')}${field('inline-vampire-resolve', 'Determinação', 'number')}
+        </div><h4>Recursos e estado</h4><div class="grid-3">
+          ${field('inline-vampire-health', 'Saúde', 'number')}${field('inline-vampire-willpower', 'Força de vontade', 'number')}${field('inline-vampire-humanity', 'Humanidade', 'number')}${field('inline-vampire-hunger', 'Fome', 'number')}${field('inline-vampire-stains', 'Manchas', 'number')}${field('inline-vampire-blood-potency', 'Potência de sangue', 'number')}
+        </div></div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="habilidade"><h4>Habilidades</h4>${area('inline-vampire-abilities', 'Perícias e habilidades', 4)}${area('inline-vampire-disciplines', 'Disciplinas', 4)}${area('inline-vampire-advantages', 'Vantagens e defeitos', 4)}</div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="historia"><h4>História</h4>${area('inline-vampire-touchstones', 'Âncoras e convicções', 4)}${area('inline-vampire-backstory', 'História e anotações da crônica', 6)}</div>
+      `;
+    } else {
+      conteudo = `
+        <div class="sheet-editor-section"><h4>Identidade do investigador</h4><div class="grid-2">
+          ${field('inline-ficha-name', 'Nome do investigador', 'text', 'Nome usado na ficha')}${field('inline-coc-player', 'Jogador')}${field('inline-coc-occupation', 'Ocupação', 'text', 'Ex: Jornalista')}${field('inline-coc-age', 'Idade', 'number')}${field('inline-coc-sex', 'Sexo')}${field('inline-coc-residence', 'Residência')}${field('inline-coc-birthplace', 'Local de nascimento')}${area('inline-ficha-description', 'Descrição da ficha', 2)}
+        </div></div>
+        <nav class="coc-sheet-tabs" aria-label="Seções da ficha de Call of Cthulhu"><button type="button" class="coc-sheet-tab active" data-coc-tab="caracteristicas">Características</button><button type="button" class="coc-sheet-tab" data-coc-tab="pericias">Perícias</button><button type="button" class="coc-sheet-tab" data-coc-tab="combate">Combate</button><button type="button" class="coc-sheet-tab" data-coc-tab="historico">Histórico</button><button type="button" class="coc-sheet-tab" data-coc-tab="posses">Posses</button></nav>
+        <div class="sheet-editor-section coc-sheet-panel active" data-coc-panel="caracteristicas"><div class="sheet-section-heading"><div><h4>Características</h4><p class="attribute-rule-hint">Rolagem automática: características em 3d6 × 5 e atributos especiais em 2d6+6 × 5.</p></div><button type="button" id="btn-roll-coc-attributes" class="btn btn-secondary">🎲 Rolar atributos</button></div><div class="grid-3 coc-attribute-grid">
+          ${field('inline-coc-str', 'FOR', 'number')}${field('inline-coc-con', 'CON', 'number')}${field('inline-coc-siz', 'TAM', 'number')}${field('inline-coc-dex', 'DES', 'number')}${field('inline-coc-app', 'APA', 'number')}${field('inline-coc-int', 'INT', 'number')}${field('inline-coc-pow', 'POD', 'number')}${field('inline-coc-edu', 'EDU', 'number')}${field('inline-coc-luck', 'Sorte', 'number')}
+        </div></div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="combate"><h4>Combate</h4><div class="grid-3">
+          ${field('inline-coc-hp', 'Pontos de vida', 'number')}${field('inline-coc-sanity', 'SAN', 'number')}${field('inline-coc-mp', 'Pontos de magia', 'number')}${field('inline-coc-move', 'Movimento')}${field('inline-coc-build', 'Construção')}${field('inline-coc-damage', 'Bônus de dano')}
+        </div></div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="pericias"><h4>Perícias</h4>${area('inline-coc-skills', 'Perícias e valores', 6)}</div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="historico"><h4>Histórico</h4>${area('inline-coc-backstory', 'Antecedentes, aliados e anotações', 7)}</div>
+        <div class="sheet-editor-section coc-sheet-panel" data-coc-panel="posses"><h4>Posses</h4>${area('inline-coc-equipment', 'Equipamentos, armas e objetos importantes', 6)}${area('inline-coc-finances', 'Dinheiro e recursos', 3)}</div>
+      `;
+    }
+
+    return `
+      <form id="form-ficha-inline" class="sheet-editor">
+        <div class="sheet-editor-header">
+          <div><span class="systems-kicker">Ficha original do sistema</span><h3>${sistemaConfig.icone} ${sistemaConfig.titulo}</h3></div>
+          <div class="sheet-save-actions">
+            <div class="sheet-destination-control"><label for="inline-ficha-destination">Salvar ficha em:</label><select id="inline-ficha-destination" class="custom-select" required>${pastas.map(pasta => `<option value="${pasta.id}" ${pasta.id === ficha.parentId ? 'selected' : ''}>📁 ${this.escapeHtml(pastaCaminho(pasta))}</option>`).join('')}</select></div>
+            <button type="button" id="btn-cancel-ficha-inline" class="btn btn-secondary">Cancelar</button><button type="submit" class="btn btn-primary">💾 Salvar ficha</button>
+          </div>
+        </div>
+        ${conteudo}
+      </form>
+    `;
+  }
+
+  public static renderRoladorDados(personagem: Personagem | null, fichas: SistemaPasta[], fichaSelecionadaId: string | null, historico: ResultadoRolagem[]): string {
+    const fichaSistema = fichaSelecionadaId ? fichas.find(ficha => ficha.id === fichaSelecionadaId) || null : null;
+    const nomeFicha = fichaSistema?.nome || personagem?.nomePersonagem || '';
+    const sistema = fichaSistema?.sistema || (personagem ? 'D&D' : '');
+    const dados = fichaSistema?.dados || {};
+    const atributos = sistema === 'D&D'
+      ? [['FOR', 'str'], ['DES', 'dex'], ['CON', 'con'], ['INT', 'int'], ['SAB', 'wis'], ['CAR', 'cha']]
+      : sistema === 'Vampiro: A Máscara'
+        ? [['Força', 'strength'], ['Destreza', 'dexterity'], ['Vigor', 'stamina'], ['Carisma', 'charisma'], ['Manipulação', 'manipulation'], ['Compostura', 'composure'], ['Inteligência', 'intelligence'], ['Raciocínio', 'wits'], ['Determinação', 'resolve']]
+        : [['FOR', 'str'], ['CON', 'con'], ['TAM', 'siz'], ['DES', 'dex'], ['APA', 'app'], ['INT', 'int'], ['POD', 'pow'], ['EDU', 'edu'], ['Sorte', 'luck']];
+    const valorDoAtributo = (chave: string): number => {
+      if (fichaSistema) {
+        const prefixo = sistema === 'D&D' ? 'dnd' : sistema === 'Vampiro: A Máscara' ? 'vampire' : 'coc';
+        return Number(
+          dados[`${prefixo}-${chave}`] ||
+          dados[`inline-${prefixo}-${chave}`] ||
+          dados[`guided-${prefixo}-${chave}`] ||
+          dados[chave] ||
+          0
+        );
+      }
+      const valores = { str: personagem?.atributos.forca, dex: personagem?.atributos.destreza, con: personagem?.atributos.constituicao, int: personagem?.atributos.inteligencia, wis: personagem?.atributos.sabedoria, cha: personagem?.atributos.carisma } as Record<string, number | undefined>;
+      return valores[chave] || 0;
+    };
+    const botoesAtributos = atributos.map(([label, chave]) => {
+      const valor = valorDoAtributo(chave);
+      const modificador = sistema === 'D&D' || !fichaSistema ? Math.floor((valor - 10) / 2) : valor;
+      const exibicao = sistema === 'D&D' || !fichaSistema ? `${modificador >= 0 ? '+' : ''}${modificador}` : `${valor}`;
+      return `<button class="btn btn-secondary btn-roll-action" data-attr="${label}" data-value="${valor}" data-system="${sistema}">${label} (${exibicao})</button>`;
+    }).join('');
 
     return `
       <div class="glass-card">
@@ -538,33 +795,20 @@ export class JogadorView {
         <div class="grid-2">
           <!-- Painel de Rolagem de d20 com modificador -->
           <div>
-            <h4 style="margin-bottom: 12px; color: #a5b4fc;">Rolagem d20 com Atributo do Personagem Ativo</h4>
-            ${personagem ? `
+            <h4 style="margin-bottom: 12px; color: #a5b4fc;">Escolha a ficha</h4>
+            <select id="dice-sheet-select" class="custom-select" style="margin-bottom: 14px;">
+              ${personagem ? `<option value="legacy">${personagem.nomePersonagem} (D&D)</option>` : ''}
+              ${fichas.map(ficha => `<option value="${ficha.id}" ${ficha.id === fichaSelecionadaId ? 'selected' : ''}>${ficha.nome} (${ficha.sistema})</option>`).join('')}
+            </select>
+            ${nomeFicha ? `
               <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px;">
-                Personagem selecionado: <strong>${personagem.nomePersonagem}</strong>
+                Ficha selecionada: <strong>${nomeFicha}</strong> <span class="badge">${sistema || 'Sem sistema'}</span>
               </p>
               <div class="grid-3" style="gap: 10px;">
-                <button class="btn btn-secondary btn-roll-action" data-attr="Força" data-mod="${mods?.forca}">
-                  FOR (${mods && mods.forca >= 0 ? '+' : ''}${mods?.forca})
-                </button>
-                <button class="btn btn-secondary btn-roll-action" data-attr="Destreza" data-mod="${mods?.destreza}">
-                  DES (${mods && mods.destreza >= 0 ? '+' : ''}${mods?.destreza})
-                </button>
-                <button class="btn btn-secondary btn-roll-action" data-attr="Constituição" data-mod="${mods?.constituicao}">
-                  CON (${mods && mods.constituicao >= 0 ? '+' : ''}${mods?.constituicao})
-                </button>
-                <button class="btn btn-secondary btn-roll-action" data-attr="Inteligência" data-mod="${mods?.inteligencia}">
-                  INT (${mods && mods.inteligencia >= 0 ? '+' : ''}${mods?.inteligencia})
-                </button>
-                <button class="btn btn-secondary btn-roll-action" data-attr="Sabedoria" data-mod="${mods?.sabedoria}">
-                  SAB (${mods && mods.sabedoria >= 0 ? '+' : ''}${mods?.sabedoria})
-                </button>
-                <button class="btn btn-secondary btn-roll-action" data-attr="Carisma" data-mod="${mods?.carisma}">
-                  CAR (${mods && mods.carisma >= 0 ? '+' : ''}${mods?.carisma})
-                </button>
+                ${botoesAtributos}
               </div>
             ` : `
-              <p style="color: var(--text-dim); font-size: 0.9rem;">Selecione ou crie um personagem para rolar dados com seus modificadores.</p>
+              <p style="color: var(--text-dim); font-size: 0.9rem;">Crie uma ficha para habilitar as rolagens pelos atributos do sistema.</p>
             `}
 
             <!-- Rolagem Livre de Dados -->
@@ -616,5 +860,31 @@ export class JogadorView {
         </div>
       </div>
     `;
+  }
+
+  public static renderInventarioSistemas(fichas: SistemaPasta[], fichaSelecionadaId: string | null): string {
+    const ficha = fichas.find(item => item.id === fichaSelecionadaId) || fichas[0] || null;
+    const itens: SistemaInventarioItem[] = ficha?.inventario || [];
+    const pesoTotal = itens.reduce((total, item) => total + item.peso * item.quantidade, 0);
+
+    return `
+      <div class="systems-workspace inventory-workspace">
+        <div class="systems-heading"><div><span class="systems-kicker">Inventário das fichas</span><h2>🎒 Inventário</h2><p>Escolha uma ficha criada nos Sistemas para consultar e organizar seus itens.</p></div></div>
+        ${fichas.length === 0 ? '<div class="systems-empty"><span>📄</span><strong>Nenhuma ficha criada</strong><p>Crie uma ficha em Sistemas para habilitar seu inventário.</p></div>' : `
+          <div class="inventory-sheet-selector"><label for="inventory-sheet-select">Escolha a ficha:</label><select id="inventory-sheet-select" class="custom-select">${fichas.map(item => `<option value="${item.id}" ${item.id === ficha?.id ? 'selected' : ''}>${this.escapeHtml(item.nome)} (${this.escapeHtml(item.sistema)})</option>`).join('')}</select></div>
+          <div class="system-context"><strong>${this.escapeHtml(ficha?.nome || '')}</strong><span>${this.escapeHtml(ficha?.sistema || '')} • Peso total: ${pesoTotal.toFixed(2)} kg</span></div>
+          <div class="glass-card"><div class="glass-card-header"><div><h3>Itens carregados</h3><p style="font-size: 0.85rem; color: var(--text-muted);">Os itens ficam salvos dentro da ficha selecionada.</p></div></div>
+            <div class="systems-drive-grid inventory-item-grid">${itens.length === 0 ? '<div class="systems-empty"><span>🧺</span><strong>Inventário vazio</strong><p>Adicione o primeiro item abaixo.</p></div>' : itens.map(item => `<article class="inventory-item-card"><div><strong>${this.escapeHtml(item.nome)}</strong><span>${item.quantidade}x • ${(item.peso * item.quantidade).toFixed(2)} kg</span>${item.descricao ? `<small>${this.escapeHtml(item.descricao)}</small>` : ''}</div><button class="btn btn-danger btn-remove-system-item" data-id="${item.id}">Remover</button></article>`).join('')}</div>
+          </div>
+          <form id="form-add-system-item" class="glass-card inventory-add-form"><div class="glass-card-header"><h3>Adicionar item</h3></div><div class="grid-3"><div class="form-group"><label for="system-item-name">Nome:</label><input id="system-item-name" class="form-control" required placeholder="Ex: Lanterna" /></div><div class="form-group"><label for="system-item-quantity">Quantidade:</label><input id="system-item-quantity" class="form-control" type="number" min="1" value="1" /></div><div class="form-group"><label for="system-item-weight">Peso unitário (kg):</label><input id="system-item-weight" class="form-control" type="number" min="0" step="0.01" value="0" /></div></div><div class="form-group"><label for="system-item-description">Descrição:</label><input id="system-item-description" class="form-control" placeholder="Opcional" /></div><button type="submit" class="btn btn-primary">Adicionar ao inventário</button></form>
+        `}
+      </div>
+    `;
+  }
+
+  private static escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 }

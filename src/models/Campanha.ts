@@ -1,5 +1,7 @@
 import { Personagem } from './Personagem';
 import { NPC } from './NPC';
+import type { SistemaPasta } from './SistemaPasta';
+import type { MonstroPasta } from './MonstroPasta';
 
 export class Campanha {
   public idCampanha: string;
@@ -8,6 +10,8 @@ export class Campanha {
   public dataCriacao: string;
   public personagens: Personagem[];
   public npcs: NPC[];
+  public fichas: SistemaPasta[];
+  public monstros: MonstroPasta[];
 
   constructor(
     nomeCampanha: string,
@@ -15,7 +19,9 @@ export class Campanha {
     dataCriacao?: string,
     personagens: Personagem[] = [],
     npcs: NPC[] = [],
-    idCampanha?: string
+    idCampanha?: string,
+    fichas: SistemaPasta[] = [],
+    monstros: MonstroPasta[] = []
   ) {
     this.idCampanha = idCampanha || crypto.randomUUID();
     this.nomeCampanha = nomeCampanha;
@@ -23,6 +29,8 @@ export class Campanha {
     this.dataCriacao = dataCriacao || new Date().toLocaleDateString('pt-BR');
     this.personagens = personagens;
     this.npcs = npcs;
+    this.fichas = fichas;
+    this.monstros = monstros;
   }
 
   public adicionarPersonagem(p: Personagem): void {
