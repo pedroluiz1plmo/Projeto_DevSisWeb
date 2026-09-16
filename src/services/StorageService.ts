@@ -8,8 +8,11 @@ import { Missao } from '../models/Missao';
 import type { SistemaPasta } from '../models/SistemaPasta';
 import type { MonstroPasta } from '../models/MonstroPasta';
 import type { ResultadoRolagem } from './DiceService';
+import type { UserRole } from '../views/RoleSelectionModal';
 
 export class StorageService {
+  private static readonly KEY_USER_ROLE = 'rpg_user_role';
+  private static activeRole: UserRole = 'jogador';
   private static readonly KEY_PERSONAGENS = 'rpg_personagens_v1';
   private static readonly KEY_CAMPANHAS = 'rpg_campanhas_v1';
   private static readonly KEY_NPCS = 'rpg_npcs_v1';
@@ -19,12 +22,29 @@ export class StorageService {
   private static readonly KEY_SISTEMA_PASTAS = 'rpg_sistema_pastas_v1';
   private static readonly KEY_MONSTRO_PASTAS = 'rpg_monstro_pastas_v1';
 
+  public static salvarPerfil(role: UserRole): void {
+    localStorage.setItem(this.KEY_USER_ROLE, role);
+  }
+
+  public static carregarPerfil(): UserRole | null {
+    const role = localStorage.getItem(this.KEY_USER_ROLE);
+    return role === 'jogador' || role === 'mestre' ? role : null;
+  }
+
+  public static definirPerfilAtivo(role: UserRole): void {
+    this.activeRole = role;
+  }
+
+  private static chaveDoPerfil(key: string): string {
+    return `${key}_${this.activeRole}`;
+  }
+
   public static salvarPersonagens(personagens: Personagem[]): void {
-    localStorage.setItem(this.KEY_PERSONAGENS, JSON.stringify(personagens));
+    localStorage.setItem(this.chaveDoPerfil(this.KEY_PERSONAGENS), JSON.stringify(personagens));
   }
 
   public static carregarPersonagens(): Personagem[] {
-    const raw = localStorage.getItem(this.KEY_PERSONAGENS);
+    const raw = localStorage.getItem(this.chaveDoPerfil(this.KEY_PERSONAGENS));
     if (!raw) {
       const padrao = this.obterPersonagensDemonstracao();
       this.salvarPersonagens(padrao);
@@ -74,11 +94,11 @@ export class StorageService {
   }
 
   public static salvarCampanhas(campanhas: Campanha[]): void {
-    localStorage.setItem(this.KEY_CAMPANHAS, JSON.stringify(campanhas));
+    localStorage.setItem(this.chaveDoPerfil(this.KEY_CAMPANHAS), JSON.stringify(campanhas));
   }
 
   public static carregarCampanhas(todosPersonagens: Personagem[], todosNpcs: NPC[]): Campanha[] {
-    const raw = localStorage.getItem(this.KEY_CAMPANHAS);
+    const raw = localStorage.getItem(this.chaveDoPerfil(this.KEY_CAMPANHAS));
     if (!raw) {
       const padrao = this.obterCampanhasDemonstracao(todosPersonagens, todosNpcs);
       this.salvarCampanhas(padrao);
@@ -108,11 +128,11 @@ export class StorageService {
   }
 
   public static salvarNPCs(npcs: NPC[]): void {
-    localStorage.setItem(this.KEY_NPCS, JSON.stringify(npcs));
+    localStorage.setItem(this.chaveDoPerfil(this.KEY_NPCS), JSON.stringify(npcs));
   }
 
   public static carregarNPCs(): NPC[] {
-    const raw = localStorage.getItem(this.KEY_NPCS);
+    const raw = localStorage.getItem(this.chaveDoPerfil(this.KEY_NPCS));
     if (!raw) {
       const padrao = this.obterNpcsDemonstracao();
       this.salvarNPCs(padrao);
@@ -133,11 +153,11 @@ export class StorageService {
   }
 
   public static salvarHistoricoDados(historico: ResultadoRolagem[]): void {
-    localStorage.setItem(this.KEY_DICE_HISTORY, JSON.stringify(historico.slice(0, 30)));
+    localStorage.setItem(this.chaveDoPerfil(this.KEY_DICE_HISTORY), JSON.stringify(historico.slice(0, 30)));
   }
 
   public static carregarHistoricoDados(): ResultadoRolagem[] {
-    const raw = localStorage.getItem(this.KEY_DICE_HISTORY);
+    const raw = localStorage.getItem(this.chaveDoPerfil(this.KEY_DICE_HISTORY));
     if (!raw) return [];
     try {
       return JSON.parse(raw);
@@ -147,11 +167,11 @@ export class StorageService {
   }
 
   public static salvarNotas(notas: Nota[]): void {
-    localStorage.setItem(this.KEY_NOTAS, JSON.stringify(notas));
+    localStorage.setItem(this.chaveDoPerfil(this.KEY_NOTAS), JSON.stringify(notas));
   }
 
   public static carregarNotas(): Nota[] {
-    const raw = localStorage.getItem(this.KEY_NOTAS);
+    const raw = localStorage.getItem(this.chaveDoPerfil(this.KEY_NOTAS));
     if (!raw) {
       const padrao = this.obterNotasDemonstracao();
       this.salvarNotas(padrao);
@@ -167,11 +187,11 @@ export class StorageService {
   }
 
   public static salvarMissoes(missoes: Missao[]): void {
-    localStorage.setItem(this.KEY_MISSOES, JSON.stringify(missoes));
+    localStorage.setItem(this.chaveDoPerfil(this.KEY_MISSOES), JSON.stringify(missoes));
   }
 
   public static carregarMissoes(): Missao[] {
-    const raw = localStorage.getItem(this.KEY_MISSOES);
+    const raw = localStorage.getItem(this.chaveDoPerfil(this.KEY_MISSOES));
     if (!raw) {
       const padrao = this.obterMissoesDemonstracao();
       this.salvarMissoes(padrao);
@@ -187,11 +207,11 @@ export class StorageService {
   }
 
   public static salvarSistemaPastas(itens: SistemaPasta[]): void {
-    localStorage.setItem(this.KEY_SISTEMA_PASTAS, JSON.stringify(itens));
+    localStorage.setItem(this.chaveDoPerfil(this.KEY_SISTEMA_PASTAS), JSON.stringify(itens));
   }
 
   public static carregarSistemaPastas(): SistemaPasta[] {
-    const raw = localStorage.getItem(this.KEY_SISTEMA_PASTAS);
+    const raw = localStorage.getItem(this.chaveDoPerfil(this.KEY_SISTEMA_PASTAS));
     if (!raw) {
       const padrao = this.obterSistemasDemonstracao();
       this.salvarSistemaPastas(padrao);
@@ -217,11 +237,11 @@ export class StorageService {
   }
 
   public static salvarMonstroPastas(itens: MonstroPasta[]): void {
-    localStorage.setItem(this.KEY_MONSTRO_PASTAS, JSON.stringify(itens));
+    localStorage.setItem(this.chaveDoPerfil(this.KEY_MONSTRO_PASTAS), JSON.stringify(itens));
   }
 
   public static carregarMonstroPastas(): MonstroPasta[] {
-    const raw = localStorage.getItem(this.KEY_MONSTRO_PASTAS);
+    const raw = localStorage.getItem(this.chaveDoPerfil(this.KEY_MONSTRO_PASTAS));
     if (!raw) return [];
     try {
       return JSON.parse(raw) as MonstroPasta[];

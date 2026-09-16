@@ -29,45 +29,36 @@
             <span class="nav-label">Início</span>
           </button>
           
-          <div class="nav-section-title">VISÃO DO JOGADOR</div>
-          <button id="nav-sistemas" class="nav-item" data-tab="sistemas">
+          <div class="nav-section-title" data-role-view="jogador mestre">FERRAMENTAS DA MESA</div>
+          <button id="nav-sistemas" class="nav-item" data-tab="sistemas" data-role-view="jogador mestre">
             <span class="nav-icon">🗂️</span>
             <span class="nav-label">Sistemas</span>
           </button>
-          <button id="nav-inventario-sistemas" class="nav-item" data-tab="inventario-sistemas">
+          <button id="nav-inventario-sistemas" class="nav-item" data-tab="inventario-sistemas" data-role-view="jogador mestre">
             <span class="nav-icon">🎒</span>
             <span class="nav-label">Inventário</span>
           </button>
-          <button id="nav-dados" class="nav-item" data-tab="dados">
+          <button id="nav-dados" class="nav-item" data-tab="dados" data-role-view="jogador mestre">
             <span class="nav-icon">🎯</span>
             <span class="nav-label">Rolagem de Dados</span>
           </button>
 
-          <div class="nav-section-title">VISÃO DO MESTRE (GM)</div>
-          <button id="nav-campanhas" class="nav-item" data-tab="campanhas">
+          <div class="nav-section-title" data-role-view="mestre">VISÃO DO MESTRE (GM)</div>
+          <button id="nav-campanhas" class="nav-item" data-tab="campanhas" data-role-view="mestre">
             <span class="nav-icon">📜</span>
             <span class="nav-label">Campanhas</span>
           </button>
-          <button id="nav-npcs" class="nav-item" data-tab="npcs">
+          <button id="nav-npcs" class="nav-item" data-tab="npcs" data-role-view="mestre">
             <span class="nav-icon">🐉</span>
             <span class="nav-label">Monstros</span>
           </button>
-          <button id="nav-iniciativa" class="nav-item" data-tab="iniciativa">
+          <button id="nav-iniciativa" class="nav-item" data-tab="iniciativa" data-role-view="mestre">
             <span class="nav-icon">⚔️</span>
             <span class="nav-label">Iniciativa & Combate</span>
           </button>
 
         </nav>
 
-        <div class="sidebar-footer">
-          <div class="user-profile-badge">
-            <div class="avatar">🧙‍♂️</div>
-            <div class="user-details">
-              <span class="user-name">Pedro & Danny</span>
-              <span class="user-role">Prof. Maricy Caregnato</span>
-            </div>
-          </div>
-        </div>
       </aside>
 
       <!-- Main Content Container -->
@@ -79,6 +70,7 @@
             <p id="page-subtitle">Seu espaço para criar personagens e viver aventuras</p>
           </div>
           <div class="topbar-actions">
+            <button id="btn-switch-role" class="btn btn-secondary" type="button" title="Alterar visão"></button>
             <div class="character-quick-select">
               <label for="active-character-select">Personagem Ativo:</label>
               <select id="active-character-select" class="custom-select"></select>

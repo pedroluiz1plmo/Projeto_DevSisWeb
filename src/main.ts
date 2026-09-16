@@ -16,6 +16,7 @@ import { DiceService, type ResultadoRolagem } from './services/DiceService';
 import { DashboardView } from './views/DashboardView';
 import { JogadorView } from './views/JogadorView';
 import { MestreView } from './views/MestreView';
+import { RoleSelectionModal, type UserRole } from './views/RoleSelectionModal';
 
 class AppController {
   private personagens: Personagem[] = [];
@@ -43,9 +44,12 @@ class AppController {
   private monstroEmEdicaoId: string | null = null;
   private criandoMonstro = false;
   private currentTab: string = 'dashboard';
+  private userRole: UserRole | null = null;
   private wizardStep: number = 1;
 
   constructor() {
+    this.userRole = StorageService.carregarPerfil();
+    StorageService.definirPerfilAtivo(this.userRole || 'jogador');
     // Carregar dados salvos ou dados de demonstração
     this.personagens = StorageService.carregarPersonagens();
     this.npcs = StorageService.carregarNPCs();
@@ -64,9 +68,14 @@ class AppController {
       this.personagemAtivoId = this.personagens[0].idPersonagem;
     }
 
+    this.userRole = StorageService.carregarPerfil();
+    if (this.userRole) {
+      this.currentTab = this.userRole === 'jogador' ? 'sistemas' : 'campanhas';
+    }
     this.initEventListeners();
     this.updateCharacterSelector();
-    this.renderCurrentView();
+    this.applyRoleView();
+    if (!this.userRole) this.openRoleSelection();
   }
 
   private get personagemAtivo(): Personagem | null {
@@ -85,6 +94,8 @@ class AppController {
         }
       });
     });
+
+    document.getElementById('btn-switch-role')?.addEventListener('click', () => this.openRoleSelection());
 
     // Seletor de Personagem Ativo no Topbar
     const charSelect = document.getElementById('active-character-select') as HTMLSelectElement;
@@ -121,6 +132,42 @@ class AppController {
 
     // Inicializar eventos dos pop-ups de Nota e Missão
     this.initPopupEvents();
+  }
+
+  private openRoleSelection(): void {
+    document.getElementById('role-selection-modal')?.remove();
+    document.body.insertAdjacentHTML('beforeend', RoleSelectionModal.render());
+    document.querySelectorAll<HTMLButtonElement>('#role-selection-modal [data-role]').forEach(button => {
+      button.addEventListener('click', () => {
+        const role = button.dataset.role as UserRole;
+        if (role === 'jogador' || role === 'mestre') this.selectRole(role);
+      });
+    });
+  }
+
+  private selectRole(role: UserRole): void {
+    this.userRole = role;
+    StorageService.salvarPerfil(role);
+    StorageService.definirPerfilAtivo(role);
+    setTimeout(() => window.location.reload(), 0);
+    document.getElementById('role-selection-modal')?.remove();
+    this.currentTab = role === 'jogador' ? 'sistemas' : 'campanhas';
+    this.applyRoleView();
+    this.showToast(`Visão de ${role === 'jogador' ? 'Jogador' : 'Mestre'} ativada.`);
+  }
+
+  private applyRoleView(): void {
+    const role = this.userRole;
+    document.querySelectorAll<HTMLElement>('[data-role-view]').forEach(element => {
+      const allowedRoles = element.dataset.roleView?.split(' ') || [];
+      element.classList.toggle('hidden', Boolean(role && !allowedRoles.includes(role)));
+    });
+    const switchButton = document.getElementById('btn-switch-role');
+    if (switchButton && role) {
+      switchButton.textContent = role === 'jogador' ? '🎲 Jogador' : '👑 Mestre';
+      switchButton.setAttribute('aria-label', 'Alterar visão do sistema');
+    }
+    this.switchTab(this.currentTab);
   }
 
   /* ================= POP-UPS NOTA E MISSÃO ================= */
