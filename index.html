@@ -14,7 +14,8 @@
   <body>
     <div id="app" class="app-container">
       <!-- Sidebar Navigation -->
-      <aside class="sidebar">
+      <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+      <aside id="sidebar" class="sidebar" aria-label="Navegação principal">
         <div class="sidebar-header">
           <div class="logo-icon">🎲</div>
           <div class="logo-text">
@@ -65,6 +66,9 @@
       <main class="main-content">
         <!-- Topbar -->
         <header class="topbar">
+          <button id="btn-menu-toggle" class="btn-icon menu-toggle" type="button" aria-label="Abrir menu" aria-controls="sidebar" aria-expanded="false">
+            ☰
+          </button>
           <div class="page-title-container">
             <h1 id="page-title">RPG Hub</h1>
             <p id="page-subtitle">Seu espaço para criar personagens e viver aventuras</p>

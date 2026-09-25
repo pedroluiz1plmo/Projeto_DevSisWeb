@@ -84,6 +84,15 @@ class AppController {
   }
 
   private initEventListeners(): void {
+    const menuToggle = document.getElementById('btn-menu-toggle');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+    const closeNavigation = () => this.setNavigationOpen(false);
+    menuToggle?.addEventListener('click', () => this.setNavigationOpen());
+    sidebarBackdrop?.addEventListener('click', closeNavigation);
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeNavigation();
+    });
+
     // Navegação lateral por abas
     const navButtons = document.querySelectorAll<HTMLButtonElement>('.nav-item');
     navButtons.forEach(btn => {
@@ -91,6 +100,7 @@ class AppController {
         const tab = btn.getAttribute('data-tab');
         if (tab) {
           this.switchTab(tab);
+          closeNavigation();
         }
       });
     });
@@ -132,6 +142,19 @@ class AppController {
 
     // Inicializar eventos dos pop-ups de Nota e Missão
     this.initPopupEvents();
+  }
+
+  private setNavigationOpen(force?: boolean): void {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    const toggle = document.getElementById('btn-menu-toggle');
+    if (!sidebar || !backdrop || !toggle) return;
+
+    const isOpen = force ?? !sidebar.classList.contains('is-open');
+    sidebar.classList.toggle('is-open', isOpen);
+    backdrop.classList.toggle('is-visible', isOpen);
+    toggle.setAttribute('aria-expanded', String(isOpen));
+    toggle.setAttribute('aria-label', isOpen ? 'Fechar menu' : 'Abrir menu');
   }
 
   private openRoleSelection(): void {

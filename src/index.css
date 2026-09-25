@@ -36,12 +36,22 @@
 
   --shadow-card: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
   --shadow-glow: 0 0 20px var(--primary-glow);
+  --sidebar-desktop-width: 270px;
+  --sidebar-tablet-width: 220px;
 }
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+img, svg {
+  max-width: 100%;
+}
+
+h1, h2, h3, h4, h5, h6, p, span, strong, small, label {
+  overflow-wrap: anywhere;
 }
 
 body {
@@ -65,7 +75,7 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 270px;
+  width: var(--sidebar-desktop-width);
   background-color: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -392,6 +402,7 @@ body {
 }
 
 .form-control, .custom-select, textarea {
+  width: 100%;
   background: var(--bg-input);
   border: 1px solid var(--border-color);
   color: var(--text-main);
@@ -632,6 +643,17 @@ body {
   overflow-y: auto;
 }
 
+.menu-toggle {
+  display: none;
+  flex: 0 0 auto;
+  color: var(--text-main);
+  font-size: 1.5rem;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
 /* Seleção de perfil */
 .role-selection-backdrop { z-index: 3000; padding: 20px; }
 .role-selection-modal { max-width: 680px; padding: 32px; text-align: center; border: 1px solid var(--border-active); box-shadow: var(--shadow-card), 0 0 45px var(--primary-glow); }
@@ -722,6 +744,24 @@ body {
 
 /* Responsiveness */
 @media (max-width: 1024px) {
+  .sidebar {
+    width: var(--sidebar-tablet-width);
+    padding: 20px 12px;
+  }
+  .topbar, .content-body {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .topbar-actions {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .character-quick-select {
+    min-width: 0;
+  }
+  .character-quick-select .custom-select {
+    min-width: 0;
+  }
   .grid-3, .grid-4 {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -730,23 +770,93 @@ body {
   }
 }
 
-@media (max-width: 768px) {
-  .app-container {
-    flex-direction: column;
-  }
+@media (max-width: 599px) {
   .sidebar {
-    width: 100%;
-    height: auto;
-    position: relative;
+    width: min(82vw, 320px);
+    height: 100dvh;
+    position: fixed;
+    left: 0;
+    top: 0;
+    padding: 20px 14px;
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow-card);
+  }
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+  .sidebar-backdrop.is-visible {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .menu-toggle {
+    display: inline-flex;
+  }
+  .main-content {
+    max-height: none;
+    min-height: 100dvh;
+    overflow: visible;
   }
   .topbar {
-    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px;
     align-items: flex-start;
-    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .page-title-container {
+    flex: 1;
+    min-width: 0;
+  }
+  .page-title-container h1 {
+    font-size: 1.2rem;
+  }
+  .page-title-container p {
+    overflow-wrap: anywhere;
   }
   .topbar-actions {
     flex-wrap: wrap;
     width: 100%;
+    gap: 8px;
+  }
+  .topbar-actions > .btn,
+  .character-quick-select {
+    flex: 1 1 140px;
+  }
+  .character-quick-select {
+    min-width: 0;
+    padding: 6px 8px;
+  }
+  .character-quick-select label {
+    display: none;
+  }
+  .character-quick-select .custom-select {
+    width: 100%;
+    min-width: 0;
+  }
+  .content-body {
+    padding: 16px;
+  }
+  .content-body [style*="display: flex"] {
+    flex-wrap: wrap;
+  }
+  .content-body [style*="justify-content: space-between"] {
+    gap: 10px;
+  }
+  .btn {
+    white-space: normal;
+    text-align: center;
+  }
+  .wizard-stepper {
+    gap: 4px;
+  }
+  .step-item {
+    padding: 0 3px;
+  }
+  .step-label {
+    display: none;
   }
   .grid-2, .grid-3, .grid-4 {
     grid-template-columns: 1fr;
@@ -756,6 +866,34 @@ body {
   }
   .role-selection-modal { padding: 24px 18px; }
   .role-options { grid-template-columns: 1fr; }
+  .glass-card {
+    padding: 16px;
+  }
+  .glass-card-header,
+  .modal-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal-content,
+  .modal-popup-lg {
+    width: 100%;
+    max-width: none;
+    max-height: 92dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .toast-container {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+  .toast {
+    width: 100%;
+  }
 }
 
 /* ================= POP-UPS NOTA E MISSÃO ================= */
