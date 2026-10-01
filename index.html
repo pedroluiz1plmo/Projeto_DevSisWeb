@@ -12,6 +12,42 @@
     <link rel="stylesheet" href="/src/index.css" />
   </head>
   <body>
+    <section id="auth-gateway" class="auth-gateway" aria-label="Acesso ao RPG Manager">
+      <div class="auth-gateway-card glass-card">
+        <div id="auth-welcome" class="auth-screen">
+          <div class="auth-symbol" aria-hidden="true">🎲</div>
+          <h1>RPG MANAGER</h1>
+          <p>Bem-vindo ao seu espaço para criar personagens e viver aventuras.</p>
+          <button id="btn-auth-login" class="btn btn-primary auth-action">Entrar na conta</button>
+          <button id="btn-auth-register" class="btn btn-secondary auth-action">Criar uma conta</button>
+          <button id="btn-auth-guest" class="btn btn-icon-text">Continuar sem login</button>
+        </div>
+
+        <form id="auth-login-form" class="auth-screen hidden">
+          <button type="button" class="btn-auth-back btn-icon" aria-label="Voltar">←</button>
+          <h1>LOGIN</h1>
+          <div class="form-group"><label for="auth-login-identifier">Usuário ou e-mail</label><input id="auth-login-identifier" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-login-password">Senha</label><input id="auth-login-password" type="password" class="form-control" required /></div>
+          <p id="auth-login-error" class="auth-error hidden" role="alert"></p>
+          <button type="submit" class="btn btn-primary auth-action">Entrar</button>
+          <button type="button" id="btn-login-register" class="btn btn-icon-text">Criar uma conta</button>
+          <button type="button" class="btn-auth-guest btn btn-icon-text">Continuar sem login</button>
+        </form>
+
+        <form id="auth-register-form" class="auth-screen hidden">
+          <button type="button" class="btn-auth-back btn-icon" aria-label="Voltar">←</button>
+          <h1>CADASTRO</h1>
+          <div class="form-group"><label for="auth-register-name">Nome</label><input id="auth-register-name" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-register-username">Usuário</label><input id="auth-register-username" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-register-email">E-mail</label><input id="auth-register-email" type="email" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-register-password">Senha</label><input id="auth-register-password" type="password" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-register-confirm">Confirmar senha</label><input id="auth-register-confirm" type="password" class="form-control" required /></div>
+          <p id="auth-register-error" class="auth-error hidden" role="alert"></p>
+          <button type="submit" class="btn btn-primary auth-action">Criar conta</button>
+          <button type="button" id="btn-register-login" class="btn btn-icon-text">Já possui uma conta? Entrar</button>
+        </form>
+      </div>
+    </section>
     <div id="app" class="app-container">
       <!-- Sidebar Navigation -->
       <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
@@ -89,6 +125,20 @@
               🎲 Rolar d20
             </button>
           </div>
+          <div id="user-profile-menu" class="header-user-profile hidden">
+            <button id="btn-user-profile" class="header-user-trigger" type="button" aria-label="Abrir menu do usuário" aria-haspopup="menu" aria-expanded="false">
+              <span id="header-user-avatar" class="header-user-avatar" aria-hidden="true"></span>
+              <span class="header-user-identity">
+                <strong id="header-user-name"></strong>
+                <small id="header-user-username"></small>
+              </span>
+              <span class="header-user-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div id="user-profile-dropdown" class="header-user-dropdown hidden" role="menu">
+              <button id="btn-my-profile" type="button" role="menuitem">⚙ Meu perfil / configurações</button>
+              <button id="btn-user-logout" type="button" role="menuitem" class="header-logout-action">↪ Sair / Logout</button>
+            </div>
+          </div>
         </header>
 
         <!-- Dynamic Content Area -->
@@ -110,6 +160,36 @@
           <div class="modal-body" id="dice-modal-body">
             <!-- Dynamic Dice Body -->
           </div>
+        </div>
+      </div>
+
+      <!-- Configurações da conta do usuário autenticado -->
+      <div id="account-settings-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="account-settings-title">
+        <div class="modal-content glass-card account-settings-modal">
+          <div class="modal-header">
+            <div>
+              <h3 id="account-settings-title">⚙ Configurações da conta</h3>
+              <p class="account-settings-subtitle">Atualize os dados da sua conta.</p>
+            </div>
+            <button id="btn-close-account-settings" type="button" class="btn-icon" aria-label="Fechar configurações">✕</button>
+          </div>
+          <form id="account-settings-form">
+            <div class="account-avatar-preview">
+              <span id="account-settings-avatar" class="header-user-avatar" aria-hidden="true"></span>
+              <div><strong>Avatar do perfil</strong><small>Seu avatar é formado automaticamente pelas iniciais do nome.</small></div>
+            </div>
+            <div class="form-group"><label for="account-settings-name">Nome</label><input id="account-settings-name" class="form-control" required maxlength="120" /></div>
+            <div class="form-group"><label for="account-settings-username">Nickname / Username</label><input id="account-settings-username" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_.-]+" /></div>
+            <div class="form-group"><label for="account-settings-email">E-mail</label><input id="account-settings-email" type="email" class="form-control" required maxlength="254" /></div>
+            <div class="account-password-section">
+              <h4>Alterar senha <small>Opcional</small></h4>
+              <div class="form-group"><label for="account-settings-current-password">Senha atual</label><input id="account-settings-current-password" type="password" class="form-control" autocomplete="current-password" /></div>
+              <div class="form-group"><label for="account-settings-new-password">Nova senha</label><input id="account-settings-new-password" type="password" class="form-control" autocomplete="new-password" minlength="8" /></div>
+              <div class="form-group"><label for="account-settings-password-confirmation">Confirmar nova senha</label><input id="account-settings-password-confirmation" type="password" class="form-control" autocomplete="new-password" /></div>
+            </div>
+            <p id="account-settings-error" class="auth-error hidden" role="alert"></p>
+            <div class="account-settings-actions"><button id="btn-cancel-account-settings" type="button" class="btn btn-secondary">Cancelar</button><button id="btn-save-account-settings" type="submit" class="btn btn-primary">Salvar alterações</button></div>
+          </form>
         </div>
       </div>
 

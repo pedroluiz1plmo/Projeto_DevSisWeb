@@ -18,7 +18,17 @@ import { JogadorView } from './views/JogadorView';
 import { MestreView } from './views/MestreView';
 import { RoleSelectionModal, type UserRole } from './views/RoleSelectionModal';
 
+type AuthenticatedUser = {
+  id: number;
+  name: string;
+  username: string;
+  email?: string;
+  avatarUrl?: string;
+};
+
 class AppController {
+  private authToken: string | null = null;
+  private authenticatedUser: AuthenticatedUser | null = null;
   private personagens: Personagem[] = [];
   private campanhas: Campanha[] = [];
   private npcs: NPC[] = [];
@@ -75,7 +85,116 @@ class AppController {
     this.initEventListeners();
     this.updateCharacterSelector();
     this.applyRoleView();
-    if (!this.userRole) this.openRoleSelection();
+    this.initAuthGateway();
+    void this.restoreAuthenticatedSession();
+  }
+
+  private initAuthGateway(): void {
+    const gateway = document.getElementById('auth-gateway');
+    const screens = document.querySelectorAll<HTMLElement>('.auth-screen');
+    const showScreen = (id: string) => screens.forEach(screen => screen.classList.toggle('hidden', screen.id !== id));
+    const showError = (id: string, message: string) => {
+      const error = document.getElementById(id);
+      if (error) { error.textContent = message; error.classList.remove('hidden'); }
+    };
+    const enterApp = () => gateway?.classList.add('hidden');
+    const authFetch = (path: string, body: unknown) => fetch(`http://localhost:3000/api${path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    document.getElementById('btn-auth-login')?.addEventListener('click', () => showScreen('auth-login-form'));
+    document.getElementById('btn-auth-register')?.addEventListener('click', () => showScreen('auth-register-form'));
+    document.getElementById('btn-login-register')?.addEventListener('click', () => showScreen('auth-register-form'));
+    document.getElementById('btn-register-login')?.addEventListener('click', () => showScreen('auth-login-form'));
+    document.querySelectorAll('.btn-auth-back').forEach(button => button.addEventListener('click', () => showScreen('auth-welcome')));
+    document.getElementById('btn-auth-guest')?.addEventListener('click', enterApp);
+    document.querySelectorAll('.btn-auth-guest').forEach(button => button.addEventListener('click', enterApp));
+
+    document.getElementById('auth-login-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const identifier = (document.getElementById('auth-login-identifier') as HTMLInputElement).value.trim();
+      const password = (document.getElementById('auth-login-password') as HTMLInputElement).value;
+      try {
+        const response = await authFetch('/auth/login', { identifier, password });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message);
+        this.setAuthenticatedUser(data.user, data.token);
+        enterApp();
+        this.showToast(`Bem-vindo, ${data.user.username}!`);
+      } catch (error) {
+        showError('auth-login-error', error instanceof Error ? error.message : 'Não foi possível entrar. Tente novamente.');
+      }
+    });
+
+    document.getElementById('auth-register-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const password = (document.getElementById('auth-register-password') as HTMLInputElement).value;
+      const confirmation = (document.getElementById('auth-register-confirm') as HTMLInputElement).value;
+      if (password !== confirmation) return showError('auth-register-error', 'As senhas não coincidem.');
+      const body = {
+        name: (document.getElementById('auth-register-name') as HTMLInputElement).value.trim(),
+        username: (document.getElementById('auth-register-username') as HTMLInputElement).value.trim(),
+        email: (document.getElementById('auth-register-email') as HTMLInputElement).value.trim(), password,
+      };
+      try {
+        const response = await authFetch('/auth/register', body);
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message);
+        this.setAuthenticatedUser(data.user, data.token);
+        enterApp();
+        this.showToast(`Conta criada. Bem-vindo, ${data.user.username}!`);
+      } catch (error) {
+        showError('auth-register-error', error instanceof Error ? error.message : 'Não foi possível criar a conta. Tente novamente.');
+      }
+    });
+  }
+
+  private setAuthenticatedUser(user: AuthenticatedUser, token: string): void {
+    this.authToken = token;
+    this.authenticatedUser = user;
+    sessionStorage.setItem('rpgHubAuthToken', token);
+    this.renderAuthenticatedUser();
+  }
+
+  private async restoreAuthenticatedSession(): Promise<void> {
+    const token = sessionStorage.getItem('rpgHubAuthToken');
+    if (!token) return;
+
+    try {
+      const response = await fetch('http://localhost:3000/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.authenticated) throw new Error('Sessão inválida');
+      this.authToken = token;
+      this.authenticatedUser = data.user;
+      this.renderAuthenticatedUser();
+      document.getElementById('auth-gateway')?.classList.add('hidden');
+    } catch {
+      sessionStorage.removeItem('rpgHubAuthToken');
+    }
+  }
+
+  private renderAuthenticatedUser(): void {
+    const profile = document.getElementById('user-profile-menu');
+    const user = this.authenticatedUser;
+    if (!profile || !user) return;
+
+    const avatar = document.getElementById('header-user-avatar');
+    const name = document.getElementById('header-user-name');
+    const username = document.getElementById('header-user-username');
+    if (avatar) {
+      avatar.textContent = this.getUserInitials(user.name || user.username);
+      avatar.style.backgroundImage = user.avatarUrl ? `url("${user.avatarUrl}")` : '';
+      avatar.classList.toggle('has-image', Boolean(user.avatarUrl));
+    }
+    if (name) name.textContent = user.name;
+    if (username) username.textContent = `@${user.username}`;
+    profile.classList.remove('hidden');
+  }
+
+  private getUserInitials(name: string): string {
+    return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'U';
   }
 
   private get personagemAtivo(): Personagem | null {
@@ -90,8 +209,33 @@ class AppController {
     menuToggle?.addEventListener('click', () => this.setNavigationOpen());
     sidebarBackdrop?.addEventListener('click', closeNavigation);
     window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') closeNavigation();
+      if (event.key === 'Escape') {
+        closeNavigation();
+        this.setUserMenuOpen(false);
+        this.closeAccountSettings();
+      }
     });
+
+    document.getElementById('btn-user-profile')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.setUserMenuOpen();
+    });
+    document.getElementById('btn-my-profile')?.addEventListener('click', () => {
+      this.setUserMenuOpen(false);
+      void this.openAccountSettings();
+    });
+    document.getElementById('btn-user-logout')?.addEventListener('click', () => void this.logout());
+    document.addEventListener('click', (event) => {
+      const target = event.target as Element;
+      if (!target.closest('#user-profile-menu')) this.setUserMenuOpen(false);
+    });
+
+    document.getElementById('btn-close-account-settings')?.addEventListener('click', () => this.closeAccountSettings());
+    document.getElementById('btn-cancel-account-settings')?.addEventListener('click', () => this.closeAccountSettings());
+    document.getElementById('account-settings-modal')?.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) this.closeAccountSettings();
+    });
+    document.getElementById('account-settings-form')?.addEventListener('submit', (event) => void this.saveAccountSettings(event));
 
     // Navegação lateral por abas
     const navButtons = document.querySelectorAll<HTMLButtonElement>('.nav-item');
@@ -155,6 +299,114 @@ class AppController {
     backdrop.classList.toggle('is-visible', isOpen);
     toggle.setAttribute('aria-expanded', String(isOpen));
     toggle.setAttribute('aria-label', isOpen ? 'Fechar menu' : 'Abrir menu');
+  }
+
+  private setUserMenuOpen(force?: boolean): void {
+    const dropdown = document.getElementById('user-profile-dropdown');
+    const trigger = document.getElementById('btn-user-profile');
+    if (!dropdown || !trigger || !this.authenticatedUser) return;
+    const isOpen = force ?? dropdown.classList.contains('hidden');
+    dropdown.classList.toggle('hidden', !isOpen);
+    trigger.setAttribute('aria-expanded', String(isOpen));
+  }
+
+  private async logout(): Promise<void> {
+    const token = this.authToken;
+    try {
+      if (token) {
+        await fetch('http://localhost:3000/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        });
+      }
+    } finally {
+      this.authToken = null;
+      this.authenticatedUser = null;
+      sessionStorage.removeItem('rpgHubAuthToken');
+      this.setUserMenuOpen(false);
+      document.getElementById('user-profile-menu')?.classList.add('hidden');
+      document.getElementById('auth-gateway')?.classList.remove('hidden');
+      document.querySelectorAll<HTMLElement>('.auth-screen').forEach(screen => screen.classList.toggle('hidden', screen.id !== 'auth-welcome'));
+      this.showToast('Você saiu da sua conta.');
+    }
+  }
+
+  private async openAccountSettings(): Promise<void> {
+    if (!this.authToken) return;
+    const modal = document.getElementById('account-settings-modal');
+    const error = document.getElementById('account-settings-error');
+    if (!modal) return;
+    if (error) error.classList.add('hidden');
+
+    try {
+      const response = await fetch('http://localhost:3000/api/auth/me', { headers: { Authorization: `Bearer ${this.authToken}` } });
+      const data = await response.json();
+      if (!response.ok || !data.authenticated) throw new Error('Sua sessão expirou. Faça login novamente.');
+      this.authenticatedUser = data.user;
+      this.renderAuthenticatedUser();
+      const user = this.authenticatedUser;
+      if (!user) throw new Error('Não foi possível carregar os dados da conta.');
+      (document.getElementById('account-settings-name') as HTMLInputElement).value = user.name;
+      (document.getElementById('account-settings-username') as HTMLInputElement).value = user.username;
+      (document.getElementById('account-settings-email') as HTMLInputElement).value = user.email || '';
+      (document.getElementById('account-settings-current-password') as HTMLInputElement).value = '';
+      (document.getElementById('account-settings-new-password') as HTMLInputElement).value = '';
+      (document.getElementById('account-settings-password-confirmation') as HTMLInputElement).value = '';
+      const avatar = document.getElementById('account-settings-avatar');
+      if (avatar) avatar.textContent = this.getUserInitials(user.name || user.username);
+      modal.classList.remove('hidden');
+    } catch (error) {
+      this.showToast(error instanceof Error ? error.message : 'Não foi possível carregar seus dados.');
+    }
+  }
+
+  private closeAccountSettings(): void {
+    document.getElementById('account-settings-modal')?.classList.add('hidden');
+  }
+
+  private async saveAccountSettings(event: Event): Promise<void> {
+    event.preventDefault();
+    if (!this.authToken || !this.authenticatedUser) return;
+    const name = (document.getElementById('account-settings-name') as HTMLInputElement).value.trim();
+    const username = (document.getElementById('account-settings-username') as HTMLInputElement).value.trim();
+    const email = (document.getElementById('account-settings-email') as HTMLInputElement).value.trim();
+    const currentPassword = (document.getElementById('account-settings-current-password') as HTMLInputElement).value;
+    const newPassword = (document.getElementById('account-settings-new-password') as HTMLInputElement).value;
+    const confirmation = (document.getElementById('account-settings-password-confirmation') as HTMLInputElement).value;
+    const errorElement = document.getElementById('account-settings-error');
+    const submitButton = document.getElementById('btn-save-account-settings') as HTMLButtonElement | null;
+    const showError = (message: string) => { if (errorElement) { errorElement.textContent = message; errorElement.classList.remove('hidden'); } };
+
+    if (!name || !username || !email) return showError('Preencha nome, nickname e e-mail.');
+    if (newPassword || currentPassword || confirmation) {
+      if (!currentPassword || !newPassword || !confirmation) return showError('Para alterar a senha, informe a senha atual, a nova senha e a confirmação.');
+      if (newPassword.length < 8) return showError('A nova senha deve ter pelo menos 8 caracteres.');
+      if (newPassword !== confirmation) return showError('A confirmação da nova senha não coincide.');
+    }
+
+    try {
+      if (errorElement) errorElement.classList.add('hidden');
+      if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Salvando...'; }
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${this.authToken}` };
+      const profileResponse = await fetch('http://localhost:3000/api/users/me', { method: 'PUT', headers, body: JSON.stringify({ name, username, email }) });
+      const profileData = await profileResponse.json();
+      if (!profileResponse.ok || !profileData.success) throw new Error(profileData.message || 'Não foi possível atualizar o perfil.');
+
+      if (newPassword) {
+        const passwordResponse = await fetch('http://localhost:3000/api/users/me/password', { method: 'PUT', headers, body: JSON.stringify({ currentPassword, newPassword }) });
+        const passwordData = await passwordResponse.json();
+        if (!passwordResponse.ok || !passwordData.success) throw new Error(passwordData.message || 'Não foi possível alterar a senha.');
+      }
+
+      this.authenticatedUser = profileData.user;
+      this.renderAuthenticatedUser();
+      this.closeAccountSettings();
+      this.showToast(newPassword ? 'Perfil e senha atualizados com sucesso.' : 'Perfil atualizado com sucesso.');
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Não foi possível salvar as alterações.');
+    } finally {
+      if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Salvar alterações'; }
+    }
   }
 
   private openRoleSelection(): void {
