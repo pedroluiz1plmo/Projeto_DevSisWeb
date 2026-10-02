@@ -17,6 +17,9 @@ import { DashboardView } from './views/DashboardView';
 import { JogadorView } from './views/JogadorView';
 import { MestreView } from './views/MestreView';
 import { RoleSelectionModal, type UserRole } from './views/RoleSelectionModal';
+import { SidebarView } from './views/SidebarView';
+
+new SidebarView();
 
 type AuthenticatedUser = {
   id: number;
@@ -39,8 +42,8 @@ class AppController {
   private sistemaItens: SistemaPasta[] = [];
   private monstroItens: MonstroPasta[] = [];
 
-  private jogador: Jogador;
-  private mestre: Mestre;
+  private jogador!: Jogador;
+  private mestre!: Mestre;
 
   private personagemAtivoId: string | null = null;
   private pastaSistemaAtualId: string | null = null;
@@ -56,11 +59,20 @@ class AppController {
   private currentTab: string = 'dashboard';
   private userRole: UserRole | null = null;
   private wizardStep: number = 1;
+  private privateAreaInitialized = false;
 
   constructor() {
+    this.initEventListeners();
+    this.initAuthGateway();
+    void this.restoreAuthenticatedSession();
+  }
+
+  /** Carrega dados e views internas somente depois que uma sessão foi autenticada. */
+  private initializePrivateArea(): void {
+    if (this.privateAreaInitialized) return;
+    this.privateAreaInitialized = true;
     this.userRole = StorageService.carregarPerfil();
     StorageService.definirPerfilAtivo(this.userRole || 'jogador');
-    // Carregar dados salvos ou dados de demonstração
     this.personagens = StorageService.carregarPersonagens();
     this.npcs = StorageService.carregarNPCs();
     this.campanhas = StorageService.carregarCampanhas(this.personagens, this.npcs);
@@ -69,46 +81,75 @@ class AppController {
     this.missoes = StorageService.carregarMissoes();
     this.sistemaItens = StorageService.carregarSistemaPastas();
     this.monstroItens = StorageService.carregarMonstroPastas();
-
-    // Inicializar atores conforme UML
     this.jogador = new Jogador('user-jog-1', 'Jogador Aventureiro', 'jogador@unemat.br', this.personagens);
     this.mestre = new Mestre('user-mestre-1', 'Mestre dos Magos', 'mestre@unemat.br', this.campanhas, this.npcs);
-
-    if (this.personagens.length > 0) {
-      this.personagemAtivoId = this.personagens[0].idPersonagem;
-    }
-
-    this.userRole = StorageService.carregarPerfil();
-    if (this.userRole) {
-      this.currentTab = this.userRole === 'jogador' ? 'sistemas' : 'campanhas';
-    }
-    this.initEventListeners();
+    this.personagemAtivoId = this.personagens[0]?.idPersonagem || null;
+    if (this.userRole) this.currentTab = this.userRole === 'jogador' ? 'sistemas' : 'campanhas';
     this.updateCharacterSelector();
     this.applyRoleView();
-    this.initAuthGateway();
-    void this.restoreAuthenticatedSession();
+  }
+
+  /** Remove referências aos dados da área autenticada ao encerrar a sessão. */
+  private clearPrivateArea(): void {
+    this.privateAreaInitialized = false;
+    this.personagens = [];
+    this.campanhas = [];
+    this.npcs = [];
+    this.historicoDados = [];
+    this.notas = [];
+    this.missoes = [];
+    this.sistemaItens = [];
+    this.monstroItens = [];
+    this.personagemAtivoId = null;
+    this.fichaRolagemSelecionadaId = null;
+    document.getElementById('content-area')?.replaceChildren();
   }
 
   private initAuthGateway(): void {
     const gateway = document.getElementById('auth-gateway');
     const screens = document.querySelectorAll<HTMLElement>('.auth-screen');
-    const showScreen = (id: string) => screens.forEach(screen => screen.classList.toggle('hidden', screen.id !== id));
+    const formCard = document.getElementById('auth-form-card');
+    const showScreen = (id: string) => {
+      screens.forEach(screen => screen.classList.toggle('hidden', screen.id !== id));
+      formCard?.classList.toggle('hidden', id === 'auth-welcome');
+      document.getElementById('public-user-dropdown')?.classList.add('hidden');
+      document.getElementById('btn-public-user')?.setAttribute('aria-expanded', 'false');
+    };
     const showError = (id: string, message: string) => {
       const error = document.getElementById(id);
       if (error) { error.textContent = message; error.classList.remove('hidden'); }
     };
-    const enterApp = () => gateway?.classList.add('hidden');
+    const enterApp = () => {
+      this.initializePrivateArea();
+      document.getElementById('app')?.classList.remove('hidden');
+      gateway?.classList.add('hidden');
+    };
     const authFetch = (path: string, body: unknown) => fetch(`http://localhost:3000/api${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
 
     document.getElementById('btn-auth-login')?.addEventListener('click', () => showScreen('auth-login-form'));
     document.getElementById('btn-auth-register')?.addEventListener('click', () => showScreen('auth-register-form'));
+    document.getElementById('btn-public-login')?.addEventListener('click', () => showScreen('auth-login-form'));
+    document.getElementById('btn-public-register')?.addEventListener('click', () => showScreen('auth-register-form'));
+    document.getElementById('btn-public-hero-login')?.addEventListener('click', () => showScreen('auth-login-form'));
+    document.getElementById('btn-public-hero-register')?.addEventListener('click', () => showScreen('auth-register-form'));
     document.getElementById('btn-login-register')?.addEventListener('click', () => showScreen('auth-register-form'));
     document.getElementById('btn-register-login')?.addEventListener('click', () => showScreen('auth-login-form'));
     document.querySelectorAll('.btn-auth-back').forEach(button => button.addEventListener('click', () => showScreen('auth-welcome')));
-    document.getElementById('btn-auth-guest')?.addEventListener('click', enterApp);
-    document.querySelectorAll('.btn-auth-guest').forEach(button => button.addEventListener('click', enterApp));
+    document.getElementById('btn-public-user')?.addEventListener('click', event => {
+      event.stopPropagation();
+      const dropdown = document.getElementById('public-user-dropdown');
+      const isOpen = dropdown?.classList.contains('hidden');
+      dropdown?.classList.toggle('hidden', !isOpen);
+      (event.currentTarget as HTMLButtonElement).setAttribute('aria-expanded', String(isOpen));
+    });
+    document.addEventListener('click', event => {
+      if (!(event.target as Element).closest('#public-user-menu')) {
+        document.getElementById('public-user-dropdown')?.classList.add('hidden');
+        document.getElementById('btn-public-user')?.setAttribute('aria-expanded', 'false');
+      }
+    });
 
     document.getElementById('auth-login-form')?.addEventListener('submit', async event => {
       event.preventDefault();
@@ -153,6 +194,7 @@ class AppController {
     this.authToken = token;
     this.authenticatedUser = user;
     sessionStorage.setItem('rpgHubAuthToken', token);
+    this.initializePrivateArea();
     this.renderAuthenticatedUser();
   }
 
@@ -168,7 +210,9 @@ class AppController {
       if (!response.ok || !data.authenticated) throw new Error('Sessão inválida');
       this.authToken = token;
       this.authenticatedUser = data.user;
+      this.initializePrivateArea();
       this.renderAuthenticatedUser();
+      document.getElementById('app')?.classList.remove('hidden');
       document.getElementById('auth-gateway')?.classList.add('hidden');
     } catch {
       sessionStorage.removeItem('rpgHubAuthToken');
@@ -323,9 +367,12 @@ class AppController {
       this.authToken = null;
       this.authenticatedUser = null;
       sessionStorage.removeItem('rpgHubAuthToken');
-      this.setUserMenuOpen(false);
+      this.clearPrivateArea();
+      document.getElementById('user-profile-dropdown')?.classList.add('hidden');
       document.getElementById('user-profile-menu')?.classList.add('hidden');
+      document.getElementById('app')?.classList.add('hidden');
       document.getElementById('auth-gateway')?.classList.remove('hidden');
+      document.getElementById('auth-form-card')?.classList.add('hidden');
       document.querySelectorAll<HTMLElement>('.auth-screen').forEach(screen => screen.classList.toggle('hidden', screen.id !== 'auth-welcome'));
       this.showToast('Você saiu da sua conta.');
     }

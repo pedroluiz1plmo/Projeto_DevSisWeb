@@ -12,17 +12,68 @@
     <link rel="stylesheet" href="/src/index.css" />
   </head>
   <body>
-    <section id="auth-gateway" class="auth-gateway" aria-label="Acesso ao RPG Manager">
-      <div class="auth-gateway-card glass-card">
-        <div id="auth-welcome" class="auth-screen">
-          <div class="auth-symbol" aria-hidden="true">🎲</div>
-          <h1>RPG MANAGER</h1>
-          <p>Bem-vindo ao seu espaço para criar personagens e viver aventuras.</p>
-          <button id="btn-auth-login" class="btn btn-primary auth-action">Entrar na conta</button>
-          <button id="btn-auth-register" class="btn btn-secondary auth-action">Criar uma conta</button>
-          <button id="btn-auth-guest" class="btn btn-icon-text">Continuar sem login</button>
+    <section id="auth-gateway" class="auth-gateway" aria-label="Página pública do RPG Manager">
+      <header class="public-header">
+        <a class="public-brand" href="#inicio" aria-label="RPG Manager, página inicial">
+          <span class="logo-icon" aria-hidden="true">🎲</span>
+          <span>RPG MANAGER</span>
+        </a>
+        <nav class="public-nav" aria-label="Navegação pública">
+          <a href="#recursos">Recursos</a>
+          <a href="#como-funciona">Como funciona</a>
+        </nav>
+        <div id="public-user-menu" class="header-user-profile public-user-profile">
+          <button id="btn-public-user" class="header-user-trigger public-user-trigger" type="button" aria-label="Abrir opções de acesso" aria-haspopup="menu" aria-expanded="false">
+            <span class="public-user-icon" aria-hidden="true">👤</span>
+            <span>Entrar / Cadastrar</span>
+            <span class="header-user-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div id="public-user-dropdown" class="header-user-dropdown hidden" role="menu">
+            <p class="public-user-status">👤 Usuário não conectado</p>
+            <button id="btn-public-login" type="button" role="menuitem">Entrar</button>
+            <button id="btn-public-register" type="button" role="menuitem">Criar conta</button>
+          </div>
         </div>
+      </header>
 
+      <main id="auth-welcome" class="auth-screen public-home" tabindex="-1">
+        <section id="inicio" class="public-hero">
+          <div class="public-hero-copy">
+            <span class="public-eyebrow">A SUA MESA, EM UM SÓ LUGAR</span>
+            <h1>Gerencie aventuras que ficam na memória.</h1>
+            <p>RPG Manager reúne fichas, campanhas, criaturas, anotações e rolagens para que sua mesa se concentre no que importa: contar boas histórias.</p>
+            <div class="public-hero-actions">
+              <button id="btn-public-hero-register" class="btn btn-primary" type="button">Criar conta grátis</button>
+              <button id="btn-public-hero-login" class="btn btn-secondary" type="button">Já tenho uma conta</button>
+            </div>
+          </div>
+          <div class="public-hero-panel glass-card" aria-label="Resumo das funcionalidades">
+            <span class="public-panel-dice" aria-hidden="true">🎲</span>
+            <strong>Sua próxima aventura começa aqui</strong>
+            <p>Crie personagens, organize campanhas e mantenha todos os detalhes da sessão ao alcance da mão.</p>
+            <div class="public-panel-tags"><span>Fichas</span><span>Campanhas</span><span>Dados</span></div>
+          </div>
+        </section>
+
+        <section id="recursos" class="public-features" aria-labelledby="public-features-title">
+          <div class="public-section-heading">
+            <span class="public-eyebrow">RECURSOS PRINCIPAIS</span>
+            <h2 id="public-features-title">Tudo preparado para a sua mesa</h2>
+          </div>
+          <div class="public-feature-grid">
+            <article class="glass-card public-feature-card"><span aria-hidden="true">🗂️</span><h3>Fichas por sistema</h3><p>Organize fichas e personagens para diferentes sistemas de RPG.</p></article>
+            <article class="glass-card public-feature-card"><span aria-hidden="true">📜</span><h3>Campanhas e criaturas</h3><p>Planeje histórias, grupos, NPCs e encontros em um só espaço.</p></article>
+            <article class="glass-card public-feature-card"><span aria-hidden="true">🎯</span><h3>Rolagens e organização</h3><p>Faça testes rápidos e registre notas e missões da aventura.</p></article>
+          </div>
+        </section>
+
+        <section id="como-funciona" class="public-how glass-card">
+          <div><span class="public-eyebrow">COMO FUNCIONA</span><h2>Entre, escolha sua visão e comece a jogar.</h2></div>
+          <ol><li><span>1</span> Crie sua conta</li><li><span>2</span> Organize sua mesa</li><li><span>3</span> Viva a aventura</li></ol>
+        </section>
+      </main>
+
+      <div id="auth-form-card" class="auth-gateway-card glass-card hidden">
         <form id="auth-login-form" class="auth-screen hidden">
           <button type="button" class="btn-auth-back btn-icon" aria-label="Voltar">←</button>
           <h1>LOGIN</h1>
@@ -31,7 +82,6 @@
           <p id="auth-login-error" class="auth-error hidden" role="alert"></p>
           <button type="submit" class="btn btn-primary auth-action">Entrar</button>
           <button type="button" id="btn-login-register" class="btn btn-icon-text">Criar uma conta</button>
-          <button type="button" class="btn-auth-guest btn btn-icon-text">Continuar sem login</button>
         </form>
 
         <form id="auth-register-form" class="auth-screen hidden">
@@ -48,10 +98,20 @@
         </form>
       </div>
     </section>
-    <div id="app" class="app-container">
+    <div id="app" class="app-container hidden">
       <!-- Sidebar Navigation -->
       <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
       <aside id="sidebar" class="sidebar" aria-label="Navegação principal">
+                  <button
+              id="sidebar-toggle"
+              class="sidebar-toggle"
+              type="button"
+              aria-label="Recolher menu"
+              aria-expanded="true"
+            >
+              ☰
+            </button>
+
         <div class="sidebar-header">
           <div class="logo-icon">🎲</div>
           <div class="logo-text">
