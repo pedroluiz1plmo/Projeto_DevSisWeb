@@ -1,0 +1,375 @@
+
+<writing_block> <variant>document</variant>
+
+<title>Validação end-to-end das fichas React</title>
+
+A migração React de D&D 5E, Call of Cthulhu e Vampiro V5 foi concluída.
+
+Agora NÃO quero uma nova migração nem uma refatoração estrutural.
+
+Quero somente validar o funcionamento real da integração React com o sistema legado.
+
+## OBJETIVO
+
+Comprovar que os três sistemas realmente conseguem:
+
+```text
+Criar ficha
+↓
+React
+↓
+main.ts
+↓
+handlers existentes
+↓
+StorageService
+↓
+SistemaPasta
+↓
+localStorage
+↓
+reabrir ficha
+↓
+React
+↓
+editar
+↓
+salvar
+↓
+reabrir novamente
+```
+
+---
+
+# 1. NÃO ALTERAR A ARQUITETURA
+
+Não modificar:
+
+* backend;
+* PostgreSQL;
+* migrations;
+* Mobile;
+* autenticação;
+* Dashboard;
+* Mestre;
+* projeto de referência;
+* arquitetura React já criada;
+* SistemaPasta;
+* StorageService.
+
+Não migrar novos módulos.
+
+Não criar uma nova persistência.
+
+Não criar outro serviço de armazenamento.
+
+Não alterar o modelo de dados apenas para fazer o teste passar.
+
+---
+
+# 2. PRIMEIRO ANALISAR
+
+Antes dos testes, verifique como atualmente funcionam:
+
+* `ReactSheetBridge.ts`;
+* `App.tsx`;
+* `main.tsx`;
+* `main.ts`;
+* `JogadorView.ts`;
+* `StorageService.ts`;
+* `SistemaPasta.ts`;
+* `DndCharacterModule.tsx`;
+* `CocCharacterModule.tsx`;
+* `VampireCharacterModule.tsx`;
+* views guiadas dos três sistemas.
+
+Identifique exatamente:
+
+1. onde React envia os dados;
+2. onde `main.ts` recebe os dados;
+3. onde os handlers coletam os campos;
+4. onde `StorageService` salva;
+5. onde a ficha é recuperada;
+6. onde React recebe novamente os dados.
+
+Não altere nada somente durante essa análise.
+
+---
+
+# 3. TESTE D&D 5E
+
+Criar uma ficha D&D real utilizando a interface React.
+
+Preencher valores facilmente identificáveis.
+
+Por exemplo:
+
+* Nome: `TESTE_REACT_DND`
+* Classe: `Guerreiro`
+* Nível: `5`
+* Força: `16`
+* Destreza: `14`
+* HP máximo: `50`
+* CA: `16`
+* equipamento: `TESTE_EQUIPAMENTO_DND`
+
+Salvar.
+
+Depois:
+
+1. fechar/reabrir a ficha;
+2. verificar todos os valores;
+3. editar pelo menos três campos;
+4. salvar;
+5. fechar;
+6. reabrir novamente.
+
+Confirmar que os valores continuam corretos.
+
+---
+
+# 4. TESTE CALL OF CTHULHU
+
+Criar uma ficha real.
+
+Utilizar valores facilmente identificáveis.
+
+Por exemplo:
+
+* Nome: `TESTE_REACT_COC`
+* valores de características;
+* uma perícia;
+* valor de combate;
+* histórico;
+* posse;
+* informação financeira.
+
+Salvar.
+
+Depois:
+
+1. fechar;
+2. reabrir;
+3. verificar os dados;
+4. modificar pelo menos três campos;
+5. salvar;
+6. reabrir novamente.
+
+Confirmar que os dados continuam corretos.
+
+---
+
+# 5. TESTE VAMPIRO V5
+
+Criar uma ficha real.
+
+Utilizar valores identificáveis.
+
+Por exemplo:
+
+* Nome: `TESTE_REACT_VAMPIRE`
+* conceito;
+* clã;
+* atributos;
+* habilidades;
+* disciplina;
+* humanidade;
+* fome;
+* história.
+
+Salvar.
+
+Depois:
+
+1. fechar;
+2. reabrir;
+3. verificar os dados;
+4. modificar pelo menos três campos;
+5. salvar;
+6. reabrir novamente.
+
+Confirmar que os dados continuam corretos.
+
+---
+
+# 6. TESTE DE ISOLAMENTO DOS SISTEMAS
+
+Verificar que dados de um sistema não aparecem em outro.
+
+Testar:
+
+```text
+D&D → somente dados D&D
+CoC → somente dados CoC
+Vampiro → somente dados Vampiro
+```
+
+Especialmente verificar o comportamento quando o usuário troca de sistema durante uma criação.
+
+O filtro existente de campos por sistema deve continuar funcionando.
+
+---
+
+# 7. TESTE DE DUPLICAÇÃO
+
+Verificar que:
+
+* criar uma ficha gera apenas um registro;
+* abrir o editor não cria outro registro;
+* salvar uma edição não duplica a ficha;
+* reabrir a ficha não duplica a ficha.
+
+Confirmar a quantidade de itens em `SistemaPasta`.
+
+---
+
+# 8. TESTE DO LOCALSTORAGE
+
+Inspecionar o armazenamento do navegador.
+
+Identificar exatamente onde as fichas estão sendo armazenadas.
+
+Confirmar que:
+
+* a ficha criada realmente foi persistida;
+* os dados modificados realmente foram atualizados;
+* reabrir a página não perde os dados;
+* não existe uma segunda estrutura de armazenamento criada pelo React.
+
+Não modificar manualmente o localStorage para fazer o teste passar.
+
+---
+
+# 9. TESTE DE RECARREGAMENTO
+
+Depois de salvar uma ficha:
+
+1. recarregar a página;
+2. entrar novamente em Sistemas;
+3. selecionar o sistema;
+4. localizar a ficha;
+5. abrir;
+6. verificar os dados.
+
+Executar isso para os três sistemas.
+
+---
+
+# 10. TESTE DE ABAS — D&D
+
+No editor D&D confirmar:
+
+```text
+Principal
+Equipamento
+Magias
+Detalhes
+```
+
+Testar a navegação entre as abas.
+
+Confirmar que trocar de aba não perde os dados preenchidos.
+
+---
+
+# 11. TESTE DOS FLUXOS LEGADOS
+
+Depois dos testes React, confirmar rapidamente que:
+
+* Dashboard abre;
+* Jogador abre;
+* Mestre abre;
+* CoC continua acessível;
+* Vampiro continua acessível;
+* D&D continua acessível;
+* navegação não apresenta erro.
+
+Não fazer alterações nesses módulos apenas para melhorar o teste.
+
+---
+
+# 12. TESTE DE CONSOLE
+
+Abrir o console do navegador e verificar se existem:
+
+* erros React;
+* erros TypeScript;
+* exceções JavaScript;
+* handlers duplicados;
+* submissões duplicadas;
+* erros de montagem/desmontagem;
+* warnings críticos.
+
+Separar warnings já existentes de problemas introduzidos pela migração.
+
+---
+
+# 13. BUILD
+
+Executar:
+
+```bash
+npm --prefix web run build
+```
+
+O build precisa continuar passando.
+
+---
+
+# 14. TESTES AUTOMATIZADOS
+
+Se for possível criar testes pequenos e isolados para a ponte React, faça somente se isso não exigir alteração arquitetural.
+
+Prioridade:
+
+1. integração React → bridge;
+2. bridge → callback legado;
+3. callback → persistência;
+4. desmontagem do React.
+
+Não criar uma grande suíte de testes nesta etapa.
+
+---
+
+# 15. LIMPEZA DOS DADOS DE TESTE
+
+Depois de validar:
+
+* remover as fichas criadas exclusivamente para teste;
+* não remover fichas reais existentes do usuário;
+* confirmar que os dados reais não foram alterados.
+
+---
+
+# 16. RELATÓRIO FINAL
+
+Apresente uma tabela:
+
+| Sistema    | Criar   | Salvar  | Reabrir | Editar  | Persistir | Recarregar |
+| ---------- | ------- | ------- | ------- | ------- | --------- | ---------- |
+| D&D 5E     | OK/ERRO | OK/ERRO | OK/ERRO | OK/ERRO | OK/ERRO   | OK/ERRO    |
+| CoC        | OK/ERRO | OK/ERRO | OK/ERRO | OK/ERRO | OK/ERRO   | OK/ERRO    |
+| Vampiro V5 | OK/ERRO | OK/ERRO | OK/ERRO | OK/ERRO | OK/ERRO   | OK/ERRO    |
+
+Também informe:
+
+* problemas encontrados;
+* arquivos alterados;
+* testes executados;
+* resultado do build;
+* erros de console;
+* confirmação de que não houve alterações em Backend, Banco ou Mobile.
+
+Se algum teste falhar, NÃO esconda o problema e NÃO faça uma alteração grande para contorná-lo.
+
+Explique exatamente:
+
+1. qual teste falhou;
+2. em qual etapa;
+3. qual arquivo está envolvido;
+4. qual parece ser a causa;
+5. qual seria a correção recomendada.
+
+Se todos os testes passarem, considere a migração React dos três sistemas validada e PARE. </variant>
+</writing_block>
+

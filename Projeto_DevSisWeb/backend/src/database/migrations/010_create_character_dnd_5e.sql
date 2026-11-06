@@ -1,0 +1,37 @@
+CREATE TABLE IF NOT EXISTS character_dnd_5e (
+  character_id BIGINT PRIMARY KEY,
+  player_name TEXT,
+  class TEXT,
+  level INTEGER CHECK (level IS NULL OR level >= 1),
+  race TEXT,
+  background TEXT,
+  alignment TEXT,
+  experience_points INTEGER,
+  description TEXT,
+  strength INTEGER,
+  dexterity INTEGER,
+  constitution INTEGER,
+  intelligence INTEGER,
+  wisdom INTEGER,
+  charisma INTEGER,
+  armor_class INTEGER,
+  initiative TEXT,
+  speed TEXT,
+  max_hit_points INTEGER,
+  current_hit_points INTEGER,
+  temporary_hit_points INTEGER,
+  hit_dice TEXT,
+  proficiency_bonus TEXT,
+  skills_and_saving_throws TEXT,
+  attacks_and_spellcasting TEXT,
+  equipment_and_treasure TEXT,
+  spells_and_slots TEXT,
+  personality_ideals_bonds_flaws TEXT,
+  history_allies_organizations TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT character_dnd_5e_character_fk
+    FOREIGN KEY (character_id)
+    REFERENCES characters(id)
+    ON DELETE CASCADE
+);

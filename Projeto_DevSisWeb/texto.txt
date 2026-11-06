@@ -1,0 +1,559 @@
+Reorganização arquitetural do Projeto_DevSisWeb
+
+Quero reorganizar a arquitetura do Projeto_DevSisWeb.
+
+A arquitetura que vamos adotar é:
+
+ARQUITETURA OFICIAL
+Web
+Feature-Based + Modular
+Backend
+Modular + Layered
+
+com:
+
+Controller
+    ↓
+Service
+    ↓
+Repository
+    ↓
+Database
+Mobile
+Feature-Based + Modular
+Princípios complementares
+
+Utilizar princípios de Clean Architecture quando ajudarem no desacoplamento, mas NÃO transformar o projeto inteiro em uma Clean Architecture rígida.
+
+NÃO utilizar Microservices.
+
+NÃO fazer uma migração Big Bang.
+
+OBJETIVO
+
+Quero reorganizar a estrutura atual do projeto para que cada funcionalidade fique agrupada por domínio/feature, reduzindo o acoplamento e facilitando a manutenção.
+
+A reorganização deve preservar o funcionamento atual.
+
+O projeto atualmente possui:
+
+backend/
+web/
+mobile/
+systems/
+storage/
+
+Essas áreas devem continuar existindo.
+
+1. REGRA PRINCIPAL
+
+Antes de modificar qualquer arquivo:
+
+ANALISE TODO O PROJETO.
+
+Não faça alterações ainda.
+
+Primeiro identifique:
+
+estrutura atual;
+dependências entre arquivos;
+imports;
+referências cruzadas;
+serviços;
+modelos;
+controllers;
+views;
+componentes;
+rotas;
+persistência;
+integração React + legado;
+integração Web + Backend;
+integração Mobile + Backend.
+
+Crie um mapa da arquitetura atual.
+
+2. WEB
+
+A estrutura desejada é:
+
+web/src/
+├── features/
+│   ├── auth/
+│   ├── dashboard/
+│   ├── jogador/
+│   ├── mestre/
+│   ├── characters/
+│   ├── campaigns/
+│   ├── folders/
+│   └── rpg-systems/
+│       ├── dnd/
+│       ├── call-of-cthulhu/
+│       └── vampiro/
+│
+├── shared/
+│   ├── components/
+│   ├── hooks/
+│   ├── utils/
+│   └── types/
+│
+├── core/
+│   ├── api/
+│   ├── auth/
+│   ├── navigation/
+│   └── storage/
+│
+├── App.tsx
+└── main.tsx
+
+Porém, NÃO mova arquivos automaticamente.
+
+Primeiro mapeie os arquivos atuais para essa arquitetura.
+
+3. RPG SYSTEMS
+
+Os três sistemas devem ser módulos independentes.
+
+D&D
+features/rpg-systems/dnd/
+├── components/
+├── models/
+├── services/
+├── views/
+├── hooks/
+└── data/
+Call of Cthulhu
+features/rpg-systems/call-of-cthulhu/
+├── components/
+├── models/
+├── services/
+├── views/
+├── hooks/
+└── data/
+Vampiro
+features/rpg-systems/vampiro/
+├── components/
+├── models/
+├── services/
+├── views/
+├── hooks/
+└── data/
+
+Não obrigue os três sistemas a possuir exatamente os mesmos arquivos.
+
+A estrutura deve refletir as necessidades reais de cada sistema.
+
+4. COMPONENTES COMPARTILHADOS
+
+Criar:
+
+shared/components/
+
+somente para componentes realmente reutilizados.
+
+Exemplos possíveis:
+
+Card;
+Modal;
+Tabs;
+Button;
+Input;
+CharacterHeader;
+Loading;
+ErrorMessage.
+
+Não mover um componente para shared somente porque ele poderia ser reutilizado no futuro.
+
+5. CORE
+
+core deve conter infraestrutura transversal da aplicação.
+
+Exemplo:
+
+core/
+├── api/
+├── auth/
+├── navigation/
+└── storage/
+
+Colocar aqui apenas aquilo que não pertence a uma feature específica.
+
+Exemplo:
+
+API client
+JWT/session
+navegação global
+StorageService
+
+Não colocar regras específicas de D&D, CoC ou Vampiro dentro de core.
+
+6. BACKEND
+
+O Backend continua sendo JavaScript + Node.js.
+
+NÃO converter para TypeScript.
+
+NÃO alterar PostgreSQL.
+
+NÃO alterar migrations nesta etapa.
+
+A estrutura desejada é aproximadamente:
+
+backend/src/
+├── modules/
+│   ├── auth/
+│   │   ├── controller/
+│   │   ├── service/
+│   │   ├── repository/
+│   │   ├── routes/
+│   │   └── model/
+│   │
+│   ├── users/
+│   ├── characters/
+│   ├── campaigns/
+│   ├── folders/
+│   └── rpg-systems/
+│
+├── shared/
+│   ├── database/
+│   ├── middleware/
+│   ├── errors/
+│   └── utils/
+│
+├── config/
+└── app.js
+
+Mas primeiro descubra se essa divisão corresponde aos arquivos reais existentes.
+
+7. BACKEND — RESPONSABILIDADES
+
+A regra deve ser:
+
+Route
+ ↓
+Controller
+ ↓
+Service
+ ↓
+Repository
+ ↓
+Database
+Route
+
+Define endpoints.
+
+Controller
+
+Recebe requisição e devolve resposta.
+
+Não deve concentrar regras de negócio.
+
+Service
+
+Contém regras de negócio.
+
+Repository
+
+Responsável pelo acesso aos dados.
+
+Model
+
+Representa a estrutura dos dados quando necessário.
+
+Não colocar SQL diretamente nos Controllers.
+
+Não colocar regras de negócio complexas nas Routes.
+
+8. CLEAN ARCHITECTURE
+
+Não implementar uma Clean Architecture completa.
+
+Utilizar somente princípios úteis:
+
+baixo acoplamento;
+dependências direcionadas para abstrações;
+regras de negócio isoladas;
+infraestrutura separada;
+responsabilidades bem definidas.
+
+Não criar dezenas de interfaces ou abstrações sem necessidade.
+
+9. MOBILE
+
+O Mobile continuará em Flutter/Dart.
+
+Não alterar funcionalidades nesta etapa.
+
+Apenas analisar como a estrutura atual poderia futuramente seguir:
+
+mobile/lib/
+├── features/
+├── core/
+├── shared/
+└── main.dart
+
+Não fazer uma grande migração do Mobile agora.
+
+Se a reorganização puder causar risco ao Mobile, apenas documente a recomendação.
+
+10. SYSTEMS
+
+Manter:
+
+systems/
+├── call-of-cthulhu/
+├── dungeons-and-dragons/
+└── vampiro-a-mascara/
+
+Essa pasta representa conteúdo/regras/dados dos sistemas RPG.
+
+Não transformar systems/ em código da aplicação.
+
+Não mover componentes React para systems/.
+
+A lógica de aplicação dos sistemas deve ficar em:
+
+web/src/features/rpg-systems/
+11. STORAGE
+
+Manter:
+
+storage/
+
+como área destinada a armazenamento físico/arquivos quando necessário.
+
+Não misturar com:
+
+web/src/core/storage/
+
+O core/storage representa o mecanismo/serviço de armazenamento da aplicação.
+
+storage/ representa armazenamento físico/arquivos do projeto.
+
+12. MAIN.TS
+
+Não apagar main.ts imediatamente.
+
+Como o projeto acabou de passar por uma migração incremental para React, primeiro analise:
+
+o que ainda depende dele;
+quais responsabilidades devem continuar nele;
+quais responsabilidades podem futuramente ser transferidas para React.
+
+Apresente uma estratégia gradual.
+
+Não fazer uma reescrita completa de main.ts nesta etapa.
+
+13. REACT
+
+A migração React dos três sistemas já foi realizada.
+
+Não refazer essa migração.
+
+Agora apenas reorganize os arquivos React dentro da arquitetura Feature-Based quando for seguro.
+
+Preservar:
+
+App.tsx;
+main.tsx;
+ReactSheetBridge.ts;
+módulos D&D;
+módulos CoC;
+módulos Vampiro.
+
+Não quebrar a ponte com a aplicação legada.
+
+14. IMPORTS
+
+Ao mover arquivos:
+
+atualize todos os imports.
+
+Procure referências:
+
+import
+export
+require
+dynamic import
+paths
+Vite aliases
+CSS imports
+
+Também procure referências indiretas por:
+
+caminhos;
+nomes de arquivos;
+IDs;
+strings;
+carregamento dinâmico.
+
+Não deixar imports quebrados.
+
+15. NÃO DUPLICAR CÓDIGO
+
+Durante a reorganização:
+
+não criar cópias dos arquivos antigos e novos mantendo ambos ativos.
+
+Exemplo proibido:
+
+old/services/
+new/features/.../services/
+
+com os dois sendo utilizados.
+
+Cada responsabilidade deve ter uma fonte única.
+
+Se um arquivo precisar ser movido:
+
+mover;
+atualizar imports;
+validar;
+remover o caminho antigo somente quando estiver seguro.
+16. ESTRATÉGIA DE MIGRAÇÃO
+
+Faça em etapas.
+
+Etapa 1 — Auditoria
+
+Somente análise.
+
+Entregar:
+
+Arquivo atual → Novo local → Motivo
+
+Exemplo:
+
+web/src/systems/dungeons-and-dragons/components/X
+→
+web/src/features/rpg-systems/dnd/components/X
+Etapa 2 — Core e Shared
+
+Identificar arquivos que realmente pertencem a:
+
+core/
+shared/
+Etapa 3 — D&D
+
+Reorganizar somente D&D.
+
+Executar build.
+
+Etapa 4 — CoC
+
+Reorganizar CoC.
+
+Executar build.
+
+Etapa 5 — Vampiro
+
+Reorganizar Vampiro.
+
+Executar build.
+
+Etapa 6 — Features gerais
+
+Depois:
+
+Auth;
+Dashboard;
+Jogador;
+Mestre;
+Campaigns;
+Folders;
+Characters.
+Etapa 7 — Backend
+
+Somente depois reorganizar o Backend em módulos Layered.
+
+17. VALIDAÇÃO APÓS CADA ETAPA
+
+Depois de cada movimentação:
+
+npm --prefix web run build
+
+No Backend:
+
+node --check <arquivo>
+
+quando aplicável.
+
+No Mobile:
+
+flutter analyze
+flutter test
+
+quando houver alteração no Mobile.
+
+Não avançar para a próxima etapa se a anterior estiver quebrada.
+
+18. O QUE NÃO FAZER
+
+Não:
+
+converter Backend para TypeScript;
+trocar PostgreSQL;
+trocar Vite;
+trocar React;
+trocar Flutter;
+criar Microservices;
+alterar APIs;
+alterar migrations;
+alterar banco;
+refazer a migração React;
+apagar main.ts imediatamente;
+modificar o projeto de referência;
+misturar código dos três sistemas;
+criar abstrações desnecessárias.
+19. PRIMEIRA RESPOSTA
+
+IMPORTANTE:
+
+Nesta primeira execução NÃO faça alterações.
+
+Quero somente o resultado da auditoria arquitetural.
+
+Apresente:
+
+A. Arquitetura atual
+
+Mostre a estrutura real encontrada.
+
+B. Dependências
+
+Mostre os principais acoplamentos.
+
+C. Mapeamento
+
+Monte uma tabela:
+
+Arquivo atual	Novo local	Categoria	Risco
+
+Categorias:
+
+Feature;
+Core;
+Shared;
+Infrastructure;
+Legacy;
+System Content.
+D. Arquitetura proposta
+
+Mostre a árvore completa proposta.
+
+E. Ordem de migração
+
+Defina exatamente a sequência segura.
+
+F. Riscos
+
+Liste possíveis problemas.
+
+G. Arquivos que NÃO devem ser movidos
+
+Liste explicitamente.
+
+NÃO altere nenhum arquivo nesta primeira etapa.
+
+Depois de apresentar a auditoria, aguarde minha autorização para começar a migração.
+
+

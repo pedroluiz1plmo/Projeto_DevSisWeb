@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/dice.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RPG Hub - Sistema de Gerenciamento de Fichas</title>
+    <!-- Google Fonts: Outfit, Cinzel (RPG style) e JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/index.css" />
+  </head>
+  <body>
+    <section id="auth-gateway" class="auth-gateway" aria-label="Página pública do RPG Manager">
+      <header class="public-header">
+        <a class="public-brand" href="#inicio" aria-label="RPG Manager, página inicial">
+          <span class="logo-icon" aria-hidden="true">🎲</span>
+          <span>RPG MANAGER</span>
+        </a>
+        <nav class="public-nav" aria-label="Navegação pública">
+          <a href="#recursos">Recursos</a>
+          <a href="#como-funciona">Como funciona</a>
+        </nav>
+        <div id="public-user-menu" class="header-user-profile public-user-profile">
+          <button id="btn-public-user" class="header-user-trigger public-user-trigger" type="button" aria-label="Abrir opções de acesso" aria-haspopup="menu" aria-expanded="false">
+            <span class="public-user-icon" aria-hidden="true">👤</span>
+            <span>Entrar / Cadastrar</span>
+            <span class="header-user-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div id="public-user-dropdown" class="header-user-dropdown hidden" role="menu">
+            <p class="public-user-status">👤 Usuário não conectado</p>
+            <button id="btn-public-login" type="button" role="menuitem">Entrar</button>
+            <button id="btn-public-register" type="button" role="menuitem">Criar conta</button>
+          </div>
+        </div>
+      </header>
+
+      <main id="auth-welcome" class="auth-screen public-home" tabindex="-1">
+        <section id="inicio" class="public-hero">
+          <div class="public-hero-copy">
+            <span class="public-eyebrow">A SUA MESA, EM UM SÓ LUGAR</span>
+            <h1>Gerencie aventuras que ficam na memória.</h1>
+            <p>RPG Manager reúne fichas, campanhas, criaturas, anotações e rolagens para que sua mesa se concentre no que importa: contar boas histórias.</p>
+            <div class="public-hero-actions">
+              <button id="btn-public-hero-register" class="btn btn-primary" type="button">Criar conta grátis</button>
+              <button id="btn-public-hero-login" class="btn btn-secondary" type="button">Já tenho uma conta</button>
+            </div>
+          </div>
+          <div class="public-hero-panel glass-card" aria-label="Resumo das funcionalidades">
+            <span class="public-panel-dice" aria-hidden="true">🎲</span>
+            <strong>Sua próxima aventura começa aqui</strong>
+            <p>Crie personagens, organize campanhas e mantenha todos os detalhes da sessão ao alcance da mão.</p>
+            <div class="public-panel-tags"><span>Fichas</span><span>Campanhas</span><span>Dados</span></div>
+          </div>
+        </section>
+
+        <section id="recursos" class="public-features" aria-labelledby="public-features-title">
+          <div class="public-section-heading">
+            <span class="public-eyebrow">RECURSOS PRINCIPAIS</span>
+            <h2 id="public-features-title">Tudo preparado para a sua mesa</h2>
+          </div>
+          <div class="public-feature-grid">
+            <article class="glass-card public-feature-card"><span aria-hidden="true">🗂️</span><h3>Fichas por sistema</h3><p>Organize fichas e personagens para diferentes sistemas de RPG.</p></article>
+            <article class="glass-card public-feature-card"><span aria-hidden="true">📜</span><h3>Campanhas e criaturas</h3><p>Planeje histórias, grupos, NPCs e encontros em um só espaço.</p></article>
+            <article class="glass-card public-feature-card"><span aria-hidden="true">🎯</span><h3>Rolagens e organização</h3><p>Faça testes rápidos e registre notas e missões da aventura.</p></article>
+          </div>
+        </section>
+
+        <section id="como-funciona" class="public-how glass-card">
+          <div><span class="public-eyebrow">COMO FUNCIONA</span><h2>Entre, escolha sua visão e comece a jogar.</h2></div>
+          <ol><li><span>1</span> Crie sua conta</li><li><span>2</span> Organize sua mesa</li><li><span>3</span> Viva a aventura</li></ol>
+        </section>
+      </main>
+
+      <div id="auth-form-card" class="auth-gateway-card glass-card hidden">
+        <form id="auth-login-form" class="auth-screen hidden">
+          <button type="button" class="btn-auth-back btn-icon" aria-label="Voltar">←</button>
+          <h1>LOGIN</h1>
+          <div class="form-group"><label for="auth-login-identifier">Usuário ou e-mail</label><input id="auth-login-identifier" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-login-password">Senha</label><input id="auth-login-password" type="password" class="form-control" required /></div>
+          <p id="auth-login-error" class="auth-error hidden" role="alert"></p>
+          <button type="submit" class="btn btn-primary auth-action">Entrar</button>
+          <button type="button" id="btn-login-offline" class="btn btn-secondary auth-action">Acessar dados locais</button>
+          <button type="button" id="btn-login-register" class="btn btn-icon-text">Criar uma conta</button>
+        </form>
+
+        <form id="auth-register-form" class="auth-screen hidden">
+          <button type="button" class="btn-auth-back btn-icon" aria-label="Voltar">←</button>
+          <h1>CADASTRO</h1>
+          <div class="form-group"><label for="auth-register-name">Nome</label><input id="auth-register-name" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-register-username">Usuário</label><input id="auth-register-username" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-register-email">E-mail</label><input id="auth-register-email" type="email" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-register-password">Senha</label><input id="auth-register-password" type="password" class="form-control" required /></div>
+          <div class="form-group"><label for="auth-register-confirm">Confirmar senha</label><input id="auth-register-confirm" type="password" class="form-control" required /></div>
+          <p id="auth-register-error" class="auth-error hidden" role="alert"></p>
+          <button type="submit" class="btn btn-primary auth-action">Criar conta</button>
+          <button type="button" id="btn-register-login" class="btn btn-icon-text">Já possui uma conta? Entrar</button>
+        </form>
+
+        <form id="auth-offline-form" class="auth-screen hidden">
+          <button type="button" class="btn-auth-back btn-icon" aria-label="Voltar">←</button>
+          <h1>ACESSO LOCAL</h1>
+          <p>Desbloqueie os dados salvos neste dispositivo. Sem uma sessão validada pelo servidor, o acesso local não permite operações remotas.</p>
+          <div class="form-group">
+            <label for="auth-offline-account">Conta local</label>
+            <select id="auth-offline-account" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label for="auth-offline-password">Senha da conta</label>
+            <input id="auth-offline-password" type="password" class="form-control" autocomplete="current-password" required />
+          </div>
+          <p id="auth-offline-error" class="auth-error hidden" role="alert"></p>
+          <button type="submit" id="btn-offline-unlock" class="btn btn-primary auth-action">Desbloquear dados locais</button>
+          <button type="button" class="btn btn-icon-text btn-auth-back">Voltar ao início</button>
+        </form>
+      </div>
+    </section>
+    <div id="app" class="app-container hidden">
+      <div id="storage-status" class="storage-status" role="status" aria-live="polite">
+        <span id="storage-status-message">Preparando armazenamento local…</span>
+      </div>
+      <!-- Sidebar Navigation -->
+      <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+      <aside id="sidebar" class="sidebar" aria-label="Navegação principal">
+                  <button
+              id="sidebar-toggle"
+              class="sidebar-toggle"
+              type="button"
+              aria-label="Recolher menu"
+              aria-expanded="true"
+            >
+              ☰
+            </button>
+
+        <div class="sidebar-header">
+          <div class="logo-icon">🎲</div>
+          <div class="logo-text">
+            <h2>RPG HUB</h2>
+            <span class="badge badge-unemat">Sua mesa de RPG</span>
+          </div>
+        </div>
+
+        <nav class="nav-menu">
+          <button id="nav-dashboard" class="nav-item active" data-tab="dashboard">
+            <span class="nav-icon">📊</span>
+            <span class="nav-label">Início</span>
+          </button>
+          <button id="nav-my-plan" class="nav-item" data-tab="my-plan">
+            <span class="nav-icon">💎</span>
+            <span class="nav-label">Meu Plano</span>
+          </button>
+          
+          <div class="nav-section-title" data-role-view="jogador mestre">FERRAMENTAS DA MESA</div>
+          <button id="nav-sistemas" class="nav-item" data-tab="sistemas" data-role-view="jogador mestre">
+            <span class="nav-icon">🗂️</span>
+            <span class="nav-label">Sistemas</span>
+          </button>
+          <button id="nav-inventario-sistemas" class="nav-item" data-tab="inventario-sistemas" data-role-view="jogador mestre">
+            <span class="nav-icon">🎒</span>
+            <span class="nav-label">Inventário</span>
+          </button>
+          <button id="nav-dados" class="nav-item" data-tab="dados" data-role-view="jogador mestre">
+            <span class="nav-icon">🎯</span>
+            <span class="nav-label">Rolagem de Dados</span>
+          </button>
+
+          <div class="nav-section-title" data-role-view="mestre">VISÃO DO MESTRE (GM)</div>
+          <button id="nav-campanhas" class="nav-item" data-tab="campanhas" data-role-view="mestre">
+            <span class="nav-icon">📜</span>
+            <span class="nav-label">Campanhas</span>
+          </button>
+          <button id="nav-npcs" class="nav-item" data-tab="npcs" data-role-view="mestre">
+            <span class="nav-icon">🐉</span>
+            <span class="nav-label">Monstros</span>
+          </button>
+          <button id="nav-iniciativa" class="nav-item" data-tab="iniciativa" data-role-view="mestre">
+            <span class="nav-icon">⚔️</span>
+            <span class="nav-label">Iniciativa & Combate</span>
+          </button>
+
+          <div class="nav-section-title hidden" data-admin-permission="dashboard.read">ADMINISTRAÇÃO</div>
+          <button class="nav-item hidden" data-tab="admin-dashboard" data-admin-permission="dashboard.read">
+            <span class="nav-icon">📈</span><span class="nav-label">Painel ADM</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-users" data-admin-permission="users.read">
+            <span class="nav-icon">👥</span><span class="nav-label">Usuários</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-plans" data-admin-permission="plans.read">
+            <span class="nav-icon">💎</span><span class="nav-label">Planos</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-systems" data-admin-permission="systems.read">
+            <span class="nav-icon">🗂️</span><span class="nav-label">Sistemas RPG</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-subscriptions" data-admin-permission="subscriptions.read">
+            <span class="nav-icon">🧾</span><span class="nav-label">Assinaturas</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-payments" data-admin-permission="payments.read">
+            <span class="nav-icon">💳</span><span class="nav-label">Pagamentos</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-expenses" data-admin-permission="expenses.read">
+            <span class="nav-icon">💸</span><span class="nav-label">Despesas</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-reports" data-admin-permission="reports.read">
+            <span class="nav-icon">📊</span><span class="nav-label">Relatórios</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-settings" data-admin-permission="settings.manage">
+            <span class="nav-icon">⚙️</span><span class="nav-label">Configurações ADM</span>
+          </button>
+          <button class="nav-item hidden" data-tab="admin-audit" data-admin-permission="admin.audit.read">
+            <span class="nav-icon">🔐</span><span class="nav-label">Auditoria</span>
+          </button>
+
+        </nav>
+
+      </aside>
+
+      <!-- Main Content Container -->
+      <main class="main-content">
+        <!-- Topbar -->
+        <header class="topbar">
+          <button id="btn-menu-toggle" class="btn-icon menu-toggle" type="button" aria-label="Abrir menu" aria-controls="sidebar" aria-expanded="false">
+            ☰
+          </button>
+          <div class="page-title-container">
+            <h1 id="page-title">RPG Hub</h1>
+            <p id="page-subtitle">Seu espaço para criar personagens e viver aventuras</p>
+          </div>
+          <div class="topbar-actions">
+            <button id="btn-switch-role" class="btn btn-secondary" type="button" title="Alterar visão"></button>
+            <div class="character-quick-select">
+              <label for="active-character-select">Personagem Ativo:</label>
+              <select id="active-character-select" class="custom-select"></select>
+            </div>
+             <button id="btn-popup-nota" class="btn btn-secondary" title="Bloco de Notas">
+              📝 Nota
+            </button>
+            <button id="btn-popup-missao" class="btn btn-secondary" title="Quadro de Missões">
+              📜 Missão
+            </button>
+            <button id="btn-quick-roll-d20" class="btn btn-glow" title="Rolar d20 rápido">
+              🎲 Rolar d20
+            </button>
+          </div>
+          <div id="user-profile-menu" class="header-user-profile hidden">
+            <button id="btn-user-profile" class="header-user-trigger" type="button" aria-label="Abrir menu do usuário" aria-haspopup="menu" aria-expanded="false">
+              <span id="header-user-avatar" class="header-user-avatar" aria-hidden="true"></span>
+              <span class="header-user-identity">
+                <strong id="header-user-name"></strong>
+                <small id="header-user-username"></small>
+              </span>
+              <span class="header-user-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div id="user-profile-dropdown" class="header-user-dropdown hidden" role="menu">
+              <button id="btn-my-profile" type="button" role="menuitem">⚙ Meu perfil / configurações</button>
+              <button id="btn-user-logout" type="button" role="menuitem" class="header-logout-action">↪ Sair / Logout</button>
+            </div>
+          </div>
+        </header>
+
+        <!-- Dynamic Content Area -->
+        <section id="content-area" class="content-body">
+          <!-- Views will be injected here dynamically -->
+        </section>
+      </main>
+
+      <!-- Toast Container for Notifications and Dice Roll Animations -->
+      <div id="toast-container" class="toast-container"></div>
+
+      <!-- Quick Dice Roll Modal -->
+      <div id="dice-modal" class="modal-backdrop hidden">
+        <div class="modal-content glass-card">
+          <div class="modal-header">
+            <h3>🎯 Rolagem de Dados</h3>
+            <button id="btn-close-dice-modal" class="btn-icon">✕</button>
+          </div>
+          <div class="modal-body" id="dice-modal-body">
+            <!-- Dynamic Dice Body -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Configurações da conta do usuário autenticado -->
+      <div id="account-settings-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="account-settings-title">
+        <div class="modal-content glass-card account-settings-modal">
+          <div class="modal-header">
+            <div>
+              <h3 id="account-settings-title">⚙ Configurações da conta</h3>
+              <p class="account-settings-subtitle">Atualize os dados da sua conta.</p>
+            </div>
+            <button id="btn-close-account-settings" type="button" class="btn-icon" aria-label="Fechar configurações">✕</button>
+          </div>
+          <form id="account-settings-form">
+            <div class="account-avatar-preview">
+              <span id="account-settings-avatar" class="header-user-avatar" aria-hidden="true"></span>
+              <div><strong>Avatar do perfil</strong><small>Seu avatar é formado automaticamente pelas iniciais do nome.</small></div>
+            </div>
+            <div class="form-group"><label for="account-settings-name">Nome</label><input id="account-settings-name" class="form-control" required maxlength="120" /></div>
+            <div class="form-group"><label for="account-settings-username">Nickname / Username</label><input id="account-settings-username" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_.-]+" /></div>
+            <div class="form-group"><label for="account-settings-email">E-mail</label><input id="account-settings-email" type="email" class="form-control" required maxlength="254" /></div>
+            <div class="account-password-section">
+              <h4>Alterar senha <small>Opcional</small></h4>
+              <div class="form-group"><label for="account-settings-current-password">Senha atual</label><input id="account-settings-current-password" type="password" class="form-control" autocomplete="current-password" /></div>
+              <div class="form-group"><label for="account-settings-new-password">Nova senha</label><input id="account-settings-new-password" type="password" class="form-control" autocomplete="new-password" minlength="8" /></div>
+              <div class="form-group"><label for="account-settings-password-confirmation">Confirmar nova senha</label><input id="account-settings-password-confirmation" type="password" class="form-control" autocomplete="new-password" /></div>
+            </div>
+            <p id="account-settings-error" class="auth-error hidden" role="alert"></p>
+            <div class="account-settings-actions"><button id="btn-cancel-account-settings" type="button" class="btn btn-secondary">Cancelar</button><button id="btn-save-account-settings" type="submit" class="btn btn-primary">Salvar alterações</button></div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Modal Pop-up de Nota -->
+      <div id="modal-nota" class="modal-backdrop hidden">
+        <div class="modal-content glass-card modal-popup-lg">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <h3>📝 Bloco de Notas</h3>
+              <span id="badge-total-notas" class="popup-badge">0 notas</span>
+            </div>
+            <button id="btn-close-nota-modal" class="btn-icon">✕</button>
+          </div>
+          <div class="modal-body">
+            <!-- Formulário Nova Nota -->
+            <form id="form-nova-nota" class="popup-form-box">
+              <div class="form-group">
+                <label for="input-nota-titulo">Título:</label>
+                <input type="text" id="input-nota-titulo" class="form-control" placeholder="Ex: Pista na taverna, Nome do ferreiro..." required />
+              </div>
+              <div class="form-group">
+                <label for="input-nota-conteudo">Anotação:</label>
+                <textarea id="input-nota-conteudo" class="form-control" rows="3" placeholder="Escreva segredos, senhas, lembretes de sessão..." required></textarea>
+              </div>
+              <div class="form-group">
+                <label for="input-nota-pasta">Pasta (opcional):</label>
+                <select id="input-nota-pasta" class="form-control"><option value="">Sem pasta</option></select>
+              </div>
+              <div class="form-group">
+                <label for="input-nota-campanha">Campanha privada (opcional):</label>
+                <select id="input-nota-campanha" class="form-control"><option value="">Sem campanha</option></select>
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">
+                ➕ Adicionar Nota
+              </button>
+              <button id="btn-cancelar-edicao-nota" type="button" class="btn btn-secondary hidden" style="width: 100%; margin-top: 8px;">
+                Cancelar edição
+              </button>
+            </form>
+
+            <div class="popup-section-title">
+              <h4>Anotações Salvas</h4>
+            </div>
+            <div id="lista-notas" class="popup-cards-list">
+              <!-- Cards de notas inseridos via TypeScript -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Pop-up de Missão -->
+      <div id="modal-missao" class="modal-backdrop hidden">
+        <div class="modal-content glass-card modal-popup-lg">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <h3>📜 Quadro de Missões</h3>
+              <span id="badge-total-missoes" class="popup-badge">0 ativas</span>
+            </div>
+            <button id="btn-close-missao-modal" class="btn-icon">✕</button>
+          </div>
+          <div class="modal-body">
+            <!-- Formulário Nova Missão -->
+            <form id="form-nova-missao" class="popup-form-box">
+              <div class="form-group">
+                <label for="input-missao-titulo">Título da Missão:</label>
+                <input type="text" id="input-missao-titulo" class="form-control" placeholder="Ex: Resgatar o anão ferreiro..." required />
+              </div>
+              <div class="form-group">
+                <label for="input-missao-descricao">Objetivo / Detalhes:</label>
+                <textarea id="input-missao-descricao" class="form-control" rows="2" placeholder="Descreva o local, perigos ou requisitos..." required></textarea>
+              </div>
+              <div class="form-group">
+                <label for="input-missao-recompensa">Recompensa (opcional):</label>
+                <input type="text" id="input-missao-recompensa" class="form-control" placeholder="Ex: 100 PO, 300 XP, Amuleto de Proteção" />
+              </div>
+              <div class="form-group">
+                <label for="input-missao-pasta">Pasta (opcional):</label>
+                <select id="input-missao-pasta" class="form-control"><option value="">Sem pasta</option></select>
+              </div>
+              <div class="form-group">
+                <label for="input-missao-campanha">Campanha privada (opcional):</label>
+                <select id="input-missao-campanha" class="form-control"><option value="">Sem campanha</option></select>
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">
+                ⚔️ Adicionar Missão
+              </button>
+              <button id="btn-cancelar-edicao-missao" type="button" class="btn btn-secondary hidden" style="width: 100%; margin-top: 8px;">
+                Cancelar edição
+              </button>
+            </form>
+
+            <div class="popup-section-title">
+              <h4>Missões da Jornada</h4>
+            </div>
+            <div id="lista-missoes" class="popup-cards-list">
+              <!-- Cards de missões inseridos via TypeScript -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
