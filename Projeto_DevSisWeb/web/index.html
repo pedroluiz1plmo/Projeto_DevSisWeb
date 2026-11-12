@@ -81,9 +81,39 @@
           <div class="form-group"><label for="auth-login-password">Senha</label><input id="auth-login-password" type="password" class="form-control" required /></div>
           <p id="auth-login-error" class="auth-error hidden" role="alert"></p>
           <button type="submit" class="btn btn-primary auth-action">Entrar</button>
+          <button type="button" id="btn-forgot-password" class="btn btn-icon-text">Esqueceu sua senha?</button>
           <button type="button" id="btn-login-offline" class="btn btn-secondary auth-action">Acessar dados locais</button>
           <button type="button" id="btn-login-register" class="btn btn-icon-text">Criar uma conta</button>
         </form>
+
+        <form id="auth-recovery-request-form" class="auth-screen hidden">
+          <button type="button" id="btn-recovery-request-login" class="btn-icon" aria-label="Voltar ao login">←</button>
+          <h1>RECUPERAR SENHA</h1>
+          <p>Informe o e-mail da sua conta. Se houver um cadastro ativo, enviaremos um código temporário.</p>
+          <div class="form-group"><label for="auth-recovery-email">E-mail</label><input id="auth-recovery-email" type="email" class="form-control" autocomplete="email" maxlength="254" required /></div>
+          <p id="auth-recovery-request-error" class="auth-error hidden" role="alert"></p>
+          <button type="submit" id="btn-request-password-recovery" class="btn btn-primary auth-action">Enviar instruções</button>
+          <button type="button" id="btn-recovery-request-cancel" class="btn btn-icon-text">Voltar ao login</button>
+        </form>
+
+        <form id="auth-recovery-reset-form" class="auth-screen hidden">
+          <button type="button" id="btn-recovery-reset-login" class="btn-icon" aria-label="Voltar ao login">←</button>
+          <h1>CRIAR NOVA SENHA</h1>
+          <p id="auth-recovery-sent-message" class="auth-success" role="status">Se o e-mail estiver associado a uma conta ativa, enviaremos um código temporário. Confira sua caixa de entrada e a pasta de spam.</p>
+          <div class="form-group"><label for="auth-recovery-reset-email">E-mail</label><input id="auth-recovery-reset-email" type="email" class="form-control" autocomplete="email" maxlength="254" required readonly /></div>
+          <div class="form-group"><label for="auth-recovery-token">Código recebido por e-mail</label><input id="auth-recovery-token" class="form-control" autocomplete="one-time-code" maxlength="43" pattern="[A-Za-z0-9_\-]{43}" required /></div>
+          <div class="form-group"><label for="auth-recovery-new-password">Nova senha</label><input id="auth-recovery-new-password" type="password" class="form-control" autocomplete="new-password" minlength="8" required /></div>
+          <div class="form-group"><label for="auth-recovery-confirm-password">Confirmar nova senha</label><input id="auth-recovery-confirm-password" type="password" class="form-control" autocomplete="new-password" minlength="8" required /></div>
+          <p id="auth-recovery-reset-error" class="auth-error hidden" role="alert"></p>
+          <button type="submit" id="btn-reset-password" class="btn btn-primary auth-action">Redefinir senha</button>
+          <button type="button" id="btn-recovery-resend" class="btn btn-icon-text">Enviar outro código</button>
+        </form>
+
+        <section id="auth-recovery-complete" class="auth-screen hidden">
+          <h1>SENHA REDEFINIDA</h1>
+          <p role="status">Senha redefinida. Entre com sua nova senha.</p>
+          <button type="button" id="btn-recovery-complete-login" class="btn btn-primary auth-action">Voltar ao login</button>
+        </section>
 
         <form id="auth-register-form" class="auth-screen hidden">
           <button type="button" class="btn-auth-back btn-icon" aria-label="Voltar">←</button>
@@ -163,6 +193,14 @@
           <button id="nav-dados" class="nav-item" data-tab="dados" data-role-view="jogador mestre">
             <span class="nav-icon">🎯</span>
             <span class="nav-label">Rolagem de Dados</span>
+          </button>
+          <button id="nav-campaign-access" class="nav-item" data-tab="campaign-access" data-role-view="jogador">
+            <span class="nav-icon">✉️</span>
+            <span class="nav-label">Campanhas</span>
+          </button>
+          <button id="nav-friendships" class="nav-item" data-tab="friendships" data-role-view="jogador mestre">
+            <span class="nav-icon">👥</span>
+            <span class="nav-label">Amizades</span>
           </button>
 
           <div class="nav-section-title" data-role-view="mestre">VISÃO DO MESTRE (GM)</div>
@@ -296,7 +334,7 @@
               <div><strong>Avatar do perfil</strong><small>Seu avatar é formado automaticamente pelas iniciais do nome.</small></div>
             </div>
             <div class="form-group"><label for="account-settings-name">Nome</label><input id="account-settings-name" class="form-control" required maxlength="120" /></div>
-            <div class="form-group"><label for="account-settings-username">Nickname / Username</label><input id="account-settings-username" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_.-]+" /></div>
+            <div class="form-group"><label for="account-settings-username">Nickname / Username</label><input id="account-settings-username" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_.\-]+" /></div>
             <div class="form-group"><label for="account-settings-email">E-mail</label><input id="account-settings-email" type="email" class="form-control" required maxlength="254" /></div>
             <div class="account-password-section">
               <h4>Alterar senha <small>Opcional</small></h4>
@@ -307,7 +345,34 @@
             <p id="account-settings-error" class="auth-error hidden" role="alert"></p>
             <div class="account-settings-actions"><button id="btn-cancel-account-settings" type="button" class="btn btn-secondary">Cancelar</button><button id="btn-save-account-settings" type="submit" class="btn btn-primary">Salvar alterações</button></div>
           </form>
+          <section class="account-danger-zone" aria-labelledby="account-danger-title">
+            <h4 id="account-danger-title">Zona de perigo</h4>
+            <p>A exclusão é permanente. Seus dados pessoais e conteúdos associados serão removidos. Registros financeiros ou outras relações restritivas podem impedir a operação.</p>
+            <button id="btn-open-delete-account" type="button" class="btn btn-danger">Excluir minha conta</button>
+          </section>
         </div>
+      </div>
+
+      <div id="account-delete-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="account-delete-title">
+        <form id="account-delete-form" class="modal-content glass-card account-delete-modal">
+          <div class="modal-header">
+            <div>
+              <h3 id="account-delete-title">Excluir conta permanentemente?</h3>
+              <p class="account-settings-subtitle">Esta ação não pode ser desfeita.</p>
+            </div>
+            <button id="btn-close-delete-account" type="button" class="btn-icon" aria-label="Cancelar exclusão">✕</button>
+          </div>
+          <p>Seus dados pessoais e conteúdos associados serão removidos. A conta não poderá ser excluída enquanto houver registros financeiros ou outras dependências que impeçam a remoção.</p>
+          <div class="form-group" style="margin-top: 16px;">
+            <label for="account-delete-password">Informe sua senha atual para confirmar</label>
+            <input id="account-delete-password" type="password" class="form-control" autocomplete="current-password" required />
+          </div>
+          <p id="account-delete-error" class="auth-error hidden" role="alert"></p>
+          <div class="account-settings-actions">
+            <button id="btn-cancel-delete-account" type="button" class="btn btn-secondary">Cancelar</button>
+            <button id="btn-confirm-delete-account" type="submit" class="btn btn-danger">Excluir permanentemente</button>
+          </div>
+        </form>
       </div>
 
       <!-- Modal Pop-up de Nota -->

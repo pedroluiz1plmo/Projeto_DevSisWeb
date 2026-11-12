@@ -6,6 +6,7 @@ export type ApiCampaign = {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  workspaceType?: 'master' | 'player';
 };
 
 export type ApiCampaignMember = {
@@ -21,4 +22,85 @@ export type ApiCampaignCharacter = {
   name: string;
   system: { id: string; name: string; slug: string } | null;
   joinedAt: string;
+};
+
+export type ApiCampaignInviteInfo = {
+  status: string;
+  createdAt: string;
+  revokedAt?: string | null;
+  code?: string;
+};
+
+export type ApiCampaignInvitePreview = {
+  name: string;
+  description: string;
+};
+
+export type ApiCampaignJoinRequest = {
+  id: string;
+  status: string;
+  name?: string;
+  username?: string;
+  campaignName?: string;
+  ownerName?: string;
+  requestedAt?: string;
+  reviewedAt?: string;
+};
+
+export type ApiCampaignUser = {
+  name: string;
+  username: string;
+};
+
+export type ApiCampaignUserInvitation = {
+  id: string;
+  userId?: string;
+  status: string;
+  name?: string;
+  username?: string;
+  campaignName?: string;
+  ownerName?: string;
+  ownerUsername?: string;
+  invitedAt?: string;
+  campaignId?: string;
+};
+
+export type ApiMasterDashboard = {
+  metrics: {
+    totalCampaigns: number;
+    activeCampaigns: number;
+    inactiveCampaigns: number;
+    participantLinks: number;
+    characterLinks: number;
+    totalCombats: number;
+    pendingJoinRequests: number;
+  };
+  campaigns: ApiMasterDashboardCampaign[];
+  activities: ApiMasterDashboardActivity[];
+};
+
+export type ApiMasterDashboardCampaign = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  participantCount: number;
+  characterCount: number;
+  combatCount: number;
+  systems: string[];
+};
+
+export type ApiMasterDashboardActivity = {
+  type: 'campaign_created'
+    | 'campaign_updated'
+    | 'participant_added'
+    | 'join_request'
+    | 'invitation_sent'
+    | 'combat_created';
+  occurredAt: string;
+  campaignId: string;
+  campaignName: string;
+  actorName: string | null;
+  detail: string | null;
 };

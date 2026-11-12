@@ -3,12 +3,18 @@ import http from 'node:http';
 import { handleAuthRoute } from './routes/auth_routes.js';
 import { handleUserRoute } from './routes/user_routes.js';
 import { handleCampaignRoute } from './modules/campaigns/campaigns.routes.js';
+import { handleCampaignInvitationRoute } from './modules/campaign-invitations/campaign-invitations.routes.js';
+import { handleCombatRoute } from './modules/combats/combats.routes.js';
 import { handleFolderRoute } from './modules/folders/folders.routes.js';
 import { handleSystemRoute } from './modules/rpg-systems/rpg-systems.routes.js';
 import { handleCharactersRoute } from './modules/characters/characters.routes.js';
 import { handleRecordRoute } from './modules/notes-missions/records.routes.js';
 import { handleMonsterRoute } from './modules/monsters/monsters.routes.js';
+import { handleCharacterGenerationRoute } from './modules/character-generation/character-generation.routes.js';
 import { handleAdminRoute } from './modules/admin/admin.routes.js';
+import { handleDashboardRoute } from './modules/dashboard/dashboard.routes.js';
+import { handleFriendshipRoute } from './modules/friendships/friendships.routes.js';
+import { processPendingSubscriptionEmailNotifications } from './modules/billing/subscription_notifications.service.js';
 import { requireAuth } from './middleware/auth.js';
 import { pool } from './config/database.js';
 
@@ -68,7 +74,7 @@ http.createServer(async (request, response) => {
   }
 
   let body = {};
-  if (['POST', 'PUT', 'PATCH'].includes(request.method)) {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) {
     try {
       body = await readBody(request);
     } catch (error) {
@@ -103,10 +109,25 @@ http.createServer(async (request, response) => {
       result = await handleUserRoute(request, body);
     }
     if (!result) {
+      result = await handleDashboardRoute(request);
+    }
+    if (!result) {
+      result = await handleFriendshipRoute(request, body);
+    }
+    if (!result) {
       result = await handleCampaignRoute(request, body);
     }
     if (!result) {
+      result = await handleCampaignInvitationRoute(request, body);
+    }
+    if (!result) {
+      result = await handleCombatRoute(request, body);
+    }
+    if (!result) {
       result = await handleMonsterRoute(request, body);
+    }
+    if (!result) {
+      result = await handleCharacterGenerationRoute(request, body);
     }
     if (!result) {
       result = await handleFolderRoute(request, body);
@@ -141,3 +162,24 @@ http.createServer(async (request, response) => {
 }).listen(port, () => {
   console.log(`API do RPG Manager em http://localhost:${port}`);
 });
+
+let processingSubscriptionNotifications = false;
+const processSubscriptionNotifications = async () => {
+  if (processingSubscriptionNotifications) return;
+  processingSubscriptionNotifications = true;
+  try {
+    await processPendingSubscriptionEmailNotifications();
+  } catch (error) {
+    const code = typeof error?.code === 'string' ? error.code : error?.name || 'unknown';
+    console.error(`Falha ao processar notificações de assinatura (${code}).`);
+  } finally {
+    processingSubscriptionNotifications = false;
+  }
+};
+
+const subscriptionNotificationWorker = setInterval(
+  () => void processSubscriptionNotifications(),
+  30_000,
+);
+subscriptionNotificationWorker.unref();
+void processSubscriptionNotifications();

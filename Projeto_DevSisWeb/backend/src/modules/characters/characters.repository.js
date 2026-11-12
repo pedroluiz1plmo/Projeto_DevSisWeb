@@ -110,7 +110,7 @@ export const findByIdAndUser = (id, userId, workspaceType) => pool.query(
 );
 
 export const findActiveSystem = (systemId) => pool.query(
-  'SELECT id FROM systems WHERE id = $1 AND is_active = TRUE',
+  'SELECT id, slug FROM systems WHERE id = $1 AND is_active = TRUE',
   [systemId],
 );
 

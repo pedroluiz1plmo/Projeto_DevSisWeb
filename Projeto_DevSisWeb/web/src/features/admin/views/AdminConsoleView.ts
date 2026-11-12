@@ -195,7 +195,11 @@ export class AdminConsoleView {
   }
 
   private static async renderSubscriptions(token: string, identity: AdminIdentity): Promise<string> {
-    const data = await AdminService.subscriptions(token);
+    const [data, trialData, notificationData] = await Promise.all([
+      AdminService.subscriptions(token),
+      AdminService.freeTrials(token),
+      AdminService.subscriptionNotifications(token),
+    ]);
     const canManage = identity.permissions.includes('subscriptions.manage');
     const rows = (data.subscriptions as Array<Record<string, unknown>>).map((item) => `<tr>
       <td>${escapeHtml(item.user && (item.user as Record<string, unknown>).username)}<small>${escapeHtml(item.user && (item.user as Record<string, unknown>).email)}</small></td>
@@ -203,8 +207,38 @@ export class AdminConsoleView {
       <td>${money(item.contractedPrice, item.currency)}</td><td>${escapeHtml(item.status)}</td>
       <td>${date(item.startsAt)}<small>Até: ${date(item.endsAt)}</small></td>
       <td>${canManage && ['pending', 'active', 'past_due'].includes(String(item.status)) ? `<button class="btn btn-secondary admin-small-button" data-cancel-subscription="${escapeHtml(item.id)}">Cancelar</button>` : '—'}</td></tr>`);
-    return `<div class="admin-view-heading"><div><p class="admin-eyebrow">ASSINATURAS</p><h2>Contratos</h2><p>Não é permitido marcar pagamentos como confirmados sem integração de provedor.</p></div><button class="btn btn-secondary" data-admin-refresh>Atualizar</button></div>
-      ${table(['Conta', 'Plano', 'Preço contratado', 'Status', 'Período', 'Ação'], rows)}`;
+    const trialCounts = trialData.counts as Record<string, unknown>;
+    const trialRows = (trialData.trials as Array<Record<string, unknown>>).map((item) => {
+      const user = item.user as Record<string, unknown>;
+      return `<tr><td>${escapeHtml(user.username)}<small>${escapeHtml(user.name)}</small></td>
+        <td>${escapeHtml(item.planName)}</td><td>${escapeHtml(item.status)}</td>
+        <td>${date(item.activatedAt)}</td><td>${date(item.endsAt)}</td>
+        <td>${item.convertedAfterTrial ? 'Sim' : 'Não'}</td></tr>`;
+    });
+    const notificationRows = (notificationData.notifications as Array<Record<string, unknown>>).map((item) => `<tr>
+      <td>@${escapeHtml(item.username)}</td><td>${escapeHtml(item.planName)}</td>
+      <td>${escapeHtml(item.notificationType)}</td><td>${escapeHtml(item.status)}</td>
+      <td>${escapeHtml(item.attempts)}</td><td>${escapeHtml(item.errorCode || '—')}</td>
+      <td>${date(item.sentAt || item.createdAt)}</td>
+      <td>${canManage && ['pending', 'failed'].includes(String(item.status))
+        ? `<button class="btn btn-secondary admin-small-button" data-retry-subscription-notification="${escapeHtml(item.id)}">${item.status === 'pending' ? 'Enviar agora' : 'Tentar novamente'}</button>`
+        : '—'}</td></tr>`);
+    return `<div class="admin-view-heading"><div><p class="admin-eyebrow">ASSINATURAS</p><h2>Contratos e testes gratuitos</h2><p>Não é permitido marcar pagamentos como confirmados sem integração de provedor.</p></div><button class="btn btn-secondary" data-admin-refresh>Atualizar</button></div>
+      ${table(['Conta', 'Plano', 'Preço contratado', 'Status', 'Período', 'Ação'], rows)}
+      <section class="admin-panel"><h3>Notificações por e-mail de assinatura</h3>
+        <p>Eventos financeiros só geram notificações depois de confirmados pelo provedor. Falhas podem ser reenviadas com segurança pelo evento registrado.</p>
+        ${table(['Conta', 'Plano', 'Tipo', 'Envio', 'Tentativas', 'Erro', 'Data', 'Ação'], notificationRows, 'Nenhuma notificação de assinatura foi registrada.') }
+        ${Number((notificationData.notifications as Array<unknown>).length) >= 500 ? '<p class="admin-notice">Exibindo as 500 notificações mais recentes.</p>' : ''}
+      </section>
+      <section class="admin-panel"><h3>Teste gratuito Premium · 7 dias</h3>
+        <div class="admin-metrics admin-metrics-compact">
+          ${card('Ativações', trialCounts.total)}${card('Ativos', trialCounts.active)}
+          ${card('Expirados', trialCounts.expired)}${card('Premium após o teste', trialCounts.convertedAfterTrial)}
+        </div>
+        <p>Conversões contam registros de assinatura paga criados após o encerramento do teste; não representam confirmação de pagamento.</p>
+        ${table(['Conta', 'Plano', 'Status', 'Ativação', 'Encerramento', 'Assinou depois'], trialRows, 'Nenhum usuário ativou um teste gratuito.') }
+        ${Number(trialCounts.total) > trialRows.length ? '<p class="admin-notice">Exibindo os 500 testes mais recentes; os totais acima consideram todos os registros.</p>' : ''}
+      </section>`;
   }
 
   private static async renderPayments(token: string): Promise<string> {
@@ -377,6 +411,21 @@ export class AdminConsoleView {
           await this.render(container, 'admin-subscriptions', token, identity);
         } catch (error) {
           window.alert(error instanceof Error ? error.message : 'Não foi possível cancelar a assinatura.');
+        }
+      });
+    });
+    container.querySelectorAll<HTMLButtonElement>('[data-retry-subscription-notification]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          await AdminService.retrySubscriptionNotification(
+            token,
+            button.dataset.retrySubscriptionNotification || '',
+          );
+          await this.render(container, 'admin-subscriptions', token, identity);
+        } catch (error) {
+          window.alert(error instanceof Error ? error.message : 'Não foi possível reenviar a notificação.');
+          button.disabled = false;
         }
       });
     });

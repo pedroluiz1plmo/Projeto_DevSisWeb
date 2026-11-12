@@ -5,6 +5,9 @@ import '../models/models.dart';
 import '../services/rpg_api.dart';
 import '../widgets/local_cache_indicator.dart';
 import '../widgets/ui_helpers.dart';
+import 'campaign_combat_screen.dart';
+import 'campaign_invitations_screen.dart';
+import 'campaign_join_screen.dart';
 import 'monster_screen.dart';
 
 class CampaignScreen extends StatefulWidget {
@@ -86,6 +89,23 @@ class _CampaignScreenState extends State<CampaignScreen> {
           Column(
             children: [
               LocalCacheIndicator(api: widget.api, kinds: const ['campaigns']),
+              if (!widget.isMaster)
+                ListTile(
+                  leading: const Icon(Icons.group_add_outlined),
+                  title: const Text('Entrar em campanha'),
+                  subtitle: const Text(
+                    'Usar código, ler QR Code ou responder a convites',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) => CampaignJoinScreen(api: widget.api),
+                      ),
+                    );
+                    if (mounted) await _load();
+                  },
+                ),
               if (_error != null && _campaigns.isNotEmpty)
                 DataLoadErrorBanner(message: _error!, onRetry: _load),
               Expanded(
@@ -177,6 +197,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   List<CampaignMember> _members = [];
   List<CampaignCharacter> _characters = [];
   List<RpgCharacter> _availableCharacters = [];
+  List<CampaignUserInvitation> _invitations = [];
   bool _loading = true;
   bool _hasLoaded = false;
   String? _error;
@@ -195,18 +216,26 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       _error = null;
     });
     try {
-      final results = await Future.wait([
+      final requests = <Future<Object>>[
         widget.api.campaignMembers(_campaign.id),
         widget.api.campaignCharacters(_campaign.id),
         widget.api.characters(),
-      ]);
+      ];
+      final results = await Future.wait<Object>(requests);
       _members = results[0] as List<CampaignMember>;
       _characters = results[1] as List<CampaignCharacter>;
       _availableCharacters = results[2] as List<RpgCharacter>;
       _campaign = await widget.api.campaign(_campaign.id);
       _hasLoaded = true;
+      if (_isOwner) {
+        try {
+          _invitations = await widget.api.campaignUserInvitations(_campaign.id);
+        } catch (error) {
+          _error = requestErrorMessage(error);
+        }
+      }
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = requestErrorMessage(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -243,25 +272,6 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     }
   }
 
-  Future<void> _addMember() async {
-    final values = await showTextFieldsDialog(
-      context,
-      title: 'Adicionar membro',
-      fields: const {'ID do usuário': '', 'Função': 'player'},
-    );
-    if (values == null) return;
-    try {
-      await widget.api.addCampaignMember(
-        _campaign.id,
-        values['ID do usuário']!,
-        values['Função']!,
-      );
-      await _load();
-    } catch (error) {
-      if (mounted) showRequestError(context, error);
-    }
-  }
-
   Future<void> _editMember(CampaignMember member) async {
     final values = await showTextFieldsDialog(
       context,
@@ -292,6 +302,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   }
 
   Future<void> _addCharacter() async {
+    if (!widget.isMaster || !_isOwner) return;
     final linked = _characters.map((character) => character.id).toSet();
     final candidates = _availableCharacters
         .where((character) => !linked.contains(character.id))
@@ -327,6 +338,135 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     }
   }
 
+  Future<void> _inviteFriends() async {
+    if (!widget.isMaster || !_isOwner) return;
+    late final List<FriendshipUser> friends;
+    try {
+      friends = await widget.api.friendships();
+    } catch (error) {
+      if (mounted) showRequestError(context, error);
+      return;
+    }
+    if (!mounted) return;
+    if (friends.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Você ainda não tem amigos para convidar.')),
+      );
+      return;
+    }
+
+    final filter = TextEditingController();
+    final selected = <String>{};
+    final memberIds = _members.map((member) => member.userId).toSet();
+    final pendingIds = _invitations
+        .where((invitation) => invitation.status == 'pending')
+        .map((invitation) => invitation.userId)
+        .whereType<String>()
+        .toSet();
+    final invited = await showDialog<List<FriendshipUser>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final query = filter.text.trim().toLowerCase();
+          final visibleFriends = friends.where((friend) =>
+              query.isEmpty ||
+              friend.username.toLowerCase().contains(query) ||
+              friend.name.toLowerCase().contains(query));
+          return AlertDialog(
+            title: const Text('Convidar amigos'),
+            content: SizedBox(
+              width: 420,
+              height: 420,
+              child: Column(
+                children: [
+                  TextField(
+                    controller: filter,
+                    decoration: const InputDecoration(
+                      labelText: 'Pesquisar pelo username',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView(
+                      children: visibleFriends.map((friend) {
+                        final isMember = memberIds.contains(friend.id);
+                        final hasPendingInvitation =
+                            pendingIds.contains(friend.id);
+                        return CheckboxListTile(
+                          value: selected.contains(friend.id),
+                          title: Text(friend.name),
+                          subtitle: Text(
+                            '@${friend.username} · ${isMember ? 'Já participa' : hasPendingInvitation ? 'Convite pendente' : 'Amigo'}',
+                          ),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          onChanged: isMember || hasPendingInvitation
+                              ? null
+                              : (checked) => setDialogState(() {
+                                    if (checked == true) {
+                                      selected.add(friend.id);
+                                    } else {
+                                      selected.remove(friend.id);
+                                    }
+                                  }),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: selected.isEmpty
+                    ? null
+                    : () => Navigator.pop(
+                          dialogContext,
+                          friends
+                              .where((friend) => selected.contains(friend.id))
+                              .toList(),
+                        ),
+                child: Text('Enviar convites (${selected.length})'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    filter.dispose();
+    if (invited == null || invited.isEmpty) return;
+
+    final failures = <String>[];
+    var succeeded = 0;
+    for (final friend in invited) {
+      try {
+        await widget.api.inviteCampaignUser(
+          campaignId: _campaign.id,
+          username: friend.username,
+        );
+        succeeded += 1;
+      } catch (error) {
+        failures.add('@${friend.username}: ${requestErrorMessage(error)}');
+      }
+    }
+    await _load();
+    if (!mounted) return;
+    final message = failures.isEmpty
+        ? '$succeeded convite(s) enviado(s). Os jogadores precisam aceitar.'
+        : '$succeeded convite(s) enviado(s); ${failures.length} falharam.';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text(
+              '$message${failures.isEmpty ? '' : ' ${failures.join('; ')}'}')),
+    );
+  }
+
   Future<void> _removeCharacter(CampaignCharacter character) async {
     try {
       await widget.api.removeCampaignCharacter(_campaign.id, character.id);
@@ -341,6 +481,26 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       builder: (_) => CampaignMonstersScreen(
         api: widget.api,
         campaign: _campaign,
+      ),
+    ));
+  }
+
+  Future<void> _openInvitations() async {
+    await Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => CampaignInvitationsScreen(
+        api: widget.api,
+        campaign: _campaign,
+      ),
+    ));
+    if (mounted) await _load();
+  }
+
+  Future<void> _openCombat() async {
+    await Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => CampaignCombatScreen(
+        api: widget.api,
+        campaign: _campaign,
+        canManage: widget.isMaster && _isOwner,
       ),
     ));
   }
@@ -393,15 +553,15 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                   child: Text(_campaign.description),
                                 ),
                               _SectionHeading(
-                                title: 'Membros',
-                                action: _isOwner ? _addMember : null,
+                                title: 'Participantes',
                               ),
                               ..._members.map((member) => ListTile(
                                     leading: const Icon(Icons.person_outline),
                                     title: Text(member.name),
                                     subtitle: Text(
                                         '@${member.username} · ${member.role}'),
-                                    trailing: _isOwner &&
+                                    trailing: widget.isMaster &&
+                                            _isOwner &&
                                             member.userId != _campaign.ownerId
                                         ? PopupMenuButton<String>(
                                             onSelected: (value) =>
@@ -421,9 +581,48 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                           )
                                         : null,
                                   )),
+                              if (widget.isMaster && _isOwner)
+                                _SectionHeading(
+                                  title: 'Adicionar amigos',
+                                  action: _inviteFriends,
+                                ),
+                              if (widget.isMaster &&
+                                  _isOwner &&
+                                  _invitations.isNotEmpty)
+                                ..._invitations.map((invitation) => ListTile(
+                                      leading: const Icon(Icons.mail_outline),
+                                      title: Text(invitation.name ??
+                                          invitation.username ??
+                                          'Jogador'),
+                                      subtitle: Text(
+                                        '@${invitation.username ?? ''} · ${switch (invitation.status) {
+                                          'pending' => 'Pendente',
+                                          'accepted' => 'Aceito',
+                                          'declined' => 'Recusado',
+                                          'cancelled' => 'Cancelado',
+                                          _ => invitation.status,
+                                        }}',
+                                      ),
+                                    )),
+                              if (widget.isMaster && _isOwner)
+                                _SectionHeading(
+                                  title: 'Convites e solicitações',
+                                ),
+                              if (widget.isMaster && _isOwner)
+                                ListTile(
+                                  leading: const Icon(Icons.mark_email_unread),
+                                  title: const Text('Gerenciar acesso'),
+                                  subtitle: const Text(
+                                    'Convites por código, QR Code e username',
+                                  ),
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: _openInvitations,
+                                ),
                               _SectionHeading(
                                 title: 'Personagens vinculados',
-                                action: () => _addCharacter(),
+                                action: widget.isMaster && _isOwner
+                                    ? _addCharacter
+                                    : null,
                               ),
                               if (_characters.isEmpty)
                                 const ListTile(
@@ -433,12 +632,14 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                     leading: const Icon(Icons.badge_outlined),
                                     title: Text(character.name),
                                     subtitle: Text(character.systemName),
-                                    trailing: IconButton(
-                                      tooltip: 'Desvincular personagem',
-                                      onPressed: () =>
-                                          _removeCharacter(character),
-                                      icon: const Icon(Icons.link_off),
-                                    ),
+                                    trailing: widget.isMaster && _isOwner
+                                        ? IconButton(
+                                            tooltip: 'Desvincular personagem',
+                                            onPressed: () =>
+                                                _removeCharacter(character),
+                                            icon: const Icon(Icons.link_off),
+                                          )
+                                        : null,
                                   )),
                               if (widget.isMaster && _isOwner)
                                 _SectionHeading(
@@ -453,6 +654,21 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                       'Cadastre criaturas para esta campanha e sistema'),
                                   trailing: const Icon(Icons.chevron_right),
                                   onTap: _openMonsters,
+                                ),
+                              if (widget.isMaster && _isOwner)
+                                _SectionHeading(
+                                  title: 'Iniciativa e combate',
+                                ),
+                              if (widget.isMaster && _isOwner)
+                                ListTile(
+                                  leading:
+                                      const Icon(Icons.sports_martial_arts),
+                                  title: const Text('Controlar iniciativa'),
+                                  subtitle: const Text(
+                                    'Organize participantes, rodadas e turnos',
+                                  ),
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: _openCombat,
                                 ),
                             ],
                           ),

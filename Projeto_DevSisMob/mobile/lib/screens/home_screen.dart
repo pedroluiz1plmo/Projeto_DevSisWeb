@@ -13,6 +13,7 @@ import 'monster_screen.dart';
 import 'persona_selection_screen.dart';
 import 'admin_console_screen.dart';
 import 'my_plan_screen.dart';
+import 'friendships_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -23,6 +24,7 @@ class HomeScreen extends StatefulWidget {
     required this.onLogout,
     required this.onPersonaChanged,
     required this.onUserUpdated,
+    required this.onAccountDeleted,
   });
 
   final RpgApi api;
@@ -31,6 +33,7 @@ class HomeScreen extends StatefulWidget {
   final Future<void> Function() onLogout;
   final Future<void> Function(UserPersona) onPersonaChanged;
   final ValueChanged<AppUser> onUserUpdated;
+  final Future<void> Function() onAccountDeleted;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -87,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
       'Pastas',
       if (isMaster) 'Monstros',
       'Notas e missões',
+      'Amizades',
     ];
     final notesIndex = isMaster ? 5 : 4;
     return Scaffold(
@@ -142,7 +146,9 @@ class _HomeScreenState extends State<HomeScreen> {
         2 => CharacterScreen(api: widget.api),
         3 => FolderScreen(api: widget.api),
         4 when isMaster => MonsterScreen(api: widget.api, user: widget.user),
-        _ => NotesMissionsScreen(api: widget.api),
+        4 when !isMaster => NotesMissionsScreen(api: widget.api),
+        5 when isMaster => NotesMissionsScreen(api: widget.api),
+        _ => FriendshipsScreen(api: widget.api),
       },
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
@@ -179,6 +185,11 @@ class _HomeScreenState extends State<HomeScreen> {
             selectedIcon: Icon(Icons.note_alt),
             label: 'Notas',
           ),
+          const NavigationDestination(
+            icon: Icon(Icons.people_outline),
+            selectedIcon: Icon(Icons.people),
+            label: 'Amizades',
+          ),
         ],
       ),
     );
@@ -206,6 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => ProfileScreen(
           api: widget.api,
           user: widget.user,
+          onAccountDeleted: widget.onAccountDeleted,
         ),
       ),
     );
@@ -304,24 +316,78 @@ class _DashboardView extends StatelessWidget {
 }
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, required this.api, required this.user});
+  const ProfileScreen({
+    super.key,
+    required this.api,
+    required this.user,
+    required this.onAccountDeleted,
+  });
 
   final RpgApi api;
   final AppUser user;
+  final Future<void> Function() onAccountDeleted;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final _deletePasswordController = TextEditingController();
+  AppUser? _user;
+  bool _loadingProfile = true;
+  bool _deletingAccount = false;
+  String? _profileError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  @override
+  void dispose() {
+    _deletePasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() {
+      _loadingProfile = true;
+      _profileError = null;
+    });
+    try {
+      final user = await widget.api.currentUser();
+      if (mounted) setState(() => _user = user);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      if (error.statusCode == 401) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      } else {
+        setState(() => _profileError = error.message);
+      }
+    } finally {
+      if (mounted) setState(() => _loadingProfile = false);
+    }
+  }
+
+  void _showProfileError(Object error) {
+    if (error is ApiException && error.statusCode == 401) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      return;
+    }
+    showRequestError(context, error);
+  }
+
   Future<void> _editProfile() async {
+    final user = _user;
+    if (user == null) return;
     final values = await showTextFieldsDialog(
       context,
       title: 'Editar perfil',
       fields: {
-        'Nome': widget.user.name,
-        'Usuário': widget.user.username,
-        'E-mail': widget.user.email,
+        'Nome': user.name,
+        'Usuário': user.username,
+        'E-mail': user.email,
       },
     );
     if (values == null) return;
@@ -331,9 +397,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         username: values['Usuário']!,
         email: values['E-mail']!,
       );
-      if (mounted) Navigator.pop(context, updated);
+      if (mounted) {
+        setState(() => _user = updated);
+        Navigator.pop(context, updated);
+      }
     } catch (error) {
-      if (mounted) showRequestError(context, error);
+      if (mounted) _showProfileError(error);
     }
   }
 
@@ -361,45 +430,172 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     } catch (error) {
-      if (mounted) showRequestError(context, error);
+      if (mounted) _showProfileError(error);
+    }
+  }
+
+  Future<void> _deleteAccount() async {
+    if (_deletingAccount) return;
+    _deletePasswordController.clear();
+    final currentPassword = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Excluir conta permanentemente?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Esta ação não pode ser desfeita. Seus dados pessoais e '
+                'conteúdos associados serão removidos conforme as regras do '
+                'sistema. Registros financeiros podem impedir a exclusão.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _deletePasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Senha atual para confirmar',
+                ),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: _deletePasswordController.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(
+                        dialogContext,
+                        _deletePasswordController.text,
+                      ),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
+              child: const Text('Excluir conta'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (currentPassword == null) return;
+
+    setState(() => _deletingAccount = true);
+    try {
+      await widget.api.deleteAccount(currentPassword);
+      if (mounted) {
+        await widget.onAccountDeleted();
+        if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } catch (error) {
+      if (mounted) _showProfileError(error);
+    } finally {
+      if (mounted) setState(() => _deletingAccount = false);
     }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Meu perfil')),
-        body: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            ListTile(
-                title: const Text('Nome'), subtitle: Text(widget.user.name)),
-            ListTile(
-                title: const Text('Usuário'),
-                subtitle: Text(widget.user.username)),
-            ListTile(
-                title: const Text('E-mail'), subtitle: Text(widget.user.email)),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _editProfile,
-              icon: const Icon(Icons.edit_outlined),
-              label: const Text('Editar perfil'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _changePassword,
-              icon: const Icon(Icons.key_outlined),
-              label: const Text('Alterar senha'),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.of(context).push<void>(
-                MaterialPageRoute(
-                  builder: (_) => MyPlanScreen(api: widget.api),
-                ),
-              ),
-              icon: const Icon(Icons.workspace_premium_outlined),
-              label: const Text('Meu Plano'),
+        appBar: AppBar(
+          title: const Text('Meu perfil'),
+          actions: [
+            IconButton(
+              tooltip: 'Atualizar perfil',
+              onPressed: _loadingProfile ? null : _loadProfile,
+              icon: const Icon(Icons.refresh),
             ),
           ],
         ),
+        body: _loadingProfile
+            ? const Center(child: CircularProgressIndicator())
+            : _profileError != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_profileError!),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            onPressed: _loadProfile,
+                            child: const Text('Tentar novamente'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : _user == null
+                    ? const SizedBox.shrink()
+                    : ListView(
+                        padding: const EdgeInsets.all(20),
+                        children: [
+                          ListTile(
+                            title: const Text('Nome'),
+                            subtitle: Text(_user!.name),
+                          ),
+                          ListTile(
+                            title: const Text('Usuário'),
+                            subtitle: Text(_user!.username),
+                          ),
+                          ListTile(
+                            title: const Text('E-mail'),
+                            subtitle: Text(_user!.email),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Configurações da conta',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          FilledButton.icon(
+                            onPressed: _editProfile,
+                            icon: const Icon(Icons.edit_outlined),
+                            label: const Text('Editar conta'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _changePassword,
+                            icon: const Icon(Icons.key_outlined),
+                            label: const Text('Alterar senha'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _deletingAccount ? null : _deleteAccount,
+                            icon: _deletingAccount
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.delete_forever_outlined),
+                            label: Text(
+                              _deletingAccount
+                                  ? 'Excluindo conta…'
+                                  : 'Excluir conta',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor:
+                                  Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: () => Navigator.of(context).push<void>(
+                              MaterialPageRoute(
+                                builder: (_) => MyPlanScreen(api: widget.api),
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.workspace_premium_outlined,
+                            ),
+                            label: const Text('Meu Plano'),
+                          ),
+                        ],
+                      ),
       );
 }

@@ -1,4 +1,14 @@
-import type { ApiCampaign, ApiCampaignCharacter, ApiCampaignMember } from '../../../shared/types/campaignApi';
+import type {
+  ApiCampaign,
+  ApiCampaignCharacter,
+  ApiCampaignInviteInfo,
+  ApiCampaignInvitePreview,
+  ApiCampaignJoinRequest,
+  ApiCampaignMember,
+  ApiMasterDashboard,
+  ApiCampaignUser,
+  ApiCampaignUserInvitation
+} from '../../../shared/types/campaignApi';
 import { StorageService } from '../../../services/StorageService';
 
 export class CampaignService {
@@ -26,6 +36,11 @@ export class CampaignService {
     return body.campaigns;
   }
 
+  public static async resumoMestre(token: string): Promise<ApiMasterDashboard> {
+    const body = await this.request<{ dashboard: ApiMasterDashboard }>('/dashboard/master', token);
+    return body.dashboard;
+  }
+
   public static async criar(payload: { name: string; description: string }, token: string): Promise<ApiCampaign> {
     const body = await this.request<{ campaign: ApiCampaign }>('/campaigns', token, {
       method: 'POST',
@@ -51,11 +66,106 @@ export class CampaignService {
     return body.members;
   }
 
-  public static async adicionarMembro(campaignId: string, userId: string, role: string, token: string): Promise<void> {
-    await this.request(`/campaigns/${campaignId}/members`, token, {
+  public static async statusConvite(campaignId: string, token: string): Promise<ApiCampaignInviteInfo | null> {
+    const body = await this.request<{ invite: ApiCampaignInviteInfo | null }>(`/campaigns/${campaignId}/invite-code`, token);
+    return body.invite;
+  }
+
+  public static async gerarCodigoConvite(campaignId: string, token: string): Promise<ApiCampaignInviteInfo> {
+    const body = await this.request<{ invite: ApiCampaignInviteInfo }>(`/campaigns/${campaignId}/invite-code`, token, {
       method: 'POST',
-      body: JSON.stringify({ userId, role }),
+      body: JSON.stringify({}),
     });
+    return body.invite;
+  }
+
+  public static async revogarCodigoConvite(campaignId: string, token: string): Promise<void> {
+    await this.request(`/campaigns/${campaignId}/invite-code`, token, { method: 'DELETE' });
+  }
+
+  public static async pesquisarUsuario(campaignId: string, username: string, token: string): Promise<ApiCampaignUser> {
+    const query = new URLSearchParams({ username }).toString();
+    const body = await this.request<{ user: ApiCampaignUser }>(`/campaigns/${campaignId}/users/search?${query}`, token);
+    return body.user;
+  }
+
+  public static async enviarConviteUsuario(campaignId: string, username: string, token: string): Promise<ApiCampaignUserInvitation> {
+    const body = await this.request<{ invitation: ApiCampaignUserInvitation }>(`/campaigns/${campaignId}/user-invitations`, token, {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    });
+    return body.invitation;
+  }
+
+  public static async listarConvitesEnviados(campaignId: string, token: string): Promise<ApiCampaignUserInvitation[]> {
+    const body = await this.request<{ invitations: ApiCampaignUserInvitation[] }>(`/campaigns/${campaignId}/user-invitations`, token);
+    return body.invitations;
+  }
+
+  public static async cancelarConviteUsuario(campaignId: string, invitationId: string, token: string): Promise<void> {
+    await this.request(`/campaigns/${campaignId}/user-invitations/${invitationId}`, token, { method: 'DELETE' });
+  }
+
+  public static async listarSolicitacoes(campaignId: string, token: string): Promise<ApiCampaignJoinRequest[]> {
+    const body = await this.request<{ requests: ApiCampaignJoinRequest[] }>(`/campaigns/${campaignId}/join-requests`, token);
+    return body.requests;
+  }
+
+  public static async revisarSolicitacao(
+    campaignId: string,
+    requestId: string,
+    action: 'approve' | 'reject',
+    token: string
+  ): Promise<ApiCampaignJoinRequest> {
+    const body = await this.request<{ request: ApiCampaignJoinRequest }>(
+      `/campaigns/${campaignId}/join-requests/${requestId}`,
+      token,
+      { method: 'PATCH', body: JSON.stringify({ action }) }
+    );
+    return body.request;
+  }
+
+  public static async visualizarCodigoConvite(code: string, token: string): Promise<ApiCampaignInvitePreview> {
+    const body = await this.request<{ campaign: ApiCampaignInvitePreview }>('/campaign-invites/preview', token, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    return body.campaign;
+  }
+
+  public static async solicitarParticipacao(code: string, token: string): Promise<ApiCampaignJoinRequest> {
+    const body = await this.request<{ request: ApiCampaignJoinRequest }>('/campaign-invites/requests', token, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    return body.request;
+  }
+
+  public static async minhasSolicitacoes(token: string): Promise<ApiCampaignJoinRequest[]> {
+    const body = await this.request<{ requests: ApiCampaignJoinRequest[] }>('/me/campaign-join-requests', token);
+    return body.requests;
+  }
+
+  public static async cancelarSolicitacao(requestId: string, token: string): Promise<void> {
+    await this.request(`/campaign-join-requests/${requestId}`, token, { method: 'DELETE' });
+  }
+
+  public static async meusConvites(token: string): Promise<ApiCampaignUserInvitation[]> {
+    const body = await this.request<{ invitations: ApiCampaignUserInvitation[] }>('/me/campaign-invitations', token);
+    return body.invitations;
+  }
+
+  public static async responderConvite(
+    invitationId: string,
+    action: 'accept' | 'decline',
+    token: string
+  ): Promise<ApiCampaignUserInvitation> {
+    const body = await this.request<{ invitation: ApiCampaignUserInvitation }>(
+      `/campaign-user-invitations/${invitationId}/respond`,
+      token,
+      { method: 'POST', body: JSON.stringify({ action }) }
+    );
+    return body.invitation;
   }
 
   public static async atualizarPapel(campaignId: string, userId: string, role: string, token: string): Promise<void> {

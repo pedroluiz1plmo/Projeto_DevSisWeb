@@ -1,4 +1,5 @@
 import './index.css';
+import type { Html5Qrcode as Html5QrcodeType } from 'html5-qrcode';
 import { Personagem } from './models/Personagem';
 import { Jogador } from './models/Jogador';
 import { Mestre, type CombatenteIniciativa } from './models/Mestre';
@@ -25,17 +26,36 @@ import {
 } from './features/notes-missions/services/NotesMissionService';
 import { SystemService, type RpgSystem } from './features/rpg-systems/services/SystemService';
 import { isCharacterSheetSystem, renderCharacterSheet, type CharacterSheetSystem } from './features/rpg-systems/shared/CharacterSheetDom';
-import type { ApiCampaign, ApiCampaignCharacter, ApiCampaignMember } from './shared/types/campaignApi';
+import type {
+  ApiCampaign,
+  ApiCampaignCharacter,
+  ApiCampaignInviteInfo,
+  ApiCampaignInvitePreview,
+  ApiCampaignJoinRequest,
+  ApiCampaignMember,
+  ApiMasterDashboard,
+  ApiCampaignUser,
+  ApiCampaignUserInvitation
+} from './shared/types/campaignApi';
 
 import { DashboardView } from './views/DashboardView';
+import { MestreDashboardView } from './views/MestreDashboardView';
 import { JogadorView } from './views/JogadorView';
 import { MestreView } from './views/MestreView';
+import { CampaignJoinView } from './views/CampaignJoinView';
 import { RoleSelectionModal, type UserRole } from './views/RoleSelectionModal';
 import { SidebarView } from './components/SidebarView';
 import { MonstroView } from './features/monsters/views/MonstroView';
 import { AdminConsoleView } from './features/admin/views/AdminConsoleView';
 import { AdminService, type AdminIdentity } from './features/admin/services/AdminService';
 import { MyPlanView } from './features/plans/views/MyPlanView';
+import { FriendshipService } from './features/friendships/services/FriendshipService';
+import { FriendshipsView } from './features/friendships/views/FriendshipsView';
+import type {
+  ApiFriend,
+  ApiFriendshipData,
+  ApiFriendshipSearchResult
+} from './features/friendships/types';
 
 new SidebarView();
 
@@ -46,6 +66,17 @@ type AuthenticatedUser = {
   email?: string;
   avatarUrl?: string;
 };
+
+const formHasChanges = (form: HTMLFormElement): boolean =>
+  Array.from(form.elements).some(element => {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      return element.value.trim() !== element.defaultValue.trim();
+    }
+    if (element instanceof HTMLSelectElement) {
+      return Array.from(element.options).some(option => option.selected !== option.defaultSelected);
+    }
+    return false;
+  });
 
 class AppController {
   private authToken: string | null = null;
@@ -70,6 +101,31 @@ class AppController {
   private openCampaignDetails = new Set<string>();
   private campaignMembers: Record<string, ApiCampaignMember[]> = {};
   private campaignCharacters: Record<string, ApiCampaignCharacter[]> = {};
+  private campaignDetailsLoading = new Set<string>();
+  private campaignInviteStatuses: Record<string, ApiCampaignInviteInfo | null> = {};
+  private campaignInviteCodes: Record<string, string> = {};
+  private campaignInviteQrCodes: Record<string, string> = {};
+  private campaignJoinRequests: Record<string, ApiCampaignJoinRequest[]> = {};
+  private campaignUserInvitations: Record<string, ApiCampaignUserInvitation[]> = {};
+  private masterDashboard: ApiMasterDashboard | null = null;
+  private masterDashboardLoading = false;
+  private masterDashboardError: string | null = null;
+  private masterDashboardAttempted = false;
+  private campaignSearchResults: Record<string, ApiCampaignUser> = {};
+  private friendshipData: ApiFriendshipData | null = null;
+  private friendshipFriends: ApiFriend[] = [];
+  private friendshipSearchResults: ApiFriendshipSearchResult[] = [];
+  private friendshipSearchTerm = '';
+  private friendshipLoading = false;
+  private friendshipError: string | null = null;
+  private friendshipMessage: string | null = null;
+  private playerCampaignInvitations: ApiCampaignUserInvitation[] = [];
+  private playerCampaignRequests: ApiCampaignJoinRequest[] = [];
+  private playerCampaignAccessLoading = false;
+  private playerInvitePreview: ApiCampaignInvitePreview | null = null;
+  private playerInviteCode = '';
+  private playerInviteRequestSent = false;
+  private playerQrScanner: Html5QrcodeType | null = null;
   private sistemaItens: SistemaPasta[] = [];
   private folderApiAvailable = false;
   private monstroItens: MonstroPasta[] = [];
@@ -149,7 +205,7 @@ class AppController {
       this.jogador = new Jogador('user-jog-1', 'Jogador Aventureiro', 'jogador@unemat.br', this.personagens);
       this.mestre = new Mestre('user-mestre-1', 'Mestre dos Magos', 'mestre@unemat.br', this.campanhas, this.npcs);
       this.personagemAtivoId = this.personagens[0]?.idPersonagem || null;
-      if (this.userRole) this.currentTab = this.userRole === 'jogador' ? 'sistemas' : 'campanhas';
+      if (this.userRole) this.currentTab = this.userRole === 'jogador' ? 'sistemas' : 'dashboard';
       this.updateCharacterSelector();
       this.applyRoleView();
       this.privateAreaInitialized = true;
@@ -287,25 +343,47 @@ class AppController {
 
   private async carregarDetalhesCampanha(campaignId: string): Promise<void> {
     if (!this.authToken) return;
+    this.openCampaignDetails.add(campaignId);
+    this.campaignDetailsLoading.add(campaignId);
+    if (this.currentTab === 'campanhas') this.renderCurrentView();
     try {
+      const campaign = this.campanhas.find(item => item.backendId === campaignId);
       const [members, characters] = await Promise.all([
         CampaignService.listarMembros(campaignId, this.authToken),
         CampaignService.listarPersonagens(campaignId, this.authToken)
       ]);
       this.campaignMembers[campaignId] = members;
       this.campaignCharacters[campaignId] = characters;
-      const campaign = this.campanhas.find(item => item.backendId === campaignId);
+      if (campaign?.ownerId === String(this.authenticatedUser?.id || '')) {
+        const [inviteStatus, joinRequests, userInvitations] = await Promise.all([
+          CampaignService.statusConvite(campaignId, this.authToken),
+          CampaignService.listarSolicitacoes(campaignId, this.authToken),
+          CampaignService.listarConvitesEnviados(campaignId, this.authToken)
+        ]);
+        this.campaignInviteStatuses[campaignId] = inviteStatus;
+        this.campaignJoinRequests[campaignId] = joinRequests;
+        this.campaignUserInvitations[campaignId] = userInvitations;
+        try {
+          this.friendshipFriends = (await FriendshipService.list(this.authToken)).friends;
+        } catch (error) {
+          this.friendshipFriends = [];
+          this.showToast(error instanceof Error
+            ? error.message
+            : 'Não foi possível carregar a lista de amigos.');
+        }
+      }
       if (campaign) {
         campaign.personagens = characters
           .map(character => this.personagens.find(personagem => personagem.backendId === character.id))
           .filter((personagem): personagem is Personagem => Boolean(personagem));
       }
 
-      this.openCampaignDetails.add(campaignId);
       await StorageService.salvarCampanhas(this.campanhas);
-      this.renderCurrentView();
     } catch (error) {
       this.showToast(error instanceof Error ? error.message : 'Não foi possível carregar os detalhes da campanha.');
+    } finally {
+      this.campaignDetailsLoading.delete(campaignId);
+      if (this.currentTab === 'campanhas') this.renderCurrentView();
     }
   }
 
@@ -652,6 +730,7 @@ class AppController {
 
   /** Remove referências aos dados da área autenticada ao encerrar a sessão. */
   private clearPrivateArea(): void {
+    void this.stopPlayerQrScanner();
     this.privateAreaInitialized = false;
     this.personagens = [];
     this.campanhas = [];
@@ -666,6 +745,30 @@ class AppController {
     this.openCampaignDetails.clear();
     this.campaignMembers = {};
     this.campaignCharacters = {};
+    this.campaignDetailsLoading.clear();
+    this.campaignInviteStatuses = {};
+    this.campaignInviteCodes = {};
+    this.campaignInviteQrCodes = {};
+    this.campaignJoinRequests = {};
+    this.campaignUserInvitations = {};
+    this.friendshipData = null;
+    this.friendshipFriends = [];
+    this.friendshipSearchResults = [];
+    this.friendshipSearchTerm = '';
+    this.friendshipLoading = false;
+    this.friendshipError = null;
+    this.friendshipMessage = null;
+    this.masterDashboard = null;
+    this.masterDashboardLoading = false;
+    this.masterDashboardError = null;
+    this.masterDashboardAttempted = false;
+    this.campaignSearchResults = {};
+    this.playerCampaignInvitations = [];
+    this.playerCampaignRequests = [];
+    this.playerCampaignAccessLoading = false;
+    this.playerInvitePreview = null;
+    this.playerInviteCode = '';
+    this.playerInviteRequestSent = false;
     this.personagemAtivoId = null;
     this.pastaSistemaAtualId = null;
     this.fichaRolagemSelecionadaId = null;
@@ -705,6 +808,22 @@ class AppController {
     document.getElementById('btn-login-offline')?.addEventListener('click', () => {
       void this.openOfflineUnlockForm();
     });
+    document.getElementById('btn-forgot-password')?.addEventListener('click', () => {
+      const email = document.getElementById('auth-login-identifier') as HTMLInputElement | null;
+      const recoveryEmail = document.getElementById('auth-recovery-email') as HTMLInputElement | null;
+      if (recoveryEmail && email?.value.includes('@')) recoveryEmail.value = email.value.trim();
+      showScreen('auth-recovery-request-form');
+    });
+    document.getElementById('btn-recovery-request-login')?.addEventListener('click', () => showScreen('auth-login-form'));
+    document.getElementById('btn-recovery-request-cancel')?.addEventListener('click', () => showScreen('auth-login-form'));
+    document.getElementById('btn-recovery-reset-login')?.addEventListener('click', () => showScreen('auth-login-form'));
+    document.getElementById('btn-recovery-complete-login')?.addEventListener('click', () => showScreen('auth-login-form'));
+    document.getElementById('btn-recovery-resend')?.addEventListener('click', () => {
+      const email = document.getElementById('auth-recovery-reset-email') as HTMLInputElement | null;
+      const recoveryEmail = document.getElementById('auth-recovery-email') as HTMLInputElement | null;
+      if (email && recoveryEmail) recoveryEmail.value = email.value;
+      showScreen('auth-recovery-request-form');
+    });
     document.querySelectorAll('.btn-auth-back').forEach(button => button.addEventListener('click', () => showScreen('auth-welcome')));
     document.getElementById('btn-public-user')?.addEventListener('click', event => {
       event.stopPropagation();
@@ -717,6 +836,94 @@ class AppController {
       if (!(event.target as Element).closest('#public-user-menu')) {
         document.getElementById('public-user-dropdown')?.classList.add('hidden');
         document.getElementById('btn-public-user')?.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    document.getElementById('auth-recovery-request-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      if (!form.reportValidity()) return;
+      const email = (document.getElementById('auth-recovery-email') as HTMLInputElement).value.trim();
+      const errorElement = document.getElementById('auth-recovery-request-error');
+      const submit = document.getElementById('btn-request-password-recovery') as HTMLButtonElement | null;
+      if (errorElement) {
+        errorElement.textContent = '';
+        errorElement.classList.add('hidden');
+      }
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = 'Enviando...';
+      }
+      try {
+        const response = await authFetch('/auth/password-recovery', { email });
+        const data = await response.json() as { success?: boolean; message?: string };
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || 'Não foi possível solicitar a recuperação de senha.');
+        }
+        (document.getElementById('auth-recovery-reset-email') as HTMLInputElement).value = email;
+        (document.getElementById('auth-recovery-token') as HTMLInputElement).value = '';
+        (document.getElementById('auth-recovery-new-password') as HTMLInputElement).value = '';
+        (document.getElementById('auth-recovery-confirm-password') as HTMLInputElement).value = '';
+        showScreen('auth-recovery-reset-form');
+      } catch (error) {
+        if (errorElement) {
+          errorElement.textContent = error instanceof Error ? error.message : 'Não foi possível solicitar a recuperação. Tente novamente.';
+          errorElement.classList.remove('hidden');
+        }
+      } finally {
+        if (submit) {
+          submit.disabled = false;
+          submit.textContent = 'Enviar instruções';
+        }
+      }
+    });
+
+    document.getElementById('auth-recovery-reset-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      if (!form.reportValidity()) return;
+      const email = (document.getElementById('auth-recovery-reset-email') as HTMLInputElement).value.trim();
+      const token = (document.getElementById('auth-recovery-token') as HTMLInputElement).value.trim();
+      const newPassword = (document.getElementById('auth-recovery-new-password') as HTMLInputElement).value;
+      const confirmation = (document.getElementById('auth-recovery-confirm-password') as HTMLInputElement).value;
+      const errorElement = document.getElementById('auth-recovery-reset-error');
+      const submit = document.getElementById('btn-reset-password') as HTMLButtonElement | null;
+      if (errorElement) {
+        errorElement.textContent = '';
+        errorElement.classList.add('hidden');
+      }
+      if (newPassword !== confirmation) {
+        if (errorElement) {
+          errorElement.textContent = 'A confirmação da nova senha não coincide.';
+          errorElement.classList.remove('hidden');
+        }
+        return;
+      }
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = 'Redefinindo...';
+      }
+      try {
+        const response = await authFetch('/auth/password-recovery/confirm', {
+          email,
+          token,
+          newPassword,
+        });
+        const data = await response.json() as { success?: boolean; message?: string };
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || 'Não foi possível redefinir a senha.');
+        }
+        showScreen('auth-recovery-complete');
+      } catch (error) {
+        if (errorElement) {
+          errorElement.textContent = error instanceof Error ? error.message : 'Não foi possível redefinir a senha. Confira o código e tente novamente.';
+          errorElement.classList.remove('hidden');
+        }
+      } finally {
+        if (submit) {
+          submit.disabled = false;
+          submit.textContent = 'Redefinir senha';
+        }
       }
     });
 
@@ -1066,6 +1273,7 @@ class AppController {
       if (event.key === 'Escape') {
         closeNavigation();
         this.setUserMenuOpen(false);
+        this.closeDeleteAccountConfirmation();
         this.closeAccountSettings();
       }
     });
@@ -1079,6 +1287,15 @@ class AppController {
       void this.openAccountSettings();
     });
     document.getElementById('btn-user-logout')?.addEventListener('click', () => void this.logout());
+    document.getElementById('btn-open-delete-account')?.addEventListener('click', () => this.openDeleteAccountConfirmation());
+    document.getElementById('btn-close-delete-account')?.addEventListener('click', () => this.closeDeleteAccountConfirmation());
+    document.getElementById('btn-cancel-delete-account')?.addEventListener('click', () => this.closeDeleteAccountConfirmation());
+    document.getElementById('account-delete-modal')?.addEventListener('click', event => {
+      if (event.target === event.currentTarget) this.closeDeleteAccountConfirmation();
+    });
+    document.getElementById('account-delete-form')?.addEventListener('submit', event => {
+      void this.deleteAccount(event);
+    });
     document.addEventListener('click', (event) => {
       const target = event.target as Element;
       if (!target.closest('#user-profile-menu')) this.setUserMenuOpen(false);
@@ -1191,6 +1408,114 @@ class AppController {
       document.querySelectorAll<HTMLElement>('.auth-screen').forEach(screen => screen.classList.toggle('hidden', screen.id !== 'auth-welcome'));
       this.showToast('Você saiu da sua conta.');
     }
+  }
+
+  private openDeleteAccountConfirmation(): void {
+    if (!this.authToken || !this.authenticatedUser) {
+      this.showToast('Entre novamente com sua conta para excluir o perfil.');
+      return;
+    }
+    const password = document.getElementById('account-delete-password') as HTMLInputElement | null;
+    const error = document.getElementById('account-delete-error');
+    if (password) password.value = '';
+    if (error) {
+      error.textContent = '';
+      error.classList.add('hidden');
+    }
+    document.getElementById('account-delete-modal')?.classList.remove('hidden');
+    password?.focus();
+  }
+
+  private closeDeleteAccountConfirmation(): void {
+    document.getElementById('account-delete-modal')?.classList.add('hidden');
+  }
+
+  private async deleteAccount(event: Event): Promise<void> {
+    event.preventDefault();
+    const password = document.getElementById('account-delete-password') as HTMLInputElement | null;
+    const errorElement = document.getElementById('account-delete-error');
+    const submit = document.getElementById('btn-confirm-delete-account') as HTMLButtonElement | null;
+    const token = this.authToken;
+    const userId = this.authenticatedUser ? String(this.authenticatedUser.id) : '';
+    if (!password?.value || !token || !userId) {
+      if (errorElement) {
+        errorElement.textContent = !token
+          ? 'Uma sessão online é necessária para excluir a conta.'
+          : 'Informe sua senha atual.';
+        errorElement.classList.remove('hidden');
+      }
+      return;
+    }
+
+    if (errorElement) {
+      errorElement.textContent = '';
+      errorElement.classList.add('hidden');
+    }
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = 'Excluindo...';
+    }
+
+    try {
+      const response = await fetch('http://localhost:3000/api/users/me', {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ currentPassword: password.value }),
+      });
+      const data = await response.json() as { success?: boolean; message?: string };
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Não foi possível excluir a conta.');
+      }
+
+      let cleanupError: unknown = null;
+      try {
+        await StorageService.clearAccountData(userId);
+      } catch (error) {
+        cleanupError = error;
+      }
+      this.finishDeletedAccount();
+      this.showToast(cleanupError
+        ? `A conta foi excluída, mas não foi possível limpar os dados locais: ${
+          cleanupError instanceof Error ? cleanupError.message : 'falha desconhecida.'
+        }`
+        : 'Sua conta foi excluída permanentemente.');
+    } catch (error) {
+      if (errorElement) {
+        errorElement.textContent = error instanceof Error ? error.message : 'Não foi possível excluir a conta. Tente novamente.';
+        errorElement.classList.remove('hidden');
+      }
+    } finally {
+      if (submit?.isConnected) {
+        submit.disabled = false;
+        submit.textContent = 'Excluir permanentemente';
+      }
+    }
+  }
+
+  private finishDeletedAccount(): void {
+    this.authToken = null;
+    this.authenticatedUser = null;
+    this.isOfflineSession = false;
+    this.pendingOnlineSession = null;
+    this.adminIdentity = null;
+    this.privateAreaInitialized = false;
+    this.applyAdminNavigation();
+    sessionStorage.removeItem('rpgHubAuthToken');
+    StorageService.lock();
+    this.clearPrivateArea();
+    this.closeDeleteAccountConfirmation();
+    this.closeAccountSettings();
+    document.getElementById('user-profile-dropdown')?.classList.add('hidden');
+    document.getElementById('user-profile-menu')?.classList.add('hidden');
+    document.getElementById('app')?.classList.add('hidden');
+    document.getElementById('auth-gateway')?.classList.remove('hidden');
+    document.getElementById('auth-form-card')?.classList.add('hidden');
+    document.querySelectorAll<HTMLElement>('.auth-screen').forEach(screen => {
+      screen.classList.toggle('hidden', screen.id !== 'auth-welcome');
+    });
   }
 
   private async openAccountSettings(): Promise<void> {
@@ -1741,6 +2066,7 @@ class AppController {
   }
 
   private switchTab(tabName: string): void {
+    if (tabName !== 'campaign-access') void this.stopPlayerQrScanner();
     this.currentTab = tabName;
 
     // Atualizar classes ativas na navegação
@@ -1762,6 +2088,8 @@ class AppController {
       'inventario-sistemas': { title: 'Inventário', sub: 'Organize os itens da ficha selecionada' },
       sistemas: { title: 'Sistemas', sub: 'Organize fichas por sistema, campanha e personagem' },
       campanhas: { title: 'Campanhas do Mestre', sub: 'Organize grupos e histórias' },
+      'campaign-access': { title: 'Campanhas', sub: 'Solicite acesso e responda a convites' },
+      friendships: { title: 'Amizades', sub: 'Pesquise usuários e gerencie suas amizades' },
       npcs: { title: 'Monstros', sub: 'Organize fichas de monstros por sistema e campanha' },
       iniciativa: { title: 'Iniciativa e Combate', sub: 'Organize a ordem dos turnos' },
       'admin-dashboard': { title: 'Painel administrativo', sub: 'Visão geral de contas, atividade e finanças' },
@@ -1776,6 +2104,12 @@ class AppController {
       'admin-audit': { title: 'Auditoria', sub: 'Histórico de operações administrativas' },
       'my-plan': { title: 'Meu Plano', sub: 'Consulte seu plano atual e as opções disponíveis' }
     };
+    if (tabName === 'dashboard' && this.userRole === 'mestre') {
+      titulos.dashboard = {
+        title: 'Painel do Mestre',
+        sub: 'Acompanhe suas campanhas, participantes e combates'
+      };
+    }
 
     if (titleEl && subtitleEl && titulos[tabName]) {
       titleEl.innerText = titulos[tabName].title;
@@ -1803,6 +2137,67 @@ class AppController {
     }
 
     this.renderCurrentView();
+    if (tabName === 'campaign-access') void this.loadPlayerCampaignAccess();
+    if (tabName === 'friendships') void this.loadFriendshipData();
+  }
+
+  private renderMasterDashboard(container: HTMLElement): void {
+    const offline = !this.authToken || !this.networkOnline || this.isOfflineSession;
+    container.innerHTML = MestreDashboardView.render({
+      userName: this.authenticatedUser?.name || 'Mestre',
+      summary: offline ? null : this.masterDashboard,
+      loading: this.masterDashboardLoading,
+      error: this.masterDashboardError,
+      offline,
+      localCampaigns: this.campanhas.map(campaign => ({
+        name: campaign.nomeCampanha,
+        createdAt: campaign.dataCriacao
+      })),
+      date: new Date()
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-master-dashboard-manage]')
+      .forEach(button => button.addEventListener('click', () => this.switchTab('campanhas')));
+    container.querySelectorAll<HTMLButtonElement>('[data-master-dashboard-create]')
+      .forEach(button => button.addEventListener('click', () => {
+        this.switchTab('campanhas');
+        document.getElementById('btn-add-campanha-modal')?.click();
+      }));
+    container.querySelectorAll<HTMLButtonElement>('[data-master-dashboard-refresh]')
+      .forEach(button => button.addEventListener('click', () => void this.loadMasterDashboard(true)));
+  }
+
+  private async loadMasterDashboard(force = false): Promise<void> {
+    if (this.userRole !== 'mestre' || !this.authToken || !this.networkOnline || this.isOfflineSession) {
+      return;
+    }
+    if (this.masterDashboardLoading) return;
+    if (!force && (this.masterDashboard || this.masterDashboardError || this.masterDashboardAttempted)) {
+      return;
+    }
+
+    const token = this.authToken;
+    this.masterDashboardLoading = true;
+    this.masterDashboardAttempted = true;
+    this.masterDashboardError = null;
+    if (this.currentTab === 'dashboard') this.renderCurrentView();
+
+    try {
+      const summary = await CampaignService.resumoMestre(token);
+      if (token !== this.authToken || this.userRole !== 'mestre') return;
+      this.masterDashboard = summary;
+    } catch (error) {
+      if (token !== this.authToken || this.userRole !== 'mestre') return;
+      console.warn('Não foi possível carregar o dashboard do Mestre.', error);
+      this.masterDashboardError = error instanceof Error
+        ? error.message
+        : 'Não foi possível carregar os dados do dashboard.';
+    } finally {
+      if (token === this.authToken) {
+        this.masterDashboardLoading = false;
+        if (this.currentTab === 'dashboard') this.renderCurrentView();
+      }
+    }
   }
 
   private updateCharacterSelector(): void {
@@ -1810,7 +2205,7 @@ class AppController {
     if (!select) return;
 
     const fichas = this.sistemaItens.filter(item => item.tipo === 'ficha');
-    select.innerHTML = this.personagens.map(p => 
+    select.innerHTML = this.personagens.map(p =>
       `<option value="${p.idPersonagem}" ${p.idPersonagem === this.personagemAtivoId ? 'selected' : ''}>${p.nomePersonagem} (${p.classe})</option>`
     ).join('') + fichas.map(ficha =>
       `<option value="ficha:${ficha.id}" ${ficha.id === this.fichaRolagemSelecionadaId ? 'selected' : ''}>${ficha.nome} (${ficha.sistema})</option>`
@@ -1827,7 +2222,15 @@ class AppController {
 
     switch (this.currentTab) {
       case 'dashboard':
-        container.innerHTML = DashboardView.render(this.personagens, this.campanhas, this.npcs);
+        if (this.userRole === 'mestre') {
+          this.renderMasterDashboard(container);
+          if (this.authToken && this.networkOnline && !this.masterDashboard && !this.masterDashboardLoading &&
+            !this.masterDashboardError && !this.masterDashboardAttempted) {
+            void this.loadMasterDashboard();
+          }
+        } else {
+          container.innerHTML = DashboardView.render(this.personagens, this.campanhas, this.npcs);
+        }
         break;
 
       case 'personagens':
@@ -1895,9 +2298,42 @@ class AppController {
           this.campaignMembers,
           this.campaignCharacters,
           this.campaignApiAvailable,
-          String(this.authenticatedUser?.id || '')
+          String(this.authenticatedUser?.id || ''),
+          this.campaignInviteStatuses,
+          this.campaignInviteCodes,
+          this.campaignInviteQrCodes,
+          this.campaignJoinRequests,
+          this.campaignUserInvitations,
+          this.campaignSearchResults,
+          this.campaignDetailsLoading,
+          this.friendshipFriends
         );
         this.bindCampanhasEvents();
+        break;
+
+      case 'campaign-access':
+        container.innerHTML = CampaignJoinView.render(
+          this.campanhas,
+          this.playerCampaignInvitations,
+          this.playerCampaignRequests,
+          this.playerInviteCode,
+          this.playerInvitePreview,
+          this.playerInviteRequestSent,
+          this.playerCampaignAccessLoading
+        );
+        this.bindPlayerCampaignAccessEvents();
+        break;
+
+      case 'friendships':
+        container.innerHTML = FriendshipsView.render(
+          this.friendshipData,
+          this.friendshipSearchResults,
+          this.friendshipSearchTerm,
+          this.friendshipLoading,
+          this.friendshipError,
+          this.friendshipMessage
+        );
+        this.bindFriendshipEvents();
         break;
 
       case 'npcs':
@@ -2004,6 +2440,161 @@ class AppController {
   }
 
   /* ================= SISTEMAS EVENTS ================= */
+  private async generateCharacterAttributes(
+    systemSlug: string,
+    versionSlug: string,
+    prefix: string,
+  ): Promise<void> {
+    if (!this.authToken) {
+      this.showToast('Conecte-se para gerar os atributos.');
+      return;
+    }
+
+    const attributeKeys = systemSlug === 'call-of-cthulhu'
+      ? ['str', 'con', 'siz', 'dex', 'app', 'int', 'pow', 'edu', 'luck']
+      : ['strength', 'dexterity', 'stamina', 'charisma', 'manipulation', 'composure', 'intelligence', 'wits', 'resolve'];
+    const derivedKeys = systemSlug === 'call-of-cthulhu'
+      ? ['hp', 'sanity', 'mp']
+      : ['health', 'willpower'];
+    const hasExistingValues = [...attributeKeys, ...derivedKeys].some((key) =>
+      (document.getElementById(`${prefix}-${key}`) as HTMLInputElement | null)?.value.trim(),
+    );
+    if (hasExistingValues && !window.confirm('Gerar novamente e substituir os atributos preenchidos? Os valores derivados também serão atualizados.')) {
+      return;
+    }
+
+    const prioritySelect = document.getElementById(`${prefix}-priorities`) as HTMLSelectElement | null;
+    const result = await CharacterService.gerarAtributos({
+      systemSlug,
+      versionSlug,
+      ...(systemSlug === 'vampiro-a-mascara'
+        ? { priorities: (prioritySelect?.value || '').split(',') }
+        : {}),
+    }, this.authToken);
+
+    for (const [key, value] of Object.entries(result.attributes)) {
+      const field = document.getElementById(`${prefix}-${key}`) as HTMLInputElement | null;
+      if (!field) continue;
+      field.value = String(value);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    for (const [key, value] of Object.entries(result.derived)) {
+      const field = document.getElementById(`${prefix}-${key}`) as HTMLInputElement | null;
+      if (!field) continue;
+      field.value = String(value);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    this.showToast('Atributos gerados. Você ainda pode editá-los antes de salvar.');
+  }
+
+  private validateVampireAttributeDistribution(
+    prefix: string,
+    requireAttributes = false,
+  ): boolean {
+    const groups: Record<string, string[]> = {
+      physical: ['strength', 'dexterity', 'stamina'],
+      social: ['charisma', 'manipulation', 'composure'],
+      mental: ['intelligence', 'wits', 'resolve'],
+    };
+    const prioritySelect = document.getElementById(`${prefix}-priorities`) as HTMLSelectElement | null;
+    const priorities = (prioritySelect?.value || '').split(',');
+    const values = Object.values(groups).flatMap((group) => group.map((key) => {
+      const field = document.getElementById(`${prefix}-${key}`) as HTMLInputElement | null;
+      const text = field?.value.trim() || '';
+      return text === '' ? null : Number(text);
+    }));
+    if (values.every((value) => value === null)) {
+      if (!requireAttributes) return true;
+      this.showToast('Gere os atributos ou preencha manualmente os nove valores antes de salvar.');
+      return false;
+    }
+
+    if (
+      priorities.length !== 3
+      || new Set(priorities).size !== 3
+      || priorities.some((group) => !groups[group])
+    ) {
+      this.showToast('Selecione uma prioridade diferente para cada grupo de atributos.');
+      return false;
+    }
+
+    const points = [7, 5, 3];
+    for (let index = 0; index < priorities.length; index += 1) {
+      const groupValues = groups[priorities[index]].map((key) => {
+        const field = document.getElementById(`${prefix}-${key}`) as HTMLInputElement | null;
+        const text = field?.value.trim() || '';
+        return text === '' ? NaN : Number(text);
+      });
+      if (
+        groupValues.some((value) => !Number.isInteger(value) || value < 1 || value > 5)
+        || groupValues.reduce((sum, value) => sum + value, 0) - 3 !== points[index]
+      ) {
+        this.showToast('A distribuição V5 deve respeitar os pontos 7/5/3 e valores de atributo entre 1 e 5.');
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private validateCocAttributes(prefix: string, requireAttributes = false): boolean {
+    const keys = ['str', 'con', 'siz', 'dex', 'app', 'int', 'pow', 'edu', 'luck'];
+    const values = keys.map((key) => {
+      const field = document.getElementById(`${prefix}-${key}`) as HTMLInputElement | null;
+      return field?.value.trim() || '';
+    });
+    if (values.every((value) => value === '')) {
+      if (!requireAttributes) return true;
+      this.showToast('Gere as características ou preencha os nove valores antes de salvar.');
+      return false;
+    }
+    if (values.some((value) => {
+      const parsed = Number(value);
+      return value === '' || !Number.isInteger(parsed) || parsed < 0 || parsed > 100;
+    })) {
+      this.showToast('As nove características devem ser números inteiros entre 0 e 100.');
+      return false;
+    }
+    return true;
+  }
+
+  private bindDerivedValueUpdates(root: ParentNode, systemSlug: string, prefix: string): void {
+    const field = (key: string) => root.querySelector<HTMLInputElement>(`#${prefix}-${key}`);
+    const setDerived = (key: string, value: number): void => {
+      const target = field(key);
+      if (target) target.value = String(value);
+    };
+    const update = (): void => {
+      if (systemSlug === 'call-of-cthulhu') {
+        const constitution = Number(field('con')?.value);
+        const size = Number(field('siz')?.value);
+        const power = Number(field('pow')?.value);
+        if (Number.isFinite(constitution) && Number.isFinite(size) && field('con')?.value && field('siz')?.value) {
+          setDerived('hp', Math.floor((constitution + size) / 10));
+        }
+        if (Number.isFinite(power) && field('pow')?.value) {
+          setDerived('sanity', power);
+          setDerived('mp', Math.floor(power / 5));
+        }
+        return;
+      }
+
+      const stamina = Number(field('stamina')?.value);
+      const composure = Number(field('composure')?.value);
+      const resolve = Number(field('resolve')?.value);
+      if (Number.isFinite(stamina) && field('stamina')?.value) {
+        setDerived('health', stamina + 3);
+      }
+      if (Number.isFinite(composure) && Number.isFinite(resolve) && field('composure')?.value && field('resolve')?.value) {
+        setDerived('willpower', composure + resolve);
+      }
+    };
+
+    const keys = systemSlug === 'call-of-cthulhu'
+      ? ['con', 'siz', 'pow']
+      : ['stamina', 'composure', 'resolve'];
+    keys.forEach((key) => field(key)?.addEventListener('input', update));
+  }
+
   private bindSistemasEvents(): void {
     const bindDndAttributeCards = (root: ParentNode): void => {
       const updateModifier = (input: HTMLInputElement): void => {
@@ -2040,11 +2631,93 @@ class AppController {
 
     const guidedForm = document.getElementById('form-ficha-guided') as HTMLFormElement | null;
     if (guidedForm) {
+      this.bindDerivedValueUpdates(guidedForm, 'call-of-cthulhu', 'guided-coc');
+      this.bindDerivedValueUpdates(guidedForm, 'vampiro-a-mascara', 'guided-vampire');
       const guidedSystem = document.getElementById('guided-system') as HTMLSelectElement | null;
+      const setupGuidedSteps = (template: HTMLElement | null): void => {
+        const module = template?.querySelector<HTMLElement>('.character-sheet-module');
+        if (!module || module.dataset.guidedStepsReady === 'true') return;
+        if (module.querySelector('[data-sheet-tab]')) return;
+        const sections = Array.from(module.querySelectorAll<HTMLElement>(
+          '.dnd-guided-section, .coc-guided-section, .vampire-guided-section',
+        ));
+        if (!sections.length) return;
+        module.dataset.guidedStepsReady = 'true';
+        const actions = module.querySelector<HTMLElement>('.character-sheet-actions');
+        if (!actions) return;
+        const saveButton = actions.querySelector<HTMLButtonElement>('button[type="submit"]');
+        const review = document.createElement('section');
+        review.className = 'sheet-editor-section guided-review-summary';
+        review.hidden = true;
+        review.innerHTML = '<h4>Revisão da ficha</h4><p>Confira os dados antes de salvar.</p><ul></ul>';
+        const reviewList = review.querySelector('ul')!;
+        module.insertBefore(review, actions);
+
+        const navigation = document.createElement('div');
+        navigation.className = 'character-sheet-actions guided-step-navigation';
+        const previous = document.createElement('button');
+        previous.type = 'button';
+        previous.className = 'btn btn-secondary';
+        previous.textContent = 'Voltar etapa';
+        const progress = document.createElement('span');
+        progress.setAttribute('aria-live', 'polite');
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.className = 'btn btn-primary';
+        next.textContent = 'Próxima etapa';
+        module.insertBefore(navigation, review);
+        navigation.append(previous, progress, next);
+
+        let currentStep = 0;
+        const renderStep = (): void => {
+          sections.forEach((section, index) => {
+            section.hidden = index !== currentStep || currentStep === sections.length;
+          });
+          review.hidden = currentStep !== sections.length;
+          previous.hidden = currentStep === 0;
+          next.hidden = currentStep === sections.length;
+          progress.textContent = currentStep === sections.length
+            ? 'Revisão final'
+            : `Etapa ${currentStep + 1} de ${sections.length}`;
+          module.dataset.guidedReviewReady = String(currentStep === sections.length);
+          if (saveButton) saveButton.hidden = currentStep !== sections.length;
+          if (currentStep === sections.length) {
+            reviewList.replaceChildren();
+            module.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+              'input, textarea, select',
+            ).forEach((field) => {
+              if (!field.value.trim() || field.closest('.guided-step-navigation')) return;
+              const label = module.querySelector<HTMLLabelElement>(`label[for="${field.id}"]`);
+              const item = document.createElement('li');
+              item.textContent = `${label?.textContent?.trim() || field.id}: ${field.value.trim()}`;
+              reviewList.append(item);
+            });
+          }
+        };
+        previous.addEventListener('click', () => {
+          currentStep = Math.max(0, currentStep - 1);
+          renderStep();
+        });
+        next.addEventListener('click', () => {
+          if (currentStep === 0) {
+            const nameField = module.querySelector<HTMLInputElement>('input[id$="-name"]');
+            if (!nameField?.value.trim()) {
+              this.showToast('Informe o nome do personagem para continuar.');
+              nameField?.focus();
+              return;
+            }
+          }
+          currentStep = Math.min(sections.length, currentStep + 1);
+          renderStep();
+        });
+        renderStep();
+      };
       const updateGuidedTemplate = () => {
         const template = guidedSystem?.value === 'D&D' ? 'dnd' : guidedSystem?.value === 'Vampiro: A Máscara' ? 'vampire' : 'coc';
         document.querySelectorAll('.guided-template').forEach(element => element.classList.add('hidden'));
-        document.getElementById(`guided-template-${template}`)?.classList.remove('hidden');
+        const activeTemplate = document.getElementById(`guided-template-${template}`);
+        activeTemplate?.classList.remove('hidden');
+        if (template !== 'dnd') setupGuidedSteps(activeTemplate);
       };
       guidedSystem?.addEventListener('change', updateGuidedTemplate);
       updateGuidedTemplate();
@@ -2064,32 +2737,19 @@ class AppController {
           input.dispatchEvent(new Event('input', { bubbles: true }));
         });
       };
-      const rollGuidedCoc = () => {
-        const roll = (count: number, bonus = 0) => {
-          let total = bonus;
-          for (let index = 0; index < count; index++) total += DiceService.sortearNumero(1, 6);
-          return total * 5;
-        };
-        ['str', 'con', 'dex', 'app', 'pow', 'edu'].forEach(attribute => setGuidedValue(`guided-coc-${attribute}`, roll(3)));
-        setGuidedValue('guided-coc-siz', roll(2, 6));
-        setGuidedValue('guided-coc-int', roll(2, 6));
-        setGuidedValue('guided-coc-luck', roll(3));
+      const rollGuidedCoc = async () => {
+        try {
+          await this.generateCharacterAttributes('call-of-cthulhu', '7a-edicao', 'guided-coc');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível gerar os atributos.');
+        }
       };
-      const distributeGuidedVampire = () => {
-        const groups = [
-          ['strength', 'dexterity', 'stamina'],
-          ['charisma', 'manipulation', 'composure'],
-          ['intelligence', 'wits', 'resolve']
-        ];
-        [7, 5, 3].forEach((points, groupIndex) => {
-          const group = groups[groupIndex];
-          group.forEach(attribute => setGuidedValue(`guided-vampire-${attribute}`, 1));
-          for (let point = 0; point < points; point++) {
-            const attribute = group[point % group.length];
-            const field = document.getElementById(`guided-vampire-${attribute}`) as HTMLInputElement | null;
-            if (field) field.value = String(Number(field.value || 1) + 1);
-          }
-        });
+      const distributeGuidedVampire = async () => {
+        try {
+          await this.generateCharacterAttributes('vampiro-a-mascara', 'v5', 'guided-vampire');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível gerar os atributos.');
+        }
       };
       document.getElementById('btn-guided-roll-dnd')?.addEventListener('click', rollGuidedDnd);
       document.getElementById('btn-guided-roll-coc')?.addEventListener('click', rollGuidedCoc);
@@ -2097,6 +2757,7 @@ class AppController {
 
       guidedForm.querySelectorAll<HTMLButtonElement>('[data-guided-sheet-cancel]').forEach(button => {
         button.addEventListener('click', () => {
+          if (formHasChanges(guidedForm) && !window.confirm('Descartar as alterações não salvas?')) return;
           this.fichaSistemaEmEdicaoId = null;
           this.criandoFichaSistema = true;
           this.criandoFichaGuiada = false;
@@ -2107,10 +2768,25 @@ class AppController {
 
       guidedForm.addEventListener('submit', event => {
         event.preventDefault();
+        const activeModule = guidedForm.querySelector<HTMLElement>(
+          '.guided-template:not(.hidden) .character-sheet-module',
+        );
+        if (
+          guidedSystem?.value !== 'D&D'
+          && activeModule?.dataset.guidedReviewReady !== 'true'
+          && activeModule
+        ) {
+          this.showToast('Avance até a revisão final antes de salvar a ficha.');
+          return;
+        }
         const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value.trim() || '';
         const destination = value('guided-destination');
         const sistema = value('guided-system');
         const prefixo = sistema === 'D&D' ? 'guided-dnd' : sistema === 'Vampiro: A Máscara' ? 'guided-vampire' : 'guided-coc';
+        if (sistema === 'Vampiro: A Máscara' &&
+            !this.validateVampireAttributeDistribution(prefixo, true)) return;
+        if (sistema === 'Call of Cthulhu' &&
+            !this.validateCocAttributes(prefixo, true)) return;
         const nome = value(`${prefixo}-name`);
         if (!nome) {
           this.showToast('Informe o nome do personagem para continuar.');
@@ -2162,7 +2838,7 @@ class AppController {
           'wisdom', 'charisma', 'currentHitPoints', 'maxHitPoints', 'armorClass'
         ]);
         let invalidGuidedDndNumber = false;
-        guidedForm.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea').forEach(input => {
+        guidedForm.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select').forEach(input => {
           if (input.id === 'guided-system' || input.id === 'guided-destination' || input.id === `${prefixo}-name`) return;
           if (!input.id.startsWith(`${prefixo}-`)) return;
           const value = input.value.trim();
@@ -2208,16 +2884,13 @@ class AppController {
 
     const inlineForm = document.getElementById('form-ficha-inline') as HTMLFormElement | null;
     if (inlineForm) {
+      this.bindDerivedValueUpdates(inlineForm, 'call-of-cthulhu', 'inline-coc');
+      this.bindDerivedValueUpdates(inlineForm, 'vampiro-a-mascara', 'inline-vampire');
       bindDndAttributeCards(inlineForm);
 
       const setFieldValue = (id: string, value: number): void => {
         const field = document.getElementById(id) as HTMLInputElement | null;
         if (field) field.value = String(value);
-      };
-      const rollDice = (sides: number, count: number, bonus = 0): number => {
-        let total = bonus;
-        for (let index = 0; index < count; index++) total += DiceService.sortearNumero(1, sides);
-        return total;
       };
       const rollDndAttributes = () => {
         const values = Array.from({ length: 6 }, () => {
@@ -2230,39 +2903,26 @@ class AppController {
         });
         this.showToast(`D&D: atributos rolados com 4d6, descartando o menor: ${values.join(', ')}.`);
       };
-      const rollCocAttributes = () => {
-        const standard = ['str', 'con', 'dex', 'app', 'pow', 'edu'].map(() => rollDice(6, 3) * 5);
-        const size = rollDice(6, 2, 6) * 5;
-        const intelligence = rollDice(6, 2, 6) * 5;
-        ['str', 'con', 'dex', 'app', 'pow', 'edu'].forEach((attribute, index) => setFieldValue(`inline-coc-${attribute}`, standard[index]));
-        setFieldValue('inline-coc-siz', size);
-        setFieldValue('inline-coc-int', intelligence);
-        setFieldValue('inline-coc-luck', rollDice(6, 3) * 5);
-        this.showToast('Call of Cthulhu: atributos rolados pelas fórmulas oficiais da ficha.');
+      const rollCocAttributes = async () => {
+        try {
+          await this.generateCharacterAttributes('call-of-cthulhu', '7a-edicao', 'inline-coc');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível gerar os atributos.');
+        }
       };
-      const distributeVampireAttributes = () => {
-        const groups = [
-          ['strength', 'dexterity', 'stamina'],
-          ['charisma', 'manipulation', 'composure'],
-          ['intelligence', 'wits', 'resolve']
-        ];
-        const points = [7, 5, 3];
-        groups.forEach((group, groupIndex) => {
-          const shuffled = [...group].sort(() => DiceService.sortearNumero(0, 1) === 0 ? -1 : 1);
-          shuffled.forEach(attribute => setFieldValue(`inline-vampire-${attribute}`, 1));
-          for (let point = 0; point < points[groupIndex]; point++) {
-            const target = shuffled[point % shuffled.length];
-            const field = document.getElementById(`inline-vampire-${target}`) as HTMLInputElement | null;
-            if (field) field.value = String(Number(field.value || 1) + 1);
-          }
-        });
-        this.showToast('Vampiro: atributos distribuídos pela regra V5 (7/5/3).');
+      const distributeVampireAttributes = async () => {
+        try {
+          await this.generateCharacterAttributes('vampiro-a-mascara', 'v5', 'inline-vampire');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível gerar os atributos.');
+        }
       };
       document.getElementById('btn-roll-dnd-attributes')?.addEventListener('click', rollDndAttributes);
       document.getElementById('btn-roll-coc-attributes')?.addEventListener('click', rollCocAttributes);
       document.getElementById('btn-roll-vampire-attributes')?.addEventListener('click', distributeVampireAttributes);
 
       document.getElementById('btn-cancel-ficha-inline')?.addEventListener('click', () => {
+        if (formHasChanges(inlineForm) && !window.confirm('Descartar as alterações não salvas?')) return;
         const cancelCreation = this.criandoFichaSistema && !this.fichaSistemaEmEdicaoId;
         this.fichaSistemaEmEdicaoId = null;
         this.criandoFichaSistema = cancelCreation;
@@ -2273,6 +2933,15 @@ class AppController {
 
       inlineForm.addEventListener('submit', event => {
         event.preventDefault();
+        const isNewCharacter = this.criandoFichaSistema && !this.fichaSistemaEmEdicaoId;
+        if (
+          document.getElementById('inline-vampire-strength')
+          && !this.validateVampireAttributeDistribution('inline-vampire', isNewCharacter)
+        ) return;
+        if (
+          document.getElementById('inline-coc-str')
+          && !this.validateCocAttributes('inline-coc', isNewCharacter)
+        ) return;
         const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value.trim() || '';
         const destinationId = value('inline-ficha-destination');
         const destination = this.sistemaItens.find(item => item.id === destinationId && item.tipo === 'pasta');
@@ -2283,7 +2952,18 @@ class AppController {
         const fichaAtual = this.fichaSistemaEmEdicaoId
           ? this.sistemaItens.find(item => item.id === this.fichaSistemaEmEdicaoId)
           : undefined;
-        const dados: Record<string, string | number> = {};
+        const selectedSystem = fichaAtual?.sistema || this.sistemaFichaEmCriacao;
+        const sheetName = (document.getElementById('inline-ficha-name') as HTMLInputElement | null)?.value.trim();
+        if (selectedSystem !== 'D&D' && !sheetName) {
+          this.showToast('Informe o nome do personagem para continuar.');
+          inlineForm.querySelector<HTMLButtonElement>('[data-required-panel]')?.click();
+          document.getElementById('inline-ficha-name')?.focus();
+          return;
+        }
+        const preserveExistingFields = Boolean(fichaAtual && fichaAtual.sistema !== 'D&D');
+        const dados: Record<string, string | number> = preserveExistingFields
+          ? { ...(fichaAtual?.dados || {}) }
+          : {};
         const dndFieldNames: Record<string, string> = {
           'inline-dnd-player': 'playerName',
           'inline-dnd-class': 'class',
@@ -2320,14 +3000,20 @@ class AppController {
           'currentHitPoints', 'temporaryHitPoints'
         ]);
         let invalidDndNumber = false;
-        document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('#form-ficha-inline input, #form-ficha-inline textarea').forEach(input => {
+        document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('#form-ficha-inline input, #form-ficha-inline textarea, #form-ficha-inline select').forEach(input => {
           if (input.id === 'inline-ficha-name' || input.id === 'inline-ficha-description') return;
           const value = input.value.trim();
-          if (!value) return;
           const isDndSheet = (fichaAtual?.sistema || this.sistemaFichaEmCriacao) === 'D&D';
           const key = isDndSheet
             ? dndFieldNames[input.id] || input.id.replace(/^inline-/, '')
             : input.id.replace(/^inline-/, '');
+          if (!value) {
+            const hadValue = input instanceof HTMLSelectElement
+              ? Array.from(input.options).some(option => option.defaultSelected && option.value)
+              : input.defaultValue.trim() !== '';
+            if (preserveExistingFields && hadValue) dados[key] = '';
+            return;
+          }
           if (isDndSheet && dndNumericFields.has(key)) {
             const numericValue = Number(value);
             if (!Number.isSafeInteger(numericValue) || (key === 'level' && numericValue < 1)) {
@@ -3038,12 +3724,12 @@ class AppController {
           };">
             ${res.total}
           </div>
-          
+
           <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px;">
             ${res.tipoResultado === 'critico' ? '🌟 ACERTO CRÍTICO! (Natural 20)' :
               res.tipoResultado === 'falha' ? '💀 FALHA CRÍTICA! (Natural 1)' : 'Rolagem Normal'}
           </div>
-          
+
           <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); background: rgba(0,0,0,0.3); padding: 8px; border-radius: var(--radius-sm); display: inline-block;">
             ${res.detalheCalculo}
           </div>
@@ -3055,6 +3741,297 @@ class AppController {
     if (this.currentTab === 'dados') {
       this.renderCurrentView();
     }
+  }
+
+  private async loadPlayerCampaignAccess(): Promise<void> {
+    if (!this.authToken) return;
+    this.playerCampaignAccessLoading = true;
+    if (this.currentTab === 'campaign-access') this.renderCurrentView();
+    try {
+      await this.carregarCampanhasBackend();
+      const [invitations, requests] = await Promise.all([
+        CampaignService.meusConvites(this.authToken),
+        CampaignService.minhasSolicitacoes(this.authToken)
+      ]);
+      this.playerCampaignInvitations = invitations;
+      this.playerCampaignRequests = requests;
+      if (this.currentTab === 'campaign-access') this.renderCurrentView();
+    } catch (error) {
+      this.showToast(error instanceof Error ? error.message : 'Não foi possível carregar convites e solicitações.');
+    } finally {
+      this.playerCampaignAccessLoading = false;
+      if (this.currentTab === 'campaign-access') this.renderCurrentView();
+    }
+  }
+
+  private async loadFriendshipData(): Promise<void> {
+    if (!this.authToken) {
+      this.friendshipError = 'Entre na sua conta para usar as amizades.';
+      this.friendshipData = null;
+      this.friendshipFriends = [];
+      this.renderCurrentView();
+      return;
+    }
+    this.friendshipLoading = true;
+    this.friendshipError = null;
+    this.renderCurrentView();
+    try {
+      const friendships = await FriendshipService.list(this.authToken);
+      this.friendshipData = friendships;
+      this.friendshipFriends = friendships.friends;
+    } catch (error) {
+      this.friendshipError = error instanceof Error
+        ? error.message
+        : 'Não foi possível carregar as amizades.';
+    } finally {
+      this.friendshipLoading = false;
+      if (this.currentTab === 'friendships') this.renderCurrentView();
+    }
+  }
+
+  private async searchFriendshipUsers(username: string): Promise<void> {
+    if (!this.authToken) return;
+    this.friendshipSearchTerm = username.trim();
+    this.friendshipSearchResults = [];
+    this.friendshipMessage = null;
+    this.friendshipError = null;
+    this.friendshipLoading = true;
+    this.renderCurrentView();
+    try {
+      this.friendshipSearchResults = await FriendshipService.search(
+        this.friendshipSearchTerm,
+        this.authToken
+      );
+    } catch (error) {
+      this.friendshipError = error instanceof Error
+        ? error.message
+        : 'Não foi possível pesquisar usuários.';
+    } finally {
+      this.friendshipLoading = false;
+      if (this.currentTab === 'friendships') this.renderCurrentView();
+    }
+  }
+
+  private bindFriendshipEvents(): void {
+    document.querySelector<HTMLFormElement>('.friendship-search-form')
+      ?.addEventListener('submit', event => {
+        event.preventDefault();
+        const form = event.currentTarget as HTMLFormElement;
+        const username = String(new FormData(form).get('username') || '').trim();
+        if (username) void this.searchFriendshipUsers(username);
+      });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-send-friend-request')
+      .forEach(button => button.addEventListener('click', async () => {
+        const recipientId = button.dataset.userId;
+        if (!recipientId || !this.authToken) return;
+        button.disabled = true;
+        try {
+          await FriendshipService.sendRequest(recipientId, this.authToken);
+          this.friendshipMessage = 'Solicitação de amizade enviada.';
+          await this.loadFriendshipData();
+          if (this.friendshipSearchTerm) {
+            this.friendshipSearchResults = await FriendshipService.search(
+              this.friendshipSearchTerm,
+              this.authToken
+            );
+          }
+        } catch (error) {
+          this.friendshipError = error instanceof Error ? error.message : 'Não foi possível enviar a solicitação.';
+        } finally {
+          if (this.currentTab === 'friendships') this.renderCurrentView();
+        }
+      }));
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-respond-friend-request')
+      .forEach(button => button.addEventListener('click', async () => {
+        const requestId = button.dataset.id;
+        const action = button.dataset.action;
+        if (!requestId || (action !== 'accept' && action !== 'reject') || !this.authToken) return;
+        button.disabled = true;
+        try {
+          await FriendshipService.respond(requestId, action, this.authToken);
+          this.friendshipMessage = action === 'accept' ? 'Solicitação aceita.' : 'Solicitação recusada.';
+          await this.loadFriendshipData();
+        } catch (error) {
+          this.friendshipError = error instanceof Error ? error.message : 'Não foi possível responder à solicitação.';
+        } finally {
+          if (this.currentTab === 'friendships') this.renderCurrentView();
+        }
+      }));
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-remove-friend')
+      .forEach(button => button.addEventListener('click', async () => {
+        const friendshipId = button.dataset.id;
+        if (!friendshipId || !this.authToken
+          || !confirm('Remover esta amizade?')) return;
+        button.disabled = true;
+        try {
+          await FriendshipService.remove(friendshipId, this.authToken);
+          this.friendshipMessage = 'Amizade removida.';
+          await this.loadFriendshipData();
+          if (this.friendshipSearchTerm) {
+            this.friendshipSearchResults = await FriendshipService.search(
+              this.friendshipSearchTerm,
+              this.authToken
+            );
+          }
+        } catch (error) {
+          this.friendshipError = error instanceof Error ? error.message : 'Não foi possível remover a amizade.';
+        } finally {
+          if (this.currentTab === 'friendships') this.renderCurrentView();
+        }
+      }));
+  }
+
+  private async previewPlayerInvite(code: string): Promise<void> {
+    if (!this.authToken) return;
+    this.playerInviteCode = code.trim();
+    this.playerInviteRequestSent = false;
+    try {
+      this.playerInvitePreview = await CampaignService.visualizarCodigoConvite(
+        this.playerInviteCode,
+        this.authToken
+      );
+      if (this.currentTab === 'campaign-access') this.renderCurrentView();
+    } catch (error) {
+      this.playerInvitePreview = null;
+      this.showToast(error instanceof Error ? error.message : 'Código de convite inválido.');
+      if (this.currentTab === 'campaign-access') this.renderCurrentView();
+    }
+  }
+
+  private bindPlayerCampaignAccessEvents(): void {
+    const form = document.getElementById('form-campaign-join-code') as HTMLFormElement | null;
+    form?.addEventListener('submit', event => {
+      event.preventDefault();
+      const code = String(new FormData(form).get('code') || '').trim();
+      this.playerInviteCode = code;
+      void this.previewPlayerInvite(code);
+    });
+
+    document.getElementById('btn-request-campaign-join')?.addEventListener('click', async () => {
+      if (!this.authToken || !this.playerInviteCode) return;
+      try {
+        await CampaignService.solicitarParticipacao(this.playerInviteCode, this.authToken);
+        this.playerInvitePreview = null;
+        this.playerInviteRequestSent = true;
+        this.showToast('Solicitação enviada. Aguarde a aprovação do Mestre.');
+        await this.loadPlayerCampaignAccess();
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : 'Não foi possível enviar a solicitação.');
+      }
+      if (this.currentTab === 'campaign-access') this.renderCurrentView();
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-respond-campaign-invitation').forEach(button => {
+      button.addEventListener('click', async () => {
+        const invitationId = button.dataset.invitationId;
+        const action = button.dataset.action;
+        if (!invitationId || !this.authToken || (action !== 'accept' && action !== 'decline')) return;
+        const confirmation = action === 'accept'
+          ? 'Aceitar o convite e entrar nesta campanha?'
+          : 'Recusar este convite?';
+        if (!confirm(confirmation)) return;
+        button.disabled = true;
+        try {
+          await CampaignService.responderConvite(invitationId, action, this.authToken);
+          if (action === 'accept') await this.carregarCampanhasBackend();
+          this.showToast(action === 'accept' ? 'Convite aceito.' : 'Convite recusado.');
+          await this.loadPlayerCampaignAccess();
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível responder ao convite.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-cancel-campaign-request').forEach(button => {
+      button.addEventListener('click', async () => {
+        const requestId = button.dataset.requestId;
+        if (!requestId || !this.authToken) return;
+        if (!confirm('Cancelar esta solicitação de participação?')) return;
+        button.disabled = true;
+        try {
+          await CampaignService.cancelarSolicitacao(requestId, this.authToken);
+          await this.loadPlayerCampaignAccess();
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível cancelar a solicitação.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.getElementById('btn-scan-campaign-qr')?.addEventListener('click', () => {
+      void this.startPlayerQrScanner();
+    });
+    document.getElementById('btn-stop-campaign-qr')?.addEventListener('click', () => {
+      void this.stopPlayerQrScanner();
+    });
+  }
+
+  private async startPlayerQrScanner(): Promise<void> {
+    const reader = document.getElementById('campaign-qr-reader');
+    const closeButton = document.getElementById('btn-stop-campaign-qr');
+    if (!reader || this.playerQrScanner) return;
+    reader.classList.remove('hidden');
+    closeButton?.classList.remove('hidden');
+    let scanner: Html5QrcodeType | null = null;
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      if (this.currentTab !== 'campaign-access' || reader.classList.contains('hidden')) {
+        return;
+      }
+      scanner = new Html5Qrcode('campaign-qr-reader');
+      this.playerQrScanner = scanner;
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        decodedText => {
+          void (async () => {
+            await this.stopPlayerQrScanner();
+            await this.previewPlayerInvite(decodedText);
+          })();
+        },
+        () => undefined
+      );
+    } catch (error) {
+      if (this.playerQrScanner === scanner) this.playerQrScanner = null;
+      if (scanner?.isScanning) {
+        try {
+          await scanner.stop();
+          scanner.clear();
+        } catch (stopError) {
+          console.warn('Não foi possível parar a câmera após erro no leitor.', stopError);
+        }
+      }
+      reader.classList.add('hidden');
+      closeButton?.classList.add('hidden');
+      this.showToast(error instanceof Error
+        ? `Não foi possível iniciar a câmera: ${error.message}`
+        : 'Não foi possível iniciar a câmera para ler o QR Code.');
+    }
+  }
+
+  private async stopPlayerQrScanner(): Promise<void> {
+    const scanner = this.playerQrScanner;
+    this.playerQrScanner = null;
+    if (!scanner) {
+      document.getElementById('campaign-qr-reader')?.classList.add('hidden');
+      document.getElementById('btn-stop-campaign-qr')?.classList.add('hidden');
+      return;
+    }
+    try {
+      if (scanner.isScanning) await scanner.stop();
+      scanner.clear();
+    } catch (error) {
+      console.warn('Não foi possível encerrar o leitor de QR Code.', error);
+      this.showToast('Não foi possível encerrar o leitor de QR Code.');
+    }
+    document.getElementById('campaign-qr-reader')?.classList.add('hidden');
+    document.getElementById('btn-stop-campaign-qr')?.classList.add('hidden');
   }
 
   /* ================= CAMPANHAS EVENTS ================= */
@@ -3233,7 +4210,16 @@ class AppController {
             console.warn('API de campanhas indisponível; a campanha será removida somente do armazenamento local.', error);
           }
         }
+        const backendId = campaign.backendId;
         this.campanhas = this.campanhas.filter(item => item.idCampanha !== id);
+        if (backendId) {
+          delete this.campaignInviteStatuses[backendId];
+          delete this.campaignInviteCodes[backendId];
+          delete this.campaignInviteQrCodes[backendId];
+          delete this.campaignJoinRequests[backendId];
+          delete this.campaignUserInvitations[backendId];
+          delete this.campaignSearchResults[backendId];
+        }
         if (this.campanhaEmEdicaoId === id) this.campanhaEmEdicaoId = null;
         this.mestre.removerCampanha(id);
         this.persistStorage(StorageService.salvarCampanhas(this.campanhas));
@@ -3255,20 +4241,225 @@ class AppController {
       });
     });
 
-    document.querySelectorAll<HTMLFormElement>('.form-campaign-add-member').forEach(form => {
+    document.querySelectorAll<HTMLFormElement>('.form-campaign-search-user').forEach(form => {
       form.addEventListener('submit', async event => {
         event.preventDefault();
         const campaignId = form.dataset.campaignId;
         const data = new FormData(form);
-        const userId = String(data.get('userId') || '').trim();
-        const role = String(data.get('role') || '').trim();
-        if (!campaignId || !userId || !role || !this.authToken) return;
+        const username = String(data.get('username') || '').trim();
+        if (!campaignId || !username || !this.authToken) return;
+        delete this.campaignSearchResults[campaignId];
+        const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
         try {
-          await CampaignService.adicionarMembro(campaignId, userId, role, this.authToken);
+          this.campaignSearchResults[campaignId] = await CampaignService.pesquisarUsuario(
+            campaignId,
+            username,
+            this.authToken
+          );
           await this.carregarDetalhesCampanha(campaignId);
-          this.showToast('Membro adicionado à campanha.');
         } catch (error) {
-          this.showToast(error instanceof Error ? error.message : 'Não foi possível adicionar o membro.');
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível pesquisar o usuário.');
+          this.renderCurrentView();
+        } finally {
+          if (submitButton?.isConnected) submitButton.disabled = false;
+        }
+      });
+
+      document.querySelectorAll<HTMLInputElement>('.campaign-friend-filter').forEach(input => {
+        input.addEventListener('input', () => {
+          const term = input.value.trim().toLowerCase();
+          const form = input.closest<HTMLFormElement>('.form-campaign-invite-friends');
+          form?.querySelectorAll<HTMLElement>('.campaign-friend-option').forEach(option => {
+            option.hidden = !option.dataset.username?.includes(term);
+          });
+        });
+      });
+
+      document.querySelectorAll<HTMLFormElement>('.form-campaign-invite-friends').forEach(form => {
+        form.addEventListener('submit', async event => {
+          event.preventDefault();
+          const campaignId = form.dataset.campaignId;
+          if (!campaignId || !this.authToken) return;
+          const selectedIds = new Set(
+            Array.from(form.querySelectorAll<HTMLInputElement>('input[name="friendIds"]:checked'))
+              .map(input => input.value)
+          );
+          const selectedFriends = this.friendshipFriends.filter(friend => selectedIds.has(friend.userId));
+          if (!selectedFriends.length) {
+            this.showToast('Selecione ao menos um amigo para convidar.');
+            return;
+          }
+          const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+          if (submit) submit.disabled = true;
+          const invited: string[] = [];
+          const failed: string[] = [];
+          for (const friend of selectedFriends) {
+            try {
+              await CampaignService.enviarConviteUsuario(campaignId, friend.username, this.authToken);
+              invited.push(friend.username);
+            } catch (error) {
+              failed.push(`${friend.username}: ${error instanceof Error ? error.message : 'falha ao enviar'}`);
+            }
+          }
+          await this.carregarDetalhesCampanha(campaignId);
+          if (failed.length) {
+            this.showToast(`${invited.length} convite(s) enviado(s). Falhas: ${failed.join('; ')}`);
+          } else {
+            this.showToast(`${invited.length} convite(s) enviado(s). Os jogadores precisarão aceitar.`);
+          }
+        });
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-generate-campaign-code').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        if (!campaignId || !this.authToken) return;
+        if (this.campaignInviteStatuses[campaignId]?.status === 'active'
+          && !confirm('Renovar o código invalida o código atual. Deseja continuar?')) return;
+        button.disabled = true;
+        try {
+          const invite = await CampaignService.gerarCodigoConvite(campaignId, this.authToken);
+          if (!invite.code) throw new Error('A API não retornou o código do convite.');
+          this.campaignInviteCodes[campaignId] = invite.code;
+          this.campaignInviteStatuses[campaignId] = invite;
+          let qrGenerationFailed = false;
+          try {
+            const QRCode = (await import('qrcode')).default;
+            this.campaignInviteQrCodes[campaignId] = await QRCode.toDataURL(invite.code, {
+              errorCorrectionLevel: 'M',
+              margin: 2,
+              width: 240
+            });
+          } catch (error) {
+            delete this.campaignInviteQrCodes[campaignId];
+            console.error('O código foi criado, mas não foi possível gerar seu QR Code.', error);
+            qrGenerationFailed = true;
+          }
+          await this.carregarDetalhesCampanha(campaignId);
+          this.showToast(qrGenerationFailed
+            ? 'Código criado, mas não foi possível gerar o QR Code.'
+            : 'Código de convite criado. A entrada ainda exige aprovação do Mestre.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível gerar o convite.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-revoke-campaign-code').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        if (!campaignId || !this.authToken || !confirm('Revogar o código de convite ativo?')) return;
+        button.disabled = true;
+        try {
+          await CampaignService.revogarCodigoConvite(campaignId, this.authToken);
+          delete this.campaignInviteCodes[campaignId];
+          delete this.campaignInviteQrCodes[campaignId];
+          await this.carregarDetalhesCampanha(campaignId);
+          this.showToast('Código de convite revogado.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível revogar o código.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-copy-campaign-code').forEach(button => {
+      button.addEventListener('click', async () => {
+        const code = this.campaignInviteCodes[button.dataset.campaignId || ''];
+        if (!code) return;
+        try {
+          await navigator.clipboard.writeText(code);
+          this.showToast('Código copiado.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível copiar o código.');
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-share-campaign-code').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId || '';
+        const code = this.campaignInviteCodes[campaignId];
+        const campaign = this.campanhas.find(item => item.backendId === campaignId);
+        if (!code || !campaign) return;
+        const shareText = `Convite para "${campaign.nomeCampanha}". Código: ${code}. A entrada depende da aprovação do Mestre.`;
+        try {
+          if (navigator.share) {
+            await navigator.share({ title: 'Convite para campanha', text: shareText });
+          } else {
+            await navigator.clipboard.writeText(shareText);
+            this.showToast('Detalhes do convite copiados.');
+          }
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') return;
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível compartilhar o convite.');
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-send-campaign-invitation').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        const user = campaignId ? this.campaignSearchResults[campaignId] : undefined;
+        if (!campaignId || !user || !this.authToken) return;
+        if (!confirm(`Enviar convite para ${user.name} (@${user.username})? O jogador precisará aceitar.`)) return;
+        button.disabled = true;
+        try {
+          await CampaignService.enviarConviteUsuario(campaignId, user.username, this.authToken);
+          delete this.campaignSearchResults[campaignId];
+          await this.carregarDetalhesCampanha(campaignId);
+          this.showToast('Convite enviado. O jogador precisa aceitá-lo para entrar.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível enviar o convite.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-review-campaign-request').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        const requestId = button.dataset.requestId;
+        const action = button.dataset.action;
+        if (!campaignId || !requestId || !this.authToken || (action !== 'approve' && action !== 'reject')) return;
+        const confirmation = action === 'approve'
+          ? 'Aprovar esta solicitação e adicionar o jogador à campanha?'
+          : 'Rejeitar esta solicitação? O jogador não será adicionado à campanha.';
+        if (!confirm(confirmation)) return;
+        button.disabled = true;
+        try {
+          await CampaignService.revisarSolicitacao(campaignId, requestId, action, this.authToken);
+          await this.carregarDetalhesCampanha(campaignId);
+          this.showToast(action === 'approve' ? 'Jogador aprovado.' : 'Solicitação recusada.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível revisar a solicitação.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-cancel-campaign-invitation').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        const invitationId = button.dataset.invitationId;
+        if (!campaignId || !invitationId || !this.authToken) return;
+        if (!confirm('Cancelar este convite pendente?')) return;
+        button.disabled = true;
+        try {
+          await CampaignService.cancelarConviteUsuario(campaignId, invitationId, this.authToken);
+          await this.carregarDetalhesCampanha(campaignId);
+          this.showToast('Convite pendente cancelado.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível cancelar o convite.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
         }
       });
     });

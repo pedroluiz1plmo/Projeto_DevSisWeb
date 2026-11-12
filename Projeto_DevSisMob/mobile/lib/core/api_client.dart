@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -64,8 +65,34 @@ class ApiClient {
   String? token;
   String? workspaceType;
   VoidCallback? onUnauthorized;
+  VoidCallback? onApiUnavailable;
+  VoidCallback? onApiAvailable;
 
   Future<void> restoreToken() async => token = await _tokenStore.read();
+
+  Future<bool> checkInternetAvailability({
+    Uri? endpoint,
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    final request = http.Request(
+      'GET',
+      endpoint ?? Uri.https('www.google.com', '/generate_204'),
+    )
+      ..followRedirects = false
+      ..headers['Accept'] = '*/*';
+    try {
+      final deadline = DateTime.now().add(timeout);
+      final response = await _http.send(request).timeout(timeout);
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) return false;
+      await response.stream.drain<void>().timeout(remaining);
+      return response.statusCode == 204;
+    } on http.ClientException {
+      return false;
+    } on TimeoutException {
+      return false;
+    }
+  }
 
   void setWorkspaceType(String? value) {
     if (value != null && value != 'player' && value != 'master') {
@@ -92,13 +119,23 @@ class ApiClient {
   ]) =>
       _request('POST', path, body: body);
 
+  Future<Map<String, dynamic>> patch(
+    String path,
+    Map<String, dynamic> body,
+  ) =>
+      _request('PATCH', path, body: body);
+
   Future<Map<String, dynamic>> put(
     String path,
     Map<String, dynamic> body,
   ) =>
       _request('PUT', path, body: body);
 
-  Future<Map<String, dynamic>> delete(String path) => _request('DELETE', path);
+  Future<Map<String, dynamic>> delete(
+    String path, [
+    Map<String, dynamic>? body,
+  ]) =>
+      _request('DELETE', path, body: body);
 
   Future<Map<String, dynamic>> _request(
     String method,
@@ -115,16 +152,32 @@ class ApiClient {
       final request = http.Request(method, Uri.parse('$_baseUrl$path'))
         ..headers.addAll(headers);
       if (body != null) request.body = jsonEncode(body);
-      response = await http.Response.fromStream(await _http.send(request));
+      response = await http.Response.fromStream(
+        await _http.send(request).timeout(const Duration(seconds: 20)),
+      ).timeout(const Duration(seconds: 20));
     } on http.ClientException {
+      onApiUnavailable?.call();
       throw NetworkUnavailableException(
         method == 'GET'
             ? 'Não foi possível conectar ao servidor. Verifique a API e tente novamente.'
             : 'Não foi possível conectar ao servidor. A alteração não foi salva no servidor.',
       );
+    } on TimeoutException {
+      onApiUnavailable?.call();
+      throw NetworkUnavailableException(
+        method == 'GET'
+            ? 'A solicitação demorou demais. Verifique sua conexão e tente novamente.'
+            : 'A solicitação demorou demais. Não foi possível confirmar a alteração.',
+      );
     }
 
-    if (response.statusCode == 401 && token != null) {
+    final hadToken = token != null;
+    if (response.statusCode >= 500) {
+      onApiUnavailable?.call();
+    } else {
+      onApiAvailable?.call();
+    }
+    if (response.statusCode == 401 && hadToken) {
       await setToken(null);
       onUnauthorized?.call();
     }
@@ -134,14 +187,20 @@ class ApiClient {
       decoded = _decodeResponse(response.body);
     } on ApiException catch (error) {
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw ApiException(error.message, statusCode: response.statusCode);
+        throw ApiException(
+          _errorMessage(response.statusCode, hadToken: hadToken) ??
+              error.message,
+          statusCode: response.statusCode,
+        );
       }
       rethrow;
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
-        _responseMessage(decoded) ?? 'Não foi possível concluir a solicitação.',
+        _errorMessage(response.statusCode, hadToken: hadToken) ??
+            _responseMessage(decoded) ??
+            'Não foi possível concluir a solicitação.',
         statusCode: response.statusCode,
       );
     }
@@ -168,5 +227,19 @@ class ApiClient {
   String? _responseMessage(Map<String, dynamic> response) {
     final message = response['message'];
     return message is String && message.trim().isNotEmpty ? message : null;
+  }
+
+  String? _errorMessage(int statusCode, {required bool hadToken}) {
+    if (statusCode == 401 && hadToken) {
+      return 'Sua sessão expirou. Faça login novamente.';
+    }
+    if (statusCode == 403) return null;
+    if (statusCode == 404) {
+      return 'O registro solicitado não foi encontrado.';
+    }
+    if (statusCode >= 500) {
+      return 'O servidor está temporariamente indisponível.';
+    }
+    return null;
   }
 }

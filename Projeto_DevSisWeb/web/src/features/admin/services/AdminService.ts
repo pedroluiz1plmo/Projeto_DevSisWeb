@@ -112,6 +112,22 @@ export class AdminService {
     return this.request('/admin/subscriptions', token);
   }
 
+  static freeTrials(token: string): Promise<Record<string, unknown>> {
+    return this.request('/admin/free-trials', token);
+  }
+
+  static subscriptionNotifications(token: string): Promise<Record<string, unknown>> {
+    return this.request('/admin/subscription-notifications', token);
+  }
+
+  static retrySubscriptionNotification(token: string, notificationId: string): Promise<unknown> {
+    return this.request(
+      `/admin/subscription-notifications/${encodeURIComponent(notificationId)}/retry`,
+      token,
+      { method: 'POST' },
+    );
+  }
+
   static cancelSubscription(token: string, subscriptionId: string): Promise<unknown> {
     return this.request(`/admin/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, token, { method: 'POST' });
   }

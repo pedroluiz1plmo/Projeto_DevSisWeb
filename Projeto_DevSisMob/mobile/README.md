@@ -37,10 +37,62 @@ edição. A tela de pastas mostra personagens não arquivados na raiz e os demai
 na pasta correspondente; a tela de personagens também permite filtrar por
 pasta.
 
+Na ficha do personagem, o botão de dados abre um rolador local, que funciona
+sem conexão e não grava histórico. As opções de ficha seguem o comportamento
+implementado no rolador Web: atributos D&D 5E, testes percentuais de Call of
+Cthulhu 7ª edição e parada de atributo de Vampiro: A Máscara V5. Perícias,
+salvaguardas, ataques e combinações de atributo/habilidade não são calculados
+quando os dados da ficha não estão estruturados ou a regra não existe no
+rolador Web.
+
 No workspace Mestre, a seção Monstros lista somente campanhas próprias.
 Monstros ficam vinculados à campanha, exigem uma seleção explícita de sistema e
 versão, e guardam seus dados específicos como JSON. Eles não são compartilhados
 com participantes da campanha.
+
+## Iniciativa e combate
+
+O proprietário de cada campanha no workspace Mestre pode criar combates,
+adicionar personagens já vinculados à campanha ou participantes manuais do tipo
+monstro/NPC, informar iniciativas e definir a ordem. A ordenação decrescente é
+uma ação explícita; empates preservam a ordem manual. Turnos e rodadas são
+persistidos no backend, e combates encerrados permanecem disponíveis como
+histórico. A edição é validada pelo backend e não é enfileirada offline.
+
+Antes do uso, aplique as migrations do backend (`npm run migrate` em
+`backend/`). A lista consultada pode usar o cache local existente quando a rede
+falha; alterações exigem conexão e só são exibidas como salvas após confirmação
+da API. A iniciativa é manual e não aplica fórmulas específicas de sistemas.
+
+## Convites e acesso a campanhas
+
+No workspace Mestre, os detalhes de uma campanha incluem gerenciamento de
+código/QR, convite direcionado por username e aprovação de solicitações
+pendentes. Compartilhar um código ou QR não dá acesso imediato. No workspace
+Jogador, a opção **Entrar em campanha** permite informar ou escanear o código,
+solicitar participação, acompanhar o estado do pedido e aceitar ou recusar
+convites direcionados.
+
+Os convites por username só criam vínculo após o aceite do jogador; solicitações
+por código só criam vínculo após a aprovação do Mestre. Os códigos não são
+persistidos no cache local. O leitor QR usa a câmera do dispositivo e requer
+permissão de câmera. Os dados e decisões são enviados à API e exigem conexão.
+As tabelas correspondentes são criadas pela migration 019 do backend; aplique
+as migrations com `npm run migrate` após configurar o PostgreSQL.
+
+## Painel administrativo Mobile
+
+As seções administrativas exibidas dependem das permissões retornadas pelo
+backend: painel, usuários, planos, sistemas, assinaturas, pagamentos, despesas,
+relatórios, auditoria e configurações. A busca e os filtros usam os parâmetros
+aceitos pela API. Bloqueios, alterações de permissões, cancelamentos e estornos
+exigem confirmação; o servidor impede bloquear ou retirar a última permissão do
+último administrador ativo. As telas administrativas continuam remotas e não
+usam cache offline.
+
+Pagamentos e relatórios mostram registros internos. Não há checkout ou
+confirmação por provedor externo; valores contratados de assinaturas não são
+tratados como receita recebida, e os relatórios não convertem moedas.
 
 ## Atividade 4 — persistência e funcionamento online/offline
 
@@ -106,6 +158,19 @@ retornada à tela. Em falha de transporte, o serviço tenta o snapshot do mesmo
 usuário e workspace e informa que os dados locais podem estar desatualizados.
 Erros HTTP, inclusive `401` e `403`, e respostas inválidas não são convertidos
 em falta de conexão.
+
+`ConnectionService` observa mudanças de rede com `connectivity_plus` e confirma
+acesso real à internet com uma requisição GET sem credenciais para
+`https://www.google.com/generate_204`, usando o transporte já existente no
+`ApiClient`, sem seguir redirecionamentos e com timeout de 3 segundos. A
+verificação ocorre na inicialização, após mudanças de rede, após falhas da API
+e a cada 30 segundos enquanto há rede e o app está ativo. A disponibilidade
+externa e a disponibilidade da API são estados separados.
+
+O aviso global é colocado acima do navegador pelo `MaterialApp.builder`: não
+cobre os controles, desaparece quando online, mostra indisponibilidade da API
+separadamente e exibe a reconexão por alguns segundos. O monitor é encerrado
+com o app e pausa as sondagens em segundo plano.
 
 ```mermaid
 sequenceDiagram

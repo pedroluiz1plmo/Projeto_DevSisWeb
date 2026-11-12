@@ -9,6 +9,7 @@ import '../widgets/coc/coc_character_form_dialog.dart';
 import '../widgets/character_folder_dropdown.dart';
 import '../widgets/local_cache_indicator.dart';
 import '../widgets/dnd_character_form_dialog.dart';
+import '../widgets/dice_roll_button.dart';
 import '../widgets/ui_helpers.dart';
 import '../widgets/vampire/vampire_character_form_dialog.dart';
 
@@ -361,6 +362,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
         character: character,
         system: selectedSystem,
         version: cocVersion!,
+        api: widget.api,
         folders: _folders,
       ),
     );
@@ -444,6 +446,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
         character: character,
         system: selectedSystem,
         version: vampireVersion!,
+        api: widget.api,
         folders: _folders,
       ),
     );
@@ -620,7 +623,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
       showDialog<void>(
         context: context,
         builder: (dialogCtx) => AlertDialog(
-          title: Text(character.name),
+          title: _profileTitle(character),
           content: SizedBox(
             width: 420,
             child: SingleChildScrollView(
@@ -685,7 +688,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
       showDialog<void>(
         context: context,
         builder: (dialogCtx) => AlertDialog(
-          title: Text(character.name),
+          title: _profileTitle(character),
           content: SizedBox(
             width: 420,
             child: SingleChildScrollView(
@@ -746,7 +749,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
       showDialog<void>(
         context: context,
         builder: (dialogCtx) => AlertDialog(
-          title: Text(character.name),
+          title: _profileTitle(character),
           content: SizedBox(
             width: 420,
             child: SingleChildScrollView(
@@ -813,7 +816,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
     showDialog<void>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: Text(character.name),
+        title: _profileTitle(character),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -839,6 +842,13 @@ class _CharacterScreenState extends State<CharacterScreen> {
       ),
     );
   }
+
+  Widget _profileTitle(RpgCharacter character) => Row(
+        children: [
+          Expanded(child: Text(character.name)),
+          DiceRollButton(character: character),
+        ],
+      );
 
   Widget _summaryLine(String label, String value) => Padding(
         padding: const EdgeInsets.only(bottom: 6),

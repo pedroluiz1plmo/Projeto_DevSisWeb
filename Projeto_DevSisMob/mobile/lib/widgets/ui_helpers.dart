@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../core/api_client.dart';
+import '../services/local_storage.dart';
+
 Future<Map<String, String>?> showTextFieldsDialog(
   BuildContext context, {
   required String title,
@@ -134,6 +137,17 @@ Future<bool> confirmDelete(BuildContext context, String item) async =>
 
 void showRequestError(BuildContext context, Object error) {
   ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(error.toString())),
+    SnackBar(content: Text(requestErrorMessage(error))),
   );
+}
+
+String requestErrorMessage(Object error) {
+  if (error is NetworkUnavailableException) {
+    return error.message;
+  }
+  if (error is ApiException) return error.message;
+  if (error is LocalStorageException) {
+    return 'Não foi possível recuperar os dados armazenados localmente.';
+  }
+  return 'Não foi possível concluir a solicitação.';
 }

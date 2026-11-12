@@ -1,5 +1,9 @@
 import bcrypt from 'bcrypt';
 import { pool } from '../config/database.js';
+import {
+  isSmtpConfigured,
+  sendAccountDeletionEmail,
+} from '../services/email_service.js';
 
 const normalize = (value) => value.trim().toLowerCase();
 const safeUser = (user) => ({ id: user.id, name: user.name, username: user.username, email: user.email });
@@ -46,11 +50,112 @@ export const updatePassword = async (userId, body) => {
 
   const user = result.rows[0];
   if (!(await bcrypt.compare(body.currentPassword, user.password_hash))) {
-    return { status: 401, body: { success: false, message: 'A senha atual está incorreta.' } };
+    return { status: 403, body: { success: false, message: 'A senha atual está incorreta.' } };
   }
 
   const passwordHash = await bcrypt.hash(body.newPassword, 12);
   await pool.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, userId]);
 
   return { status: 200, body: { success: true, message: 'Senha alterada com sucesso.' } };
+};
+
+export const deleteAccount = async (
+  userId,
+  body,
+  {
+    emailConfigured = isSmtpConfigured,
+    sendEmail = sendAccountDeletionEmail,
+  } = {},
+) => {
+  if (typeof body.currentPassword !== 'string' || !body.currentPassword) {
+    return {
+      status: 400,
+      body: { success: false, message: 'Informe sua senha atual para excluir a conta.' },
+    };
+  }
+
+  const client = await pool.connect();
+  let transactionStarted = false;
+  let account;
+  try {
+    await client.query('BEGIN');
+    transactionStarted = true;
+    const accountResult = await client.query(
+      'SELECT name, email, password_hash FROM users WHERE id = $1 AND is_active = TRUE FOR UPDATE',
+      [userId],
+    );
+    if (!accountResult.rowCount) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+      return { status: 404, body: { success: false, message: 'Conta não encontrada.' } };
+    }
+
+    account = accountResult.rows[0];
+    if (!(await bcrypt.compare(body.currentPassword, account.password_hash))) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+      return { status: 403, body: { success: false, message: 'A senha atual está incorreta.' } };
+    }
+
+    const dependencies = await client.query(
+      `SELECT
+         EXISTS (SELECT 1 FROM subscriptions WHERE user_id = $1)
+         OR EXISTS (SELECT 1 FROM payments WHERE user_id = $1)
+         OR EXISTS (SELECT 1 FROM expenses WHERE created_by = $1) AS blocked`,
+      [userId],
+    );
+    if (dependencies.rows[0].blocked) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+      return {
+        status: 409,
+        body: {
+          success: false,
+          message: 'A conta possui registros financeiros associados e não pode ser excluída.',
+        },
+      };
+    }
+
+    const deleted = await client.query(
+      'DELETE FROM users WHERE id = $1 AND is_active = TRUE',
+      [userId],
+    );
+    if (!deleted.rowCount) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+      return { status: 404, body: { success: false, message: 'Conta não encontrada.' } };
+    }
+    await client.query('COMMIT');
+    transactionStarted = false;
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK');
+    if (error.code === '23503') {
+      return {
+        status: 409,
+        body: {
+          success: false,
+          message: 'A conta possui registros associados e não pode ser excluída.',
+        },
+      };
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  try {
+    if (emailConfigured()) {
+      await sendEmail({ email: account.email, name: account.name });
+    } else {
+      console.error('Falha no envio de e-mail de confirmação de exclusão (SMTP não configurado).');
+    }
+  } catch (error) {
+    const code = typeof error?.code === 'string' ? error.code : 'unknown';
+    console.error(`Falha no envio de e-mail de confirmação de exclusão (${code}).`);
+  }
+
+  return {
+    status: 200,
+    body: { success: true, message: 'Conta excluída permanentemente.' },
+  };
 };

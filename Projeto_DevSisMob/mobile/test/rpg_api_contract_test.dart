@@ -78,6 +78,84 @@ void main() {
     }
   });
 
+  test(
+      'combates usam endpoints autenticados e persistem alterações no servidor',
+      () async {
+    final requests = <http.Request>[];
+    final api = RpgApi(ApiClient(
+      httpClient: _ResponseClient((request) {
+        final typedRequest = request as http.Request;
+        requests.add(typedRequest);
+        return _combatResponse(typedRequest);
+      }),
+      tokenStore: _MemoryTokenStore(),
+      baseUrl: 'https://example.test/api',
+    ));
+    api.client.token = 'test-token';
+    api.client.setWorkspaceType('master');
+
+    expect((await api.campaignCombats('4')).single.id, '91');
+    expect((await api.campaignCombat('91')).name, 'Combate');
+    await api.createCombat('4', 'Combate novo');
+    await api.updateCombatName('91', 'Combate renomeado');
+    await api.saveCombatParticipant(
+      combatId: '91',
+      type: 'character',
+      name: 'Heroi',
+      initiativeValue: 12,
+      characterId: '7',
+    );
+    await api.saveCombatParticipant(
+      combatId: '91',
+      participantId: '93',
+      type: 'npc',
+      name: 'Guarda',
+      initiativeValue: 9,
+    );
+    await api.updateCombatOrder('91', ['93', '92']);
+    await api.updateCombatTurn('91', action: 'select', participantId: '93');
+    await api.updateCombatTurn('91', action: 'next');
+    await api.updateCombatStatus('91', 'active');
+    await api.removeCombatParticipant(combatId: '91', participantId: '93');
+    await api.deleteCombat('4', '91');
+
+    expect(
+      requests.map((request) => '${request.method} ${request.url.path}'),
+      [
+        'GET /api/campaigns/4/combats',
+        'GET /api/combats/91',
+        'POST /api/campaigns/4/combats',
+        'PUT /api/combats/91',
+        'POST /api/combats/91/participants',
+        'PUT /api/combats/91/participants/93',
+        'PATCH /api/combats/91/order',
+        'PATCH /api/combats/91/turn',
+        'PATCH /api/combats/91/turn',
+        'PATCH /api/combats/91/status',
+        'DELETE /api/combats/91/participants/93',
+        'DELETE /api/combats/91',
+      ],
+    );
+    expect(jsonDecode(requests[2].body), {'name': 'Combate novo'});
+    expect(jsonDecode(requests[4].body), {
+      'type': 'character',
+      'name': 'Heroi',
+      'initiativeValue': 12,
+      'characterId': '7',
+    });
+    expect(jsonDecode(requests[6].body), {
+      'participantIds': ['93', '92'],
+    });
+    expect(jsonDecode(requests[7].body), {
+      'action': 'select',
+      'participantId': '93',
+    });
+    for (final request in requests) {
+      expect(request.headers.containsKey('Authorization'), isTrue);
+      expect(request.headers['X-Workspace-Type'], 'master');
+    }
+  });
+
   test('pastas, notas e missões usam as operações CRUD existentes', () async {
     final requests = <http.Request>[];
     final api = _createApi(requests);
@@ -345,6 +423,54 @@ http.Response _responseFor(http.Request request) {
   final statusCode = method == 'POST' ? 201 : 200;
   return http.Response(jsonEncode(body), statusCode);
 }
+
+http.Response _combatResponse(http.Request request) {
+  final path = request.url.path;
+  final method = request.method;
+  final body = <String, dynamic>{
+    'success': true,
+    'combat': _combat,
+    if (path.endsWith('/combats') && method == 'GET') 'combats': [_combat],
+  };
+  if (path.endsWith('/combats') && method == 'GET') {
+    body.remove('combat');
+  }
+  return http.Response(
+    jsonEncode(body),
+    method == 'POST' ? 201 : 200,
+  );
+}
+
+const _combat = {
+  'id': 91,
+  'campaignId': 4,
+  'name': 'Combate',
+  'status': 'preparing',
+  'currentRound': 1,
+  'currentParticipantId': null,
+  'participants': [
+    {
+      'id': 92,
+      'combatId': 91,
+      'campaignId': 4,
+      'characterId': 7,
+      'type': 'character',
+      'name': 'Heroi',
+      'initiativeValue': 12,
+      'turnOrder': 1,
+    },
+    {
+      'id': 93,
+      'combatId': 91,
+      'campaignId': 4,
+      'characterId': null,
+      'type': 'npc',
+      'name': 'Guarda',
+      'initiativeValue': 9,
+      'turnOrder': 2,
+    },
+  ],
+};
 
 const _version = {
   'id': 11,

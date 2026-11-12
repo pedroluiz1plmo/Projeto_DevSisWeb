@@ -56,7 +56,7 @@ class _NotesMissionsScreenState extends State<NotesMissionsScreen> {
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = requestErrorMessage(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

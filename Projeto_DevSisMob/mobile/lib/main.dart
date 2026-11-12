@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
@@ -6,16 +8,24 @@ import 'models/user_persona.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/persona_selection_screen.dart';
+import 'services/connection_service.dart';
 import 'services/persona_service.dart';
 import 'services/rpg_api.dart';
+import 'widgets/connection_status_widget.dart';
 
 void main() => runApp(const RpgManagerApp());
 
 class RpgManagerApp extends StatefulWidget {
-  const RpgManagerApp({super.key, this.api, this.personaService});
+  const RpgManagerApp({
+    super.key,
+    this.api,
+    this.personaService,
+    this.connectionService,
+  });
 
   final RpgApi? api;
   final PersonaService? personaService;
+  final ConnectionService? connectionService;
 
   @override
   State<RpgManagerApp> createState() => _RpgManagerAppState();
@@ -25,16 +35,26 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
   late final RpgApi _api = widget.api ?? RpgApi(ApiClient());
   late final PersonaService _personaService =
       widget.personaService ?? PersonaService();
+  late final ConnectionService _connectionService =
+      widget.connectionService ?? ConnectionService(apiClient: _api.client);
   AppUser? _user;
   UserPersona? _persona;
   bool _loading = true;
   String? _startupError;
+  String? _startupNotice;
 
   @override
   void initState() {
     super.initState();
     _api.client.onUnauthorized = _expireSession;
+    unawaited(_connectionService.start());
     _restoreSession();
+  }
+
+  @override
+  void dispose() {
+    unawaited(_connectionService.dispose());
+    super.dispose();
   }
 
   Future<void> _restoreSession() async {
@@ -76,11 +96,49 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
       _user = user;
       _persona = persona;
       _startupError = null;
+      _startupNotice = null;
     });
   }
 
   void _onUserUpdated(AppUser user) {
     setState(() => _user = user);
+  }
+
+  Future<void> _onAccountDeleted() async {
+    final userId = _user?.id;
+    String? cleanupError;
+    try {
+      await _api.client.setToken(null);
+    } on Exception {
+      cleanupError =
+          'A conta foi excluída, mas não foi possível limpar o token local.';
+    }
+
+    _api.setCacheOwner(null);
+    _api.client.setWorkspaceType(null);
+    if (userId != null) {
+      try {
+        await _api.clearLocalAccountData(userId);
+      } on Exception {
+        cleanupError =
+            'A conta foi excluída, mas alguns dados locais não puderam ser limpos.';
+      }
+      try {
+        await _personaService.clearForUser(userId);
+      } on Exception {
+        cleanupError =
+            'A conta foi excluída, mas alguns dados locais não puderam ser limpos.';
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _user = null;
+        _persona = null;
+        _startupError = cleanupError;
+        _startupNotice = 'Sua conta foi excluída com sucesso.';
+      });
+    }
   }
 
   Future<void> _savePersona(UserPersona persona) async {
@@ -113,6 +171,10 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
   Widget build(BuildContext context) => MaterialApp(
         title: 'RPG Manager',
         debugShowCheckedModeBanner: false,
+        builder: (context, child) => ConnectionStatusWidget(
+          service: _connectionService,
+          child: child ?? const SizedBox.shrink(),
+        ),
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: const Color(0xFF5A3A22),
@@ -156,6 +218,7 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
                 ? AuthScreen(
                     api: _api,
                     initialMessage: _startupError,
+                    initialNotice: _startupNotice,
                     onAuthenticated: _onAuthenticated,
                   )
                 : _persona == null
@@ -171,6 +234,7 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
                         onLogout: _logout,
                         onPersonaChanged: _savePersona,
                         onUserUpdated: _onUserUpdated,
+                        onAccountDeleted: _onAccountDeleted,
                       ),
       );
 }

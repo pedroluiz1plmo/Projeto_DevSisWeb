@@ -3,8 +3,26 @@ import { pool } from '../../config/database.js';
 const normalizeWorkspaceType = (workspaceType = 'player') => (workspaceType === 'master' ? 'master' : 'player');
 
 export const findCampaignAccess = (campaignId, workspaceType = 'player') => pool.query(
-  'SELECT id, owner_id, workspace_type FROM campaigns WHERE id = $1 AND workspace_type = $2',
+  `SELECT id, owner_id, name, description, is_active,
+          created_at, updated_at, workspace_type
+   FROM campaigns
+   WHERE id = $1 AND workspace_type = $2`,
   [campaignId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const findMasterCampaignAccessForMember = (campaignId, userId) => pool.query(
+  `SELECT campaign.id, campaign.owner_id, campaign.name,
+          campaign.description, campaign.is_active,
+          campaign.created_at, campaign.updated_at,
+          campaign.workspace_type
+   FROM campaigns campaign
+   JOIN campaign_members member
+     ON member.campaign_id = campaign.id
+    AND member.workspace_type = campaign.workspace_type
+   WHERE campaign.id = $1
+     AND campaign.workspace_type = 'master'
+     AND member.user_id = $2`,
+  [campaignId, userId],
 );
 
 export const findCampaignMembership = (campaignId, userId, workspaceType = 'player') => pool.query(
@@ -22,10 +40,19 @@ export const findCampaignMembership = (campaignId, userId, workspaceType = 'play
 export const findCampaignsByUser = (userId, workspaceType = 'player') => pool.query(
   `SELECT id, owner_id, name, description, is_active, created_at, updated_at, workspace_type
    FROM campaigns
-   WHERE workspace_type = $1
+   WHERE (
+     workspace_type = $1
      AND (owner_id = $2 OR id IN (
        SELECT campaign_id FROM campaign_members WHERE user_id = $2 AND workspace_type = $1
      ))
+   ) OR (
+     $1 = 'player'
+     AND workspace_type = 'master'
+     AND id IN (
+       SELECT campaign_id FROM campaign_members
+       WHERE user_id = $2 AND workspace_type = 'master'
+     )
+   )
    ORDER BY updated_at DESC`,
   [normalizeWorkspaceType(workspaceType), userId],
 );

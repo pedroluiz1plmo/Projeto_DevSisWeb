@@ -207,6 +207,42 @@ export class IndexedDbLocalStore {
     });
   }
 
+  static async clearForOwner(ownerId: string): Promise<void> {
+    const db = await this.ready();
+    const transaction = db.transaction(
+      [encryptedRecordsStore, vaultStore, migrationStore],
+      'readwrite',
+    );
+    const records = transaction.objectStore(encryptedRecordsStore);
+    const recordCursor = records.openCursor();
+    recordCursor.onsuccess = () => {
+      const cursor = recordCursor.result;
+      if (!cursor) return;
+      if ((cursor.value as EncryptedLocalRecord).ownerId === ownerId) {
+        cursor.delete();
+      }
+      cursor.continue();
+    };
+
+    const migrations = transaction.objectStore(migrationStore);
+    const migrationCursor = migrations.openCursor();
+    migrationCursor.onsuccess = () => {
+      const cursor = migrationCursor.result;
+      if (!cursor) return;
+      const sourceKey = (cursor.value as MigrationRecord).sourceKey;
+      if (
+        sourceKey.endsWith(`_${ownerId}_player`)
+        || sourceKey.endsWith(`_${ownerId}_master`)
+      ) {
+        cursor.delete();
+      }
+      cursor.continue();
+    };
+
+    transaction.objectStore(vaultStore).delete(ownerId);
+    await this.waitForTransaction(transaction, 'Não foi possível limpar os dados locais da conta.');
+  }
+
   static async quarantine(data: QuarantinedLocalData): Promise<void> {
     const db = await this.ready();
     const transaction = db.transaction(quarantineStore, 'readwrite');

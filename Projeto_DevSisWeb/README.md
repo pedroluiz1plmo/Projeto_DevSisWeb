@@ -89,7 +89,7 @@ campanha não compartilha o registro com seus participantes. A exclusão de uma
 pasta ou campanha apenas remove o vínculo, preservando a nota ou missão.
 
 A API fornece `GET`, `POST`, `PUT` e `DELETE` em `/api/notes` e `/api/missions`.
-As chamadas autenticadas precisam enviar `Authorization: Bearer <JWT>` e
+As chamadas autenticadas enviam `Authorization: Bearer <JWT>` e
 `X-Workspace-Type: player|master`. A migration numerada é executada pelo
 comando `npm run migrate` no diretório `backend/`, após configurar as variáveis
 de conexão PostgreSQL exigidas em `backend/src/config/database.js`.
@@ -97,6 +97,25 @@ de conexão PostgreSQL exigidas em `backend/src/config/database.js`.
 O Web preserva o cache local e mantém alterações pendentes para sincronizar
 quando a conexão retorna. O Mobile lê e grava os mesmos registros pela API e
 permite compartilhar a exportação `.txt`.
+
+### Convites e aprovação de campanhas
+
+No workspace Mestre, o proprietário gerencia convites na seção de participantes:
+gera, renova ou revoga um código e pode convidar alguém pelo username. Códigos
+e QR Codes apenas permitem solicitar participação; o pedido precisa ser
+aprovado pelo Mestre. Convites por username precisam ser aceitos pelo jogador.
+Nenhum dos fluxos adiciona participantes antes da aprovação ou do aceite.
+
+No workspace Jogador, a área **Campanhas** permite consultar um código, ler um
+QR Code, acompanhar solicitações e responder a convites diretos. A leitura da
+câmera no Mobile requer permissão; no Web, o leitor QR depende de contexto
+seguro do navegador (HTTPS ou localhost). Os códigos completos são exibidos
+somente ao serem gerados/renovados e não são gravados no cache local.
+
+As tabelas usadas pelos dois fluxos são criadas pela migration
+`backend/src/database/migrations/019_create_campaign_invitations.sql`. Execute
+`npm run migrate` em `backend/` depois de configurar a conexão PostgreSQL; a
+migration não é aplicada automaticamente pela interface.
 
 ### Acesso offline e cofre local (Web)
 
@@ -143,12 +162,74 @@ flutter run
 
 Para Android Emulator, informe `--dart-define=API_BASE_URL=http://10.0.2.2:3000/api`.
 
+### Arquitetura e persistência do Mobile
+
+O aplicativo Flutter mantém a separação por responsabilidade:
+
+- `lib/models/`: modelos tipados e conversão de/para JSON por `fromJson` e
+  `toJson`.
+- `lib/core/api_client.dart`: cliente HTTP, URL configurável por
+  `API_BASE_URL`, serialização JSON, timeout, cabeçalhos e erros HTTP.
+- `lib/services/rpg_api.dart`: operações REST, transformação das respostas em
+  modelos e atualização do cache depois da confirmação do servidor.
+- `lib/services/local_storage.dart`: snapshots JSON e metadados em
+  SharedPreferences, limitados por usuário e workspace (`player` ou `master`).
+- `lib/services/persona_service.dart`: preferência de perfil Jogador/Mestre
+  isolada por usuário.
+- `lib/screens/` e `lib/widgets/`: telas, formulários, estados de carregamento,
+  avisos do cache local e apresentação de erros.
+
+```mermaid
+flowchart LR
+  UI[Telas e formulários Flutter] --> API[RpgApi]
+  API --> CLIENT[ApiClient]
+  CLIENT -->|REST JSON + Authorization Bearer JWT| BACKEND[Backend Node.js]
+  BACKEND -->|repositórios e serviços| PG[(PostgreSQL)]
+  API -->|snapshots e preferências| PREFS[(SharedPreferences)]
+  CLIENT -->|JWT separado| SECURE[flutter_secure_storage]
+  API -->|leitura de snapshot em falha de rede| UI
+```
+
+O JWT é armazenado exclusivamente por `flutter_secure_storage`. Quando existe
+token, chamadas autenticadas enviam `Authorization: Bearer <JWT>`; as rotas
+públicas de login e cadastro também funcionam sem token. O middleware Node.js
+valida o esquema `Bearer` e os recursos protegidos usam o usuário do JWT e o
+workspace recebido em `X-Workspace-Type`. O cliente limpa a sessão e notifica
+a interface quando uma chamada autenticada recebe `401`; `403`, `404`,
+indisponibilidade de rede e erros do servidor são tratados sem registrar o
+token.
+
+O `RpgApi` implementa leitura e CRUD para campanhas, personagens, pastas,
+notas, missões e monstros; monstros são subordinados a campanhas. As rotas e
+serviços backend aplicam autorização e escopo de proprietário/workspace, e os
+repositórios persistem no PostgreSQL. Os métodos de sistema e versão usados
+pelos formulários são consultas. Os payloads JSON não definem o proprietário:
+o backend o deriva da sessão autenticada.
+
+Em operação online, o cache é atualizado somente depois de uma resposta
+confirmada pela API. Sem conexão, consultas podem usar snapshots remotos
+armazenados para o mesmo usuário e workspace; a interface indica que os dados
+são locais e podem estar desatualizados. Escritas offline não são consideradas
+concluídas e não são reenviadas automaticamente. Embora o armazenamento
+identifique registros locais `LOCAL_ONLY`, não há fila integrada ao CRUD nem
+protocolo de sincronização/conflitos nesta versão. Senhas e JWTs não são
+armazenados em SharedPreferences. O logout desassocia o cache da sessão; a
+limpeza dos dados locais da conta ocorre no fluxo de exclusão da conta.
+
+As telas apresentam progresso durante consultas e usam mensagens de erro
+compreensíveis para falhas de rede, sessão, autorização, registros ausentes e
+falhas locais; as operações de escrita só exibem sucesso após confirmação da
+API. O comando `flutter test` valida contratos e comportamentos com clientes
+HTTP simulados. A integração ponta a ponta com servidor Node.js e PostgreSQL
+requer ambiente configurado e não é comprovada por esses testes.
+
 ### Administração, planos e financeiro
 
-O Backend acrescenta a migration `016_admin_plans_finance.sql`. Depois de
-configurar o PostgreSQL, aplique as migrations no diretório `backend/` com
-`npm run migrate`; as tabelas de pagamentos, contratos, despesas, permissões e
-auditoria não são criadas nem alteradas fora desse processo.
+O Backend acrescenta as migrations `016_admin_plans_finance.sql` e
+`021_create_free_trials.sql`. Depois de configurar o PostgreSQL, aplique as
+migrations no diretório `backend/` com `npm run migrate`; as tabelas de
+pagamentos, contratos, despesas, permissões, auditoria e testes gratuitos não
+são criadas nem alteradas fora desse processo.
 
 O Freemium é criado ativo sem limites quantitativos. Um limite ausente ou
 `null` significa ilimitado; limites definidos pelo ADM são aplicados no Backend
@@ -206,3 +287,79 @@ indisponível e não cria assinatura nem pagamento simulado; também não há
 webhook público sem verificação de assinatura. As tabelas de eventos externos
 suportam idempotência para futura integração, e a camada `billing` exige um
 provedor real para iniciar checkout ou verificar webhooks.
+
+Notificações de confirmação de assinatura reutilizam o serviço Nodemailer/SMTP
+existente e são registradas na migration
+`022_create_subscription_email_notifications.sql`. O evento só pode ser
+enfileirado junto à transação de pagamento depois que o adaptador do provedor
+validar e marcar `payment_provider_events` como `processed`; a chave única
+`provider + external_event_id + notification_type` evita novas mensagens quando
+o webhook é reprocessado. Falhas ficam registradas e podem ser reenviadas pelo
+painel de assinaturas. O checkout e o webhook do provedor ainda não estão
+implementados, portanto a confirmação automática só ficará ativa quando um
+provedor real validar o webhook, atualizar pagamento/assinatura e enfileirar a
+notificação na mesma transação. O Backend processa a fila periodicamente; falhas
+ficam registradas e podem ser reenviadas pelo painel de assinaturas. Trial grátis
+não gera notificação de assinatura paga.
+
+Configure no ambiente do Backend, sem compartilhar os valores:
+
+```text
+SMTP_HOST
+SMTP_PORT
+SMTP_SECURE
+SMTP_USER
+SMTP_PASSWORD
+SMTP_FROM
+SMTP_FROM_NAME=Digital Master Shield
+APP_BASE_URL
+SUPPORT_EMAIL
+```
+
+`SMTP_FROM_NAME` usa Digital Master Shield por padrão e `SUPPORT_EMAIL` usa o
+endereço de suporte já adotado pelo serviço de e-mail se omitido. `APP_BASE_URL`
+deve ser a URL pública da aplicação para incluir o link no e-mail; sem ela, a
+mensagem orienta o usuário a abrir Meu Plano pela plataforma. A migração cria
+apenas o registro da fila; nenhum segredo é enviado ao Web ou ao Mobile.
+
+O teste gratuito Premium é registrado uma única vez por conta em
+`free_trials`. A migration `021_create_free_trials.sql` fixa o período em sete
+dias exatos; o acesso é concedido pelo mesmo `getPlanAccess` usado pelas
+assinaturas e retorna ao Freemium quando a data de encerramento passa, salvo se
+houver uma assinatura ativa. `GET /api/free-trial/me` consulta elegibilidade e
+status e `POST /api/free-trial/activate` inicia o teste do plano escolhido; os
+dois endpoints exigem JWT e usam a identidade da sessão. O teste não cria
+assinatura, pagamento ou renovação automática. A área administrativa lista os
+testes em `GET /api/admin/free-trials`, protegido por `subscriptions.read`;
+conversão indica somente a existência de uma assinatura paga registrada após
+o encerramento, não confirmação de pagamento.
+
+### Recuperação e exclusão de conta
+
+A migration `017_password_recovery_tokens.sql` cria o armazenamento de tokens
+de recuperação. Os tokens são aleatórios, guardados como hash, expiram em 30
+minutos e só podem ser usados uma vez; cinco tentativas inválidas esgotam o
+código. Configure o SMTP no ambiente do backend antes de habilitar a
+recuperação:
+
+```text
+SMTP_HOST
+SMTP_PORT
+SMTP_SECURE=true|false
+SMTP_USER
+SMTP_PASSWORD
+SMTP_FROM
+```
+
+`POST /api/auth/password-recovery` aceita `{ "email": "..." }` sem sessão e
+sempre responde de forma genérica quanto à existência da conta. O código é
+enviado por e-mail. `POST /api/auth/password-recovery/confirm` aceita
+`{ "email": "...", "token": "...", "newPassword": "..." }`; não exige sessão.
+Sem SMTP configurado, a solicitação retorna `503` sem criar nem simular uma
+recuperação. Cada conta pode solicitar até três códigos por hora; tentativas
+inválidas também são limitadas pelo código ativo.
+
+`DELETE /api/users/me` exige JWT e `{ "currentPassword": "..." }`. O backend
+deriva a conta exclusivamente do `sub` do token. A exclusão é transacional;
+registros financeiros com restrição referencial impedem a remoção, enquanto
+dados relacionados seguem as regras `ON DELETE` já existentes no PostgreSQL.

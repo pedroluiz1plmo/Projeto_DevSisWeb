@@ -31,6 +31,26 @@ export const getPlanAccess = async (userId) => {
     };
   }
 
+  const trial = await pool.query(
+    `SELECT plan.id, plan.slug, plan.name, plan.billing_period, plan.benefits, plan.limits,
+            trial.ends_at
+       FROM free_trials trial
+       JOIN plans plan ON plan.id = trial.plan_id
+      WHERE trial.user_id = $1 AND trial.status = 'active' AND trial.ends_at > NOW()
+      LIMIT 1`,
+    [userId],
+  );
+  if (trial.rowCount) {
+    const row = trial.rows[0];
+    return {
+      plan: { id: String(row.id), slug: row.slug, name: row.name, billingPeriod: row.billing_period },
+      subscriptionStatus: 'trialing',
+      trial: { endsAt: row.ends_at },
+      benefits: row.benefits,
+      limits: row.limits,
+    };
+  }
+
   const free = await pool.query(
     `SELECT id, slug, name, billing_period, benefits, limits
        FROM plans

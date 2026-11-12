@@ -164,8 +164,9 @@ describe('isolamento dos workspaces', () => {
     await campaignsService.listCampaigns(123, 'master');
 
     assert.deepEqual(query.params, ['master', 123]);
-    assert.match(query.text, /WHERE workspace_type = \$1/);
+    assert.match(query.text, /WHERE \(\s*workspace_type = \$1/);
     assert.match(query.text, /campaign_members WHERE user_id = \$2 AND workspace_type = \$1/);
+    assert.match(query.text, /\$1 = 'player'[\s\S]*workspace_type = 'master'/);
   });
 
   it('recusa acesso direto a personagem quando o workspace da rota não coincide', async () => {

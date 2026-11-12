@@ -61,12 +61,30 @@ const isOwner = (campaign, userId) => Number(campaign.owner_id) === Number(userI
 
 const hasCampaignAccess = async (campaignId, userId, workspaceType) => {
   const normalizedWorkspaceType = resolveWorkspaceType(workspaceType, 'player');
-  const campaign = await campaignsRepository.findCampaignAccess(campaignId, normalizedWorkspaceType);
+  let campaign = await campaignsRepository.findCampaignAccess(
+    campaignId,
+    normalizedWorkspaceType,
+  );
+  if (!campaign.rowCount && normalizedWorkspaceType === 'player') {
+    campaign = await campaignsRepository.findMasterCampaignAccessForMember(
+      campaignId,
+      userId,
+    );
+  }
   if (!campaign.rowCount) return { campaign: null, allowed: false };
   if (isOwner(campaign.rows[0], userId)) return { campaign: campaign.rows[0], allowed: true };
 
-  const member = await campaignsRepository.findCampaignMembership(campaignId, userId, normalizedWorkspaceType);
-  return { campaign: campaign.rows[0], allowed: member.rowCount > 0 };
+  const campaignWorkspace = campaign.rows[0].workspace_type || normalizedWorkspaceType;
+  const member = await campaignsRepository.findCampaignMembership(
+    campaignId,
+    userId,
+    campaignWorkspace,
+  );
+  return {
+    campaign: campaign.rows[0],
+    allowed: member.rowCount > 0,
+    workspaceType: campaignWorkspace,
+  };
 };
 
 export const listCampaigns = async (userId, workspaceType = 'player') => {
@@ -84,19 +102,17 @@ export const getCampaign = async (id, userId, workspaceType = 'player') => {
   }
   const normalizedWorkspaceType = resolveWorkspaceType(workspaceType, 'player');
 
-  const result = await campaignsRepository.findCampaignById(id, normalizedWorkspaceType);
-  if (!result.rowCount) {
+  const access = await hasCampaignAccess(id, userId, normalizedWorkspaceType);
+  if (!access.campaign) {
     return { status: 404, body: { success: false, message: 'Campanha não encontrada.' } };
   }
-
-  const access = await hasCampaignAccess(id, userId, normalizedWorkspaceType);
   if (!access.allowed) {
     return { status: 403, body: { success: false, message: 'Você não tem acesso a esta campanha.' } };
   }
 
   return {
     status: 200,
-    body: { success: true, campaign: serializeCampaign(result.rows[0]) },
+    body: { success: true, campaign: serializeCampaign(access.campaign) },
   };
 };
 
@@ -189,7 +205,10 @@ export const listCampaignMembers = async (campaignId, userId, workspaceType = 'p
   }
 
   const ownerQuery = await campaignsRepository.findCampaignOwnerUser(access.campaign.owner_id);
-  const result = await campaignsRepository.findCampaignMembers(campaignId, normalizedWorkspaceType);
+  const result = await campaignsRepository.findCampaignMembers(
+    campaignId,
+    access.workspaceType || access.campaign.workspace_type || normalizedWorkspaceType,
+  );
   const members = result.rows.map(serializeMember);
   const owner = ownerQuery.rowCount ? serializeMember(ownerQuery.rows[0]) : null;
   const uniqueMembers = owner && members.some((member) => Number(member.userId) === Number(owner.userId))
@@ -199,52 +218,13 @@ export const listCampaignMembers = async (campaignId, userId, workspaceType = 'p
   return { status: 200, body: { success: true, members: uniqueMembers } };
 };
 
-export const addCampaignMember = async (campaignId, userId, workspaceType = 'player', body = {}) => {
-  const normalizedWorkspaceType = resolveWorkspaceType(workspaceType, 'player');
-  if (!validId(campaignId)) {
-    return { status: 400, body: { success: false, message: 'Identificador da campanha inválido.' } };
-  }
-
-  const access = await hasCampaignAccess(campaignId, userId, normalizedWorkspaceType);
-  if (!access.campaign) {
-    return { status: 404, body: { success: false, message: 'Campanha não encontrada.' } };
-  }
-  if (!isOwner(access.campaign, userId)) {
-    return { status: 403, body: { success: false, message: 'Você não tem permissão para gerenciar esta campanha.' } };
-  }
-
-  const targetUserId = body.userId ?? body.user_id;
-  if (!validId(targetUserId)) {
-    return { status: 400, body: { success: false, message: 'Informe o usuário que será adicionado.' } };
-  }
-  const targetId = Number(targetUserId);
-  if (Number(access.campaign.owner_id) === targetId) {
-    return { status: 409, body: { success: false, message: 'O proprietário da campanha já possui acesso.' } };
-  }
-
-  const user = await campaignsRepository.findActiveUser(targetId);
-  if (!user.rowCount) {
-    return { status: 404, body: { success: false, message: 'Usuário não encontrado.' } };
-  }
-  const duplicate = await campaignsRepository.findCampaignMember(campaignId, targetId, normalizedWorkspaceType);
-  if (duplicate.rowCount) {
-    return { status: 409, body: { success: false, message: 'Este usuário já é membro da campanha.' } };
-  }
-
-  const role = typeof body.role === 'string' ? body.role.trim() : 'player';
-  if (!validRole(role)) {
-    return { status: 400, body: { success: false, message: 'Informe uma função válida para o membro.' } };
-  }
-  const result = await campaignsRepository.createCampaignMember(campaignId, targetId, role, normalizedWorkspaceType);
-  return {
-    status: 201,
-    body: {
-      success: true,
-      message: 'Membro adicionado com sucesso.',
-      member: serializeMember(result.rows[0]),
-    },
-  };
-};
+export const addCampaignMember = async () => ({
+  status: 410,
+  body: {
+    success: false,
+    message: 'A inclusão direta foi desativada. Use os fluxos de convite e aprovação.',
+  },
+});
 
 export const updateCampaignMemberRole = async (campaignId, userId, workspaceType = 'player', memberUserId, body = {}) => {
   const normalizedWorkspaceType = resolveWorkspaceType(workspaceType, 'player');
@@ -311,7 +291,10 @@ export const listCampaignCharacters = async (campaignId, userId, workspaceType =
   if (!access.allowed || !access.campaign) {
     return { status: 403, body: { success: false, message: 'Você não tem acesso a esta campanha.' } };
   }
-  const result = await campaignsRepository.findCampaignCharacters(campaignId, normalizedWorkspaceType);
+  const result = await campaignsRepository.findCampaignCharacters(
+    campaignId,
+    access.workspaceType || access.campaign.workspace_type || normalizedWorkspaceType,
+  );
   return {
     status: 200,
     body: { success: true, characters: result.rows.map(serializeCharacter) },
@@ -333,23 +316,41 @@ export const addCampaignCharacter = async (campaignId, userId, workspaceType = '
   if (!validId(characterId)) {
     return { status: 400, body: { success: false, message: 'Informe o personagem que será vinculado.' } };
   }
-  const character = await campaignsRepository.findCharacterById(characterId, normalizedWorkspaceType);
+  const campaignWorkspace = access.workspaceType
+    || access.campaign.workspace_type
+    || normalizedWorkspaceType;
+  const character = await campaignsRepository.findCharacterById(
+    characterId,
+    campaignWorkspace,
+  );
   if (!character.rowCount) {
     return { status: 404, body: { success: false, message: 'Personagem não encontrado.' } };
   }
   if (Number(character.rows[0].user_id) !== Number(userId)) {
     return { status: 403, body: { success: false, message: 'Você não pode vincular um personagem de outro usuário.' } };
   }
-  if (character.rows[0].workspace_type !== normalizedWorkspaceType) {
+  if (character.rows[0].workspace_type !== campaignWorkspace) {
     return { status: 403, body: { success: false, message: 'Você não pode vincular um personagem de outro workspace.' } };
   }
 
-  const duplicate = await campaignsRepository.findCampaignCharacter(campaignId, characterId, normalizedWorkspaceType);
+  const duplicate = await campaignsRepository.findCampaignCharacter(
+    campaignId,
+    characterId,
+    campaignWorkspace,
+  );
   if (duplicate.rowCount) {
     return { status: 409, body: { success: false, message: 'Este personagem já está vinculado à campanha.' } };
   }
-  await campaignsRepository.createCampaignCharacter(campaignId, characterId, normalizedWorkspaceType);
-  const linkedCharacter = await campaignsRepository.findLinkedCampaignCharacter(campaignId, characterId, normalizedWorkspaceType);
+  await campaignsRepository.createCampaignCharacter(
+    campaignId,
+    characterId,
+    campaignWorkspace,
+  );
+  const linkedCharacter = await campaignsRepository.findLinkedCampaignCharacter(
+    campaignId,
+    characterId,
+    campaignWorkspace,
+  );
   return {
     status: 201,
     body: {

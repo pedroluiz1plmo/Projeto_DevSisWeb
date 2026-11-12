@@ -13,6 +13,8 @@ class MyPlanScreen extends StatefulWidget {
 
 class _MyPlanScreenState extends State<MyPlanScreen> {
   late Future<_MyPlanData> _request;
+  String? _selectedTrialPlanId;
+  bool _activatingTrial = false;
 
   @override
   void initState() {
@@ -25,11 +27,13 @@ class _MyPlanScreenState extends State<MyPlanScreen> {
       widget.api.currentPlanAccess(),
       widget.api.availablePlans(),
       widget.api.mySubscriptions(),
+      widget.api.freeTrialStatus(),
     ]);
     return _MyPlanData(
       access: results[0] as Map<String, dynamic>,
       plans: results[1] as List<Map<String, dynamic>>,
       subscriptions: results[2] as List<Map<String, dynamic>>,
+      trialStatus: results[3] as Map<String, dynamic>,
     );
   }
 
@@ -94,6 +98,8 @@ class _MyPlanScreenState extends State<MyPlanScreen> {
                 children: [
                   _currentPlanCard(data),
                   const SizedBox(height: 20),
+                  _freeTrialCard(data),
+                  const SizedBox(height: 20),
                   Text('Planos disponíveis',
                       style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 6),
@@ -135,6 +141,151 @@ class _MyPlanScreenState extends State<MyPlanScreen> {
           },
         ),
       );
+
+  Widget _freeTrialCard(_MyPlanData data) {
+    final trialStatus = _map(data.trialStatus);
+    final trial = _map(trialStatus['trial']);
+    final premiumPlans = (trialStatus['premiumPlans'] as List? ?? const [])
+        .whereType<Map>()
+        .map((plan) => plan.cast<String, dynamic>())
+        .toList();
+    final existingTrial = trial.isNotEmpty;
+    final trialIsActive = trial['status'] == 'active';
+    final remainingSeconds =
+        int.tryParse('${trial['remainingSeconds'] ?? 0}') ?? 0;
+
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('AVALIAÇÃO PREMIUM',
+                style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 6),
+            if (existingTrial) ...[
+              Text(
+                trialIsActive
+                    ? 'Seu teste Premium está ativo'
+                    : 'Seu teste Premium foi encerrado',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              Text('Plano: ${trial['planName'] ?? ''}'),
+              Text('Ativado em: ${_date(trial['activatedAt'])}'),
+              Text('Encerramento: ${_date(trial['endsAt'])}'),
+              if (trialIsActive) ...[
+                Text('Tempo restante: ${_remainingTime(remainingSeconds)}'),
+                if (remainingSeconds <= 172800)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Seu teste está próximo do fim. Ao encerrar, o acesso volta ao Freemium, salvo se você contratar Premium manualmente.',
+                    ),
+                  ),
+                const Text(
+                  'Nenhuma cobrança será feita ao terminar. Sua conta voltará ao Freemium, a menos que você escolha contratar um plano.',
+                ),
+              ] else
+                const Text(
+                  'O acesso temporário terminou. Sua conta usa as permissões do Freemium, salvo se houver uma assinatura Premium ativa. O teste não pode ser iniciado novamente.',
+                ),
+            ] else if (trialStatus['eligible'] == true &&
+                premiumPlans.isNotEmpty) ...[
+              Text('Experimente o Premium gratuitamente por 7 dias.',
+                  style: Theme.of(context).textTheme.titleLarge),
+              const Text(
+                'Use os benefícios do plano escolhido durante sete dias exatos. O teste é único por conta e não exige forma de pagamento.',
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: premiumPlans.any(
+                        (plan) => '${plan['id']}' == _selectedTrialPlanId)
+                    ? _selectedTrialPlanId
+                    : '${premiumPlans.first['id']}',
+                decoration: const InputDecoration(labelText: 'Plano Premium'),
+                items: premiumPlans
+                    .map((plan) => DropdownMenuItem(
+                          value: '${plan['id']}',
+                          child: Text(
+                            '${plan['name']} · ${_money(plan['price'], plan['currency'])} / ${_period(plan['billingPeriod'])}',
+                          ),
+                        ))
+                    .toList(),
+                onChanged: (value) =>
+                    setState(() => _selectedTrialPlanId = value),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _activatingTrial
+                    ? null
+                    : () => _activateTrial(_selectedTrialPlanId ??
+                        '${premiumPlans.first['id']}'),
+                child: Text(_activatingTrial
+                    ? 'Ativando…'
+                    : 'Iniciar teste gratuito de 7 dias'),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Ao final, não haverá cobrança nem conversão automática. Você voltará ao Freemium e poderá contratar manualmente pelo preço informado.',
+              ),
+            ] else if (trialStatus['hasActiveSubscription'] == true)
+              const Text(
+                'Sua conta já possui uma assinatura Premium ativa e não está elegível para o teste gratuito.',
+              )
+            else
+              const Text(
+                'Não há planos Premium ativos disponíveis para iniciar um teste no momento.',
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _activateTrial(String planId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Ativar teste Premium?'),
+        content: const Text(
+          'O teste começa imediatamente e dura exatamente 7 dias. Não haverá cobrança ou conversão automática ao final; sua conta voltará ao Freemium, salvo se você contratar manualmente.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Agora não'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Ativar teste'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _activatingTrial = true);
+    try {
+      await widget.api.activateFreeTrial(planId);
+      await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Teste Premium ativado por 7 dias. Nenhuma cobrança automática será realizada.',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _activatingTrial = false);
+    }
+  }
 
   Widget _currentPlanCard(_MyPlanData data) {
     final plan = _map(data.access['plan']);
@@ -342,6 +493,13 @@ class _MyPlanScreenState extends State<MyPlanScreen> {
     if (parsed == null) return '—';
     return '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')}/${parsed.year}';
   }
+
+  static String _remainingTime(int seconds) {
+    final days = seconds ~/ 86400;
+    final hours = (seconds % 86400) ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    return '${days}d ${hours}h ${minutes}min';
+  }
 }
 
 class _MyPlanData {
@@ -349,9 +507,11 @@ class _MyPlanData {
     required this.access,
     required this.plans,
     required this.subscriptions,
+    required this.trialStatus,
   });
 
   final Map<String, dynamic> access;
   final List<Map<String, dynamic>> plans;
   final List<Map<String, dynamic>> subscriptions;
+  final Map<String, dynamic> trialStatus;
 }

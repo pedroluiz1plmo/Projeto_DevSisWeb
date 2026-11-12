@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/api_client.dart';
 import '../models/models.dart';
 import '../services/rpg_api.dart';
+import 'forgot_password_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({
@@ -10,11 +11,13 @@ class AuthScreen extends StatefulWidget {
     required this.api,
     required this.onAuthenticated,
     this.initialMessage,
+    this.initialNotice,
   });
 
   final RpgApi api;
   final Future<void> Function(AppUser) onAuthenticated;
   final String? initialMessage;
+  final String? initialNotice;
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -31,6 +34,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _busy = false;
   bool _obscurePassword = true;
   String? _error;
+  String? _notice;
 
   @override
   void dispose() {
@@ -47,6 +51,7 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() {
       _busy = true;
       _error = null;
+      _notice = null;
     });
     try {
       final user = _register
@@ -62,6 +67,20 @@ class _AuthScreenState extends State<AuthScreen> {
       if (mounted) setState(() => _error = error.message);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openPasswordRecovery() async {
+    final completed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(api: widget.api),
+      ),
+    );
+    if (completed == true && mounted) {
+      setState(() {
+        _notice = 'Senha redefinida. Entre com sua nova senha.';
+        _error = null;
+      });
     }
   }
 
@@ -94,7 +113,10 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(height: 24),
                       if (widget.initialMessage != null && _error == null)
                         _ErrorBanner(message: widget.initialMessage!),
+                      if (widget.initialNotice != null && _error == null)
+                        _NoticeBanner(message: widget.initialNotice!),
                       if (_error != null) _ErrorBanner(message: _error!),
+                      if (_notice != null) _NoticeBanner(message: _notice!),
                       if (_register) ...[
                         TextFormField(
                           controller: _name,
@@ -105,7 +127,8 @@ class _AuthScreenState extends State<AuthScreen> {
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _username,
-                          decoration: const InputDecoration(labelText: 'Usuário'),
+                          decoration:
+                              const InputDecoration(labelText: 'Usuário'),
                           validator: (value) => (value?.trim().length ?? 0) < 3
                               ? 'Use ao menos 3 caracteres.'
                               : null,
@@ -114,7 +137,8 @@ class _AuthScreenState extends State<AuthScreen> {
                         TextFormField(
                           controller: _email,
                           keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(labelText: 'E-mail'),
+                          decoration:
+                              const InputDecoration(labelText: 'E-mail'),
                           validator: (value) => value == null ||
                                   !RegExp(r'^\S+@\S+\.\S+$').hasMatch(value)
                               ? 'Informe um e-mail válido.'
@@ -158,16 +182,23 @@ class _AuthScreenState extends State<AuthScreen> {
                         child: _busy
                             ? const SizedBox.square(
                                 dimension: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : Text(_register ? 'Criar conta' : 'Entrar'),
                       ),
+                      if (!_register)
+                        TextButton(
+                          onPressed: _busy ? null : _openPasswordRecovery,
+                          child: const Text('Esqueci minha senha'),
+                        ),
                       TextButton(
                         onPressed: _busy
                             ? null
                             : () => setState(() {
                                   _register = !_register;
                                   _error = null;
+                                  _notice = null;
                                 }),
                         child: Text(_register
                             ? 'Já tenho uma conta'
@@ -211,6 +242,32 @@ class _ErrorBanner extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(child: Text(message)),
               ],
+            ),
+          ),
+        ),
+      );
+}
+
+class _NoticeBanner extends StatelessWidget {
+  const _NoticeBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              message,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+              ),
             ),
           ),
         ),

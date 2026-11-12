@@ -94,12 +94,13 @@ function inputField(
   label: string,
   type = 'text',
   placeholder = '',
-  options: { min?: number; max?: number; className?: string } = {}
+  options: { min?: number; max?: number; className?: string; required?: boolean } = {}
 ): string {
   const min = options.min === undefined ? '' : ` min="${options.min}"`;
   const max = options.max === undefined ? '' : ` max="${options.max}"`;
   const className = options.className ? ` ${options.className}` : '';
-  return `<div class="form-group${className}"><label for="${id}">${label}</label><input id="${id}" class="form-control" type="${type}" value="${escapeHtml(initialValue(ficha, system, id))}" placeholder="${escapeHtml(placeholder)}"${min}${max}></div>`;
+  const required = options.required ? ' data-required="true"' : '';
+  return `<div class="form-group${className}"><label for="${id}">${label}</label><input id="${id}" class="form-control" type="${type}" value="${escapeHtml(initialValue(ficha, system, id))}" placeholder="${escapeHtml(placeholder)}"${min}${max}${required}></div>`;
 }
 
 function textArea(
@@ -127,15 +128,34 @@ function actionButtons(guided: boolean, isExisting = false): string {
   return `<div class="character-sheet-actions"><button ${cancelButton} type="button" class="btn btn-secondary">${cancelLabel}</button><button type="submit" class="btn btn-primary">💾 ${saveLabel}</button></div>`;
 }
 
-function tabs(tabs: Array<{ id: string; label: string }>, activeId: string): string {
-  return `<nav class="coc-sheet-tabs" aria-label="Seções da ficha">${tabs.map(tab =>
-    `<button type="button" class="coc-sheet-tab${tab.id === activeId ? ' active' : ''}" data-sheet-tab="${tab.id}" aria-pressed="${tab.id === activeId}">${tab.label}</button>`
+function tabs(
+  tabs: Array<{ id: string; label: string }>,
+  activeId: string,
+  requiredPanelId?: string
+): string {
+  return `<nav class="coc-sheet-tabs dnd-sheet-tabs" aria-label="Seções da ficha">${tabs.map(tab =>
+    `<button type="button" class="coc-sheet-tab${tab.id === activeId ? ' active' : ''}" data-sheet-tab="${tab.id}"${tab.id === requiredPanelId ? ` data-required-panel="${tab.id}"` : ''} aria-pressed="${tab.id === activeId}">${tab.label}${tab.id === requiredPanelId ? '<span class="sheet-tab-pending" aria-label="Campo obrigatório pendente"> •</span>' : ''}</button>`
   ).join('')}</nav>`;
 }
 
 function panel(id: string, activeId: string, content: string): string {
   const active = id === activeId;
   return `<section class="sheet-editor-section character-sheet-panel coc-sheet-panel${active ? ' active' : ''}" data-sheet-panel="${id}" data-coc-panel="${id}"${active ? '' : ' hidden'}>${content}</section>`;
+}
+
+function reviewPanel(system: CharacterSheetSystem): string {
+  return section(
+    'Revisão da ficha',
+    '<p>Confira os campos preenchidos antes de salvar.</p><ul data-sheet-review-summary></ul>',
+    `Revise os dados de ${system} antes de concluir.`,
+  );
+}
+
+function guidedSheetHeading(system: CharacterSheetSystem, version: string): string {
+  const description = system === 'Call of Cthulhu'
+    ? 'Crie e edite sua ficha de investigador, organizando os dados por seção.'
+    : 'Crie e edite sua ficha de personagem, organizando os dados por seção.';
+  return `<header class="sheet-editor-header character-sheet-guided-header"><div><h3>${system} · ${version}</h3><p>${description}</p></div><span class="character-sheet-guided-badge" aria-label="Ficha guiada">♧ Ficha guiada</span></header>`;
 }
 
 function attributeCards(
@@ -197,6 +217,14 @@ function dndSheet(ficha: SistemaPasta | null, mode: CharacterSheetMode): string 
 function cocSheet(ficha: SistemaPasta | null, mode: CharacterSheetMode): string {
   const guided = mode === 'guided';
   const prefix = guided ? 'guided-coc' : 'inline-coc';
+  const field = (key: string, label: string, type = 'text', placeholder = '') =>
+    inputField(ficha, 'Call of Cthulhu', `${prefix}-${key}`, label, type, placeholder);
+  const area = (key: string, label: string, rows: number) =>
+    textArea(ficha, 'Call of Cthulhu', `${prefix}-${key}`, label, rows);
+  const nameId = guided ? `${prefix}-name` : 'inline-ficha-name';
+  const description = guided
+    ? ''
+    : textArea(ficha, 'Call of Cthulhu', 'inline-ficha-description', 'Descrição da ficha', 2);
   const characteristics = [
     ['str', 'Força', 'FOR'],
     ['con', 'Constituição', 'CON'],
@@ -212,38 +240,38 @@ function cocSheet(ficha: SistemaPasta | null, mode: CharacterSheetMode): string 
     `<article class="coc-characteristic-card"><span>${label}</span>${inputField(ficha, 'Call of Cthulhu', `${prefix}-${key}`, shortLabel, 'number', '', { min: 0, max: 100, className: 'coc-characteristic-value' })}<small>${shortLabel}</small></article>`
   ).join('')}</div>`;
   const rollButton = `<div class="sheet-section-heading sheet-roll-heading"><span></span><button id="${guided ? 'btn-guided-roll-coc' : 'btn-roll-coc-attributes'}" type="button" class="btn btn-secondary">🎲 Rolar características</button></div>`;
-
-  if (guided) {
-    return `<div class="character-sheet-module coc-sheet-module">
-      ${section('2. Quem é seu investigador?', `<div class="dnd-guided-identity-grid">${inputField(ficha, 'Call of Cthulhu', `${prefix}-name`, 'Nome do investigador', 'text', 'Ex.: Helena Duarte')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-occupation`, 'Ocupação', 'text', 'Ex.: Jornalista')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-age`, 'Idade', 'text', 'Ex.: 32')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-concept`, 'Conceito', 'text', 'Ex.: Repórter obcecada por mistérios')}</div>`, 'Escolha uma identidade e uma ocupação para quem se envolve com o inexplicável.', 'coc-guided-section')}
-      ${section('3. Características do investigador', `${rollButton}${cardGrid}`, '3d6 × 5; TAM e INT usam (2d6 + 6) × 5.', 'coc-guided-section')}
-      ${section('4. O que trouxe você ao horror?', `${inputField(ficha, 'Call of Cthulhu', `${prefix}-goal`, 'Objetivo', 'text', 'O que espera descobrir?')}${textArea(ficha, 'Call of Cthulhu', `${prefix}-background`, 'História inicial', 4, 'Conte como começou o envolvimento com o inexplicável.')}`, 'Registre o objetivo e o acontecimento que iniciou a investigação.', 'coc-guided-section')}
-      ${actionButtons(true)}
-    </div>`;
-  }
-
   const sheetTabs = [
-    { id: 'caracteristicas', label: 'Características' },
+    { id: 'investigador', label: 'Investigador' },
+    { id: 'caracteristicas', label: 'Atributos e recursos' },
     { id: 'pericias', label: 'Perícias' },
-    { id: 'combate', label: 'Combate' },
-    { id: 'historico', label: 'Histórico' },
-    { id: 'posses', label: 'Posses' }
+    { id: 'historico', label: 'Antecedentes' },
+    { id: 'posses', label: 'Equipamentos' },
+    { id: 'revisao', label: 'Revisão' }
   ];
-  return `<div class="character-sheet-module coc-sheet-module">
-    ${section('Identidade do investigador', `<div class="dnd-guided-identity-grid">${inputField(ficha, 'Call of Cthulhu', 'inline-ficha-name', 'Nome do investigador', 'text', 'Nome usado na ficha')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-player`, 'Jogador')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-occupation`, 'Ocupação', 'text', 'Ex.: Jornalista')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-age`, 'Idade', 'number')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-sex`, 'Sexo')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-residence`, 'Residência')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-birthplace`, 'Local de nascimento')}${textArea(ficha, 'Call of Cthulhu', 'inline-ficha-description', 'Descrição da ficha', 2)}</div>`)}
-    ${tabs(sheetTabs, 'caracteristicas')}
-    ${panel('caracteristicas', 'caracteristicas', section('Características', `${rollButton}${cardGrid}`, 'Rolagem automática: características em 3d6 × 5; TAM e INT em (2d6 + 6) × 5.'))}
-    ${panel('pericias', 'caracteristicas', section('Perícias', textArea(ficha, 'Call of Cthulhu', `${prefix}-skills`, 'Perícias e valores', 8)))}
-    ${panel('combate', 'caracteristicas', section('Combate e recursos', `<div class="dnd-guided-stat-grid coc-combat-grid">${inputField(ficha, 'Call of Cthulhu', `${prefix}-hp`, 'Pontos de vida', 'number')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-sanity`, 'Sanidade (SAN)', 'number')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-mp`, 'Pontos de magia', 'number')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-move`, 'Movimento')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-build`, 'Construção')}${inputField(ficha, 'Call of Cthulhu', `${prefix}-damage`, 'Bônus de dano')}</div>`))}
-    ${panel('historico', 'caracteristicas', section('Histórico do investigador', textArea(ficha, 'Call of Cthulhu', `${prefix}-backstory`, 'Antecedentes, aliados e anotações', 8)))}
-    ${panel('posses', 'caracteristicas', `${section('Posses', textArea(ficha, 'Call of Cthulhu', `${prefix}-equipment`, 'Equipamentos, armas e objetos importantes', 7))}${section('Finanças', textArea(ficha, 'Call of Cthulhu', `${prefix}-finances`, 'Dinheiro e recursos', 4))}`)}
-    ${actionButtons(false, Boolean(ficha?.id))}
+  return `<div class="character-sheet-module dnd-sheet-module coc-sheet-module">
+    ${guidedSheetHeading('Call of Cthulhu', '7ª edição')}
+    ${tabs(sheetTabs, 'investigador', 'investigador')}
+    ${panel('investigador', 'investigador', section('Identidade do investigador', `<div class="dnd-guided-identity-grid">${inputField(ficha, 'Call of Cthulhu', nameId, 'Nome do investigador', 'text', guided ? 'Ex.: Helena Duarte' : 'Nome usado na ficha', { required: true })}${field('player', 'Jogador')}${field('occupation', 'Ocupação', 'text', 'Ex.: Jornalista')}${field('age', 'Idade', 'number')}${field('sex', 'Sexo')}${field('residence', 'Residência')}${field('birthplace', 'Local de nascimento')}${description}${field('concept', 'Conceito')}</div>`, 'Identificação e ocupação do investigador.'))}
+    ${panel('caracteristicas', 'investigador', `${section('Características', `${rollButton}${cardGrid}`, 'Rolagem padrão: 3d6 × 5; TAM e INT usam (2d6 + 6) × 5.')}${section('Recursos e combate', `<div class="dnd-guided-stat-grid coc-combat-grid">${field('hp', 'Pontos de vida', 'number')}${field('sanity', 'Sanidade (SAN)', 'number')}${field('mp', 'Pontos de magia', 'number')}${field('move', 'Movimento')}${field('build', 'Construção')}${field('damage', 'Bônus de dano')}</div>`, 'Valores derivados já existentes na ficha podem ser conferidos e ajustados.')}`)}
+    ${panel('pericias', 'investigador', section('Perícias', area('skills', 'Perícias, valores e especializações já suportadas', 8)))}
+    ${panel('historico', 'investigador', section('Antecedentes', `${field('goal', 'Objetivo', 'text', 'O que espera descobrir?')}${area('backstory', 'História, crenças, pessoas e locais importantes', 8)}`))}
+    ${panel('posses', 'investigador', `${section('Equipamentos e posses', area('equipment', 'Equipamentos, armas e objetos importantes', 7))}${section('Finanças', area('finances', 'Dinheiro e recursos', 4))}`)}
+    ${panel('revisao', 'investigador', reviewPanel('Call of Cthulhu'))}
+    ${actionButtons(guided, Boolean(ficha?.id))}
   </div>`;
 }
 
 function vampireSheet(ficha: SistemaPasta | null, mode: CharacterSheetMode): string {
   const guided = mode === 'guided';
   const prefix = guided ? 'guided-vampire' : 'inline-vampire';
+  const field = (key: string, label: string, type = 'text', placeholder = '') =>
+    inputField(ficha, 'Vampiro: A Máscara', `${prefix}-${key}`, label, type, placeholder);
+  const area = (key: string, label: string, rows: number) =>
+    textArea(ficha, 'Vampiro: A Máscara', `${prefix}-${key}`, label, rows);
+  const nameId = guided ? `${prefix}-name` : 'inline-ficha-name';
+  const description = guided
+    ? ''
+    : textArea(ficha, 'Vampiro: A Máscara', 'inline-ficha-description', 'Descrição do personagem', 2);
   const attributes = [
     ['strength', 'Força', 'Físico'],
     ['dexterity', 'Destreza', 'Físico'],
@@ -258,28 +286,43 @@ function vampireSheet(ficha: SistemaPasta | null, mode: CharacterSheetMode): str
   const cardGrid = `<div class="vampire-attribute-grid">${attributes.map(([key, label, group]) =>
     `<article class="vampire-attribute-card"><span class="vampire-attribute-group">${group}</span><strong>${label}</strong>${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-${key}`, label, 'number', '', { min: 1, max: 5, className: 'vampire-attribute-value' })}</article>`
   ).join('')}</div>`;
-  const rollButton = `<div class="sheet-section-heading sheet-roll-heading"><span></span><button id="${guided ? 'btn-guided-roll-vampire' : 'btn-roll-vampire-attributes'}" type="button" class="btn btn-secondary">🎲 Distribuir atributos</button></div>`;
-
-  if (guided) {
-    return `<div class="character-sheet-module vampire-sheet-module">
-      ${section('2. Quem você se tornou?', `<div class="dnd-guided-identity-grid">${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-name`, 'Nome do personagem', 'text', 'Ex.: Bianca')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-concept`, 'Conceito', 'text', 'Ex.: Herdeira exilada')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-clan`, 'Clã', 'text', 'Ex.: Toreador')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-generation`, 'Geração', 'text', 'Ex.: 12ª')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-predator`, 'Tipo de predador')}</div>`, 'Defina a identidade, o clã e o predador que moldam sua existência na noite.', 'vampire-guided-section')}
-      ${section('3. Atributos da criatura', `${rollButton}${cardGrid}`, 'Distribuição V5: atributos começam em 1 e recebem 7/5/3 pontos.', 'vampire-guided-section')}
-      ${section('4. O que ainda importa?', `${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-goal`, 'Ambição')}${textArea(ficha, 'Vampiro: A Máscara', `${prefix}-story`, 'História inicial', 4)}`, 'Escolha uma ambição e conte a história que trouxe você até esta crônica.', 'vampire-guided-section')}
-      ${actionButtons(true)}
-    </div>`;
-  }
-
-  const sheetTabs = [
-    { id: 'ficha', label: 'Ficha' },
-    { id: 'habilidade', label: 'Habilidade' },
-    { id: 'historia', label: 'História' }
+  const priorityOptions = [
+    ['physical,social,mental', 'Físicos → Sociais → Mentais'],
+    ['physical,mental,social', 'Físicos → Mentais → Sociais'],
+    ['social,physical,mental', 'Sociais → Físicos → Mentais'],
+    ['social,mental,physical', 'Sociais → Mentais → Físicos'],
+    ['mental,physical,social', 'Mentais → Físicos → Sociais'],
+    ['mental,social,physical', 'Mentais → Sociais → Físicos']
   ];
-  return `<div class="character-sheet-module vampire-sheet-module">
-    ${tabs(sheetTabs, 'ficha')}
-    ${panel('ficha', 'ficha', `${section('Identidade e crônica', `<div class="dnd-guided-identity-grid">${inputField(ficha, 'Vampiro: A Máscara', 'inline-ficha-name', 'Nome do personagem', 'text', 'Nome usado na ficha')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-player`, 'Jogador')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-chronicle`, 'Crônica')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-concept`, 'Conceito')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-clan`, 'Clã')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-generation`, 'Geração')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-sire`, 'Senhor')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-predator`, 'Tipo de predador')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-ambition`, 'Ambição')}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-desire`, 'Desejo')}${textArea(ficha, 'Vampiro: A Máscara', 'inline-ficha-description', 'Descrição do personagem', 2)}</div>`)}${section('Atributos', `${rollButton}${cardGrid}`, 'Atributos físicos, sociais e mentais da ficha V5.')}${section('Recursos e estado', `<div class="dnd-guided-stat-grid vampire-resource-grid">${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-health`, 'Vitalidade / Saúde', 'number', '', { min: 0 })}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-willpower`, 'Força de vontade', 'number', '', { min: 0 })}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-humanity`, 'Humanidade', 'number', '', { min: 0 })}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-hunger`, 'Fome', 'number', '', { min: 0 })}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-stains`, 'Manchas', 'number', '', { min: 0 })}${inputField(ficha, 'Vampiro: A Máscara', `${prefix}-blood-potency`, 'Potência de sangue', 'number', '', { min: 0 })}</div>`)}`)}
-    ${panel('habilidade', 'ficha', `${section('Habilidades', textArea(ficha, 'Vampiro: A Máscara', `${prefix}-abilities`, 'Perícias e habilidades', 5))}${section('Disciplinas', textArea(ficha, 'Vampiro: A Máscara', `${prefix}-disciplines`, 'Disciplinas', 5))}${section('Vantagens e defeitos', textArea(ficha, 'Vampiro: A Máscara', `${prefix}-advantages`, 'Vantagens e defeitos', 5))}`)}
-    ${panel('historia', 'ficha', `${section('Âncoras e convicções', textArea(ficha, 'Vampiro: A Máscara', `${prefix}-touchstones`, 'Âncoras e convicções', 5))}${section('História', textArea(ficha, 'Vampiro: A Máscara', `${prefix}-backstory`, 'História e anotações da crônica', 7))}`)}
-    ${actionButtons(false, Boolean(ficha?.id))}
+  const savedPriorities = initialValue(ficha, 'Vampiro: A Máscara', `${prefix}-priorities`);
+  const priorityControl = `<label class="vampire-priority-control" for="${prefix}-priorities">Prioridade dos grupos
+    <select id="${prefix}-priorities" class="custom-select">
+      ${priorityOptions.map(([value, label]) =>
+    `<option value="${value}"${(savedPriorities || priorityOptions[0][0]) === value ? ' selected' : ''}>${label}</option>`
+  ).join('')}
+    </select>
+  </label>`;
+  const rollButton = `<div class="sheet-section-heading sheet-roll-heading">${priorityControl}<button id="${guided ? 'btn-guided-roll-vampire' : 'btn-roll-vampire-attributes'}" type="button" class="btn btn-secondary">🎲 Distribuir atributos</button></div>`;
+  const sheetTabs = [
+    { id: 'conceito', label: 'Conceito' },
+    { id: 'atributos', label: 'Atributos' },
+    { id: 'habilidades', label: 'Habilidades' },
+    { id: 'disciplinas', label: 'Disciplinas' },
+    { id: 'vantagens', label: 'Vantagens e defeitos' },
+    { id: 'recursos', label: 'Características e recursos' },
+    { id: 'revisao', label: 'Revisão' }
+  ];
+  return `<div class="character-sheet-module dnd-sheet-module vampire-sheet-module">
+    ${guidedSheetHeading('Vampiro: A Máscara', 'V5')}
+    ${tabs(sheetTabs, 'conceito', 'conceito')}
+    ${panel('conceito', 'conceito', `${section('Conceito e identidade', `<div class="dnd-guided-identity-grid">${inputField(ficha, 'Vampiro: A Máscara', nameId, 'Nome do personagem', 'text', 'Ex.: Bianca', { required: true })}${field('player', 'Jogador')}${field('chronicle', 'Crônica')}${field('concept', 'Conceito')}${field('clan', 'Clã')}${field('sire', 'Senhor')}${field('predator', 'Tipo de predador')}${field('ambition', 'Ambição')}${field('desire', 'Desejo')}${field('generation', 'Geração')}${description}</div>`)}${section('História e âncoras', `${area('touchstones', 'Âncoras e convicções', 4)}${area('backstory', 'História e anotações da crônica', 6)}`)}`)}
+    ${panel('atributos', 'conceito', section('Atributos', `${rollButton}${cardGrid}`, 'Escolha as prioridades e distribua os pontos 7/5/3 conforme a regra V5.'))}
+    ${panel('habilidades', 'conceito', section('Habilidades', area('abilities', 'Perícias e habilidades já suportadas pela ficha', 8)))}
+    ${panel('disciplinas', 'conceito', section('Disciplinas', area('disciplines', 'Disciplinas e níveis', 8)))}
+    ${panel('vantagens', 'conceito', section('Vantagens e defeitos', area('advantages', 'Vantagens e defeitos', 7)))}
+    ${panel('recursos', 'conceito', section('Características e recursos', `<div class="dnd-guided-stat-grid vampire-resource-grid">${field('health', 'Saúde', 'number')}${field('willpower', 'Força de vontade', 'number')}${field('humanity', 'Humanidade', 'number')}${field('hunger', 'Fome', 'number')}${field('stains', 'Manchas', 'number')}${field('blood-potency', 'Potência de sangue', 'number')}</div>`, 'Confira os valores derivados e os demais recursos já presentes na ficha.'))}
+    ${panel('revisao', 'conceito', reviewPanel('Vampiro: A Máscara'))}
+    ${actionButtons(guided, Boolean(ficha?.id))}
   </div>`;
 }
 
@@ -295,6 +338,22 @@ export function renderCharacterSheet(
       ? cocSheet(ficha, mode)
       : vampireSheet(ficha, mode);
 
+  const updateRequiredMarkers = (): void => {
+    root.querySelectorAll<HTMLButtonElement>('[data-required-panel]').forEach(button => {
+      const panelId = button.dataset.requiredPanel;
+      const requiredPanel = panelId
+        ? root.querySelector<HTMLElement>(`[data-sheet-panel="${panelId}"]`)
+        : null;
+      const pending = Boolean(requiredPanel?.querySelector<HTMLInputElement>('input[data-required]')?.value.trim());
+      const indicator = button.querySelector<HTMLElement>('.sheet-tab-pending');
+      if (indicator) indicator.hidden = pending;
+      button.classList.toggle('has-pending-required', !pending);
+    });
+  };
+  root.addEventListener('input', updateRequiredMarkers);
+  root.addEventListener('change', updateRequiredMarkers);
+  updateRequiredMarkers();
+
   root.querySelectorAll<HTMLButtonElement>('[data-sheet-tab]').forEach(button => {
     button.addEventListener('click', () => {
       const targetId = button.dataset.sheetTab;
@@ -309,6 +368,23 @@ export function renderCharacterSheet(
         sheetPanel.hidden = !active;
         sheetPanel.classList.toggle('active', active);
       });
+      if (mode === 'guided' && targetId === 'revisao') {
+        const module = root.querySelector<HTMLElement>('.character-sheet-module');
+        if (module) module.dataset.guidedReviewReady = 'true';
+        const summary = root.querySelector<HTMLElement>('[data-sheet-review-summary]');
+        if (summary) {
+          summary.replaceChildren();
+          root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+            'input, textarea, select',
+          ).forEach(field => {
+            if (!field.value.trim()) return;
+            const label = root.querySelector<HTMLLabelElement>(`label[for="${field.id}"]`);
+            const item = document.createElement('li');
+            item.textContent = `${label?.textContent?.trim() || field.id}: ${field.value.trim()}`;
+            summary.append(item);
+          });
+        }
+      }
     });
   });
 }

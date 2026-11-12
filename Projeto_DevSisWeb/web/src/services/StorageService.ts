@@ -163,6 +163,48 @@ export class StorageService {
     this.cache.clear();
   }
 
+  public static async clearAccountData(ownerId: string): Promise<void> {
+    if (!/^\d+$/.test(ownerId)) {
+      throw new Error('Identificador local da conta inválido.');
+    }
+
+    let cleanupError: unknown = null;
+    try {
+      await IndexedDbLocalStore.clearForOwner(ownerId);
+    } catch (error) {
+      cleanupError = error;
+    }
+    for (const workspace of ['player', 'master'] as const) {
+      const suffix = `_${ownerId}_${workspace}`;
+      const accountKeys = [
+        ...this.legacyRoleKeys.map((key) => `${key}${suffix}`),
+        `rpg_notas_v1${suffix}`,
+        `rpg_missoes_v1${suffix}`,
+        `rpg_registro_pastas_v1${suffix}`,
+        `rpg_notas_exclusoes_v1${suffix}`,
+        `rpg_missoes_exclusoes_v1${suffix}`,
+      ];
+      for (const key of accountKeys) {
+        try {
+          localStorage.removeItem(key);
+        } catch (error) {
+          cleanupError ??= error;
+        }
+      }
+    }
+    try {
+      localStorage.removeItem(`${this.KEY_USER_ROLE}_${ownerId}`);
+    } catch (error) {
+      cleanupError ??= error;
+    }
+    if (this.activeUserId === ownerId) this.lock();
+    if (cleanupError) {
+      throw new Error('Não foi possível remover todos os dados locais da conta.', {
+        cause: cleanupError,
+      });
+    }
+  }
+
   public static get activeUser(): OfflineAccount | null {
     if (!this.vault) return null;
     return {

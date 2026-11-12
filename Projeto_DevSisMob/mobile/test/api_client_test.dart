@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,56 @@ import 'package:mobile/core/api_client.dart';
 import 'package:mobile/services/rpg_api.dart';
 
 void main() {
+  test('internet probe rejects non-204 captive portal responses', () async {
+    http.BaseRequest? captured;
+    final client = ApiClient(
+      httpClient: _FakeHttpClient((request) {
+        captured = request;
+        return http.Response('portal page', 200);
+      }),
+      tokenStore: _MemoryTokenStore(),
+      baseUrl: 'https://api.example.test',
+    );
+    expect(await client.checkInternetAvailability(), isFalse);
+    expect(captured?.followRedirects, isFalse);
+  });
+
+  test('internet probe stops after its timeout', () async {
+    final client = ApiClient(
+      httpClient: _HangingHttpClient(),
+      tokenStore: _MemoryTokenStore(),
+      baseUrl: 'https://api.example.test',
+    );
+    expect(
+      await client.checkInternetAvailability(
+        timeout: const Duration(milliseconds: 5),
+      ),
+      isFalse,
+    );
+  });
+
+  test('internet probe uses the shared transport without auth or cookies',
+      () async {
+    final requests = <http.BaseRequest>[];
+    final client = ApiClient(
+      httpClient: _FakeHttpClient((request) {
+        requests.add(request);
+        return http.Response('', 204);
+      }),
+      tokenStore: _MemoryTokenStore(),
+      baseUrl: 'https://api.example.test',
+    );
+    await client.setToken('private-jwt');
+
+    expect(await client.checkInternetAvailability(), isTrue);
+    expect(requests, hasLength(1));
+    expect(
+      requests.single.url,
+      Uri.parse('https://www.google.com/generate_204'),
+    );
+    expect(requests.single.headers.containsKey('Authorization'), isFalse);
+    expect(requests.single.headers.containsKey('Cookie'), isFalse);
+  });
   test('envia Bearer e persiste o JWT retornado pelo login', () async {
     final requests = <http.BaseRequest>[];
     final store = _MemoryTokenStore();
@@ -47,6 +98,49 @@ void main() {
     expect(requests[1].url.path, '/api/campaigns');
   });
 
+  test('cadastro público não exige token; o perfil usa o Bearer após cadastro',
+      () async {
+    final requests = <http.BaseRequest>[];
+    final store = _MemoryTokenStore();
+    final api = RpgApi(ApiClient(
+      httpClient: _FakeHttpClient((request) {
+        requests.add(request);
+        final isRegistration = request.url.path.endsWith('/auth/register');
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            if (isRegistration) 'token': 'registration-token',
+            'user': {
+              'id': 8,
+              'name': 'Lia',
+              'username': 'lia',
+              'email': 'lia@example.test',
+            },
+          }),
+          isRegistration ? 201 : 200,
+        );
+      }),
+      tokenStore: store,
+      baseUrl: 'https://example.test/api',
+    ));
+
+    final registered = await api.register(
+      name: 'Lia',
+      username: 'lia',
+      email: 'lia@example.test',
+      password: 'password123',
+    );
+    final profile = await api.currentUser();
+
+    expect(registered.id, '8');
+    expect(profile.id, '8');
+    expect(requests[0].url.path, '/api/auth/register');
+    expect(requests[0].headers.containsKey('Authorization'), isFalse);
+    expect(requests[1].url.path, '/api/auth/me');
+    expect(requests[1].headers['Authorization'], 'Bearer registration-token');
+    expect(store.token, 'registration-token');
+  });
+
   test('remove o token local e notifica quando a API responde 401', () async {
     final store = _MemoryTokenStore();
     final client = ApiClient(
@@ -63,7 +157,16 @@ void main() {
     client.onUnauthorized = () => expired = true;
     await client.setToken('expired-token');
 
-    await expectLater(client.get('/campaigns'), throwsA(isA<ApiException>()));
+    await expectLater(
+      client.get('/campaigns'),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.message,
+          'message',
+          'Sua sessão expirou. Faça login novamente.',
+        ),
+      ),
+    );
 
     expect(client.token, isNull);
     expect(store.token, isNull);
@@ -89,7 +192,11 @@ void main() {
       throwsA(
         isA<ApiException>()
             .having((error) => error.statusCode, 'statusCode', 403)
-            .having((error) => error.message, 'message', 'Acesso negado.'),
+            .having(
+              (error) => error.message,
+              'message',
+              'Acesso negado.',
+            ),
       ),
     );
 
@@ -134,7 +241,7 @@ void main() {
             .having(
               (error) => error.message,
               'message',
-              'O servidor retornou uma resposta inválida.',
+              'O servidor está temporariamente indisponível.',
             ),
       ),
     );
@@ -160,6 +267,12 @@ void main() {
       ),
     );
   });
+}
+
+class _HangingHttpClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      Completer<http.StreamedResponse>().future;
 }
 
 class _MemoryTokenStore implements TokenStore {

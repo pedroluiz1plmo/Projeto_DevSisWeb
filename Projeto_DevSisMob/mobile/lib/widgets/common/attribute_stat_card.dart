@@ -5,10 +5,14 @@ class AttributeStatCard extends StatefulWidget {
     super.key,
     required this.label,
     required this.controller,
+    this.minValue = 1,
+    this.maxValue = 30,
   });
 
   final String label;
   final TextEditingController controller;
+  final int minValue;
+  final int maxValue;
 
   @override
   State<AttributeStatCard> createState() => _AttributeStatCardState();
@@ -38,7 +42,7 @@ class _AttributeStatCardState extends State<AttributeStatCard> {
   }
 
   void _adjust(int delta) {
-    final next = (_score + delta).clamp(1, 30);
+    final next = (_score + delta).clamp(widget.minValue, widget.maxValue);
     if (next != _score) {
       widget.controller.text = '$next';
     }
@@ -83,7 +87,9 @@ class _AttributeStatCardState extends State<AttributeStatCard> {
               validator: (value) {
                 if (value == null || value.trim().isEmpty) return null;
                 final parsed = int.tryParse(value.trim());
-                if (parsed == null || parsed < 1 || parsed > 30) {
+                if (parsed == null ||
+                    parsed < widget.minValue ||
+                    parsed > widget.maxValue) {
                   return '!';
                 }
                 return null;

@@ -18,6 +18,7 @@ export type CurrentPlanAccess = {
     billingPeriod: 'free' | 'monthly' | 'annual';
   };
   subscriptionStatus: string;
+  trial?: { endsAt: string };
   benefits: Record<string, boolean>;
   limits: Record<string, number | null>;
 };
@@ -36,12 +37,31 @@ export type UserSubscription = {
   createdAt: string;
 };
 
+export type FreeTrial = {
+  id: string;
+  planId: string;
+  planName: string;
+  planSlug: string;
+  status: 'active' | 'expired';
+  activatedAt: string;
+  startsAt: string;
+  endsAt: string;
+  remainingSeconds: number;
+};
+
+export type FreeTrialStatus = {
+  eligible: boolean;
+  trial: FreeTrial | null;
+  premiumPlans: AvailablePlan[];
+  hasActiveSubscription: boolean;
+};
+
 const API_BASE = 'http://localhost:3000/api';
 
 const request = async <T>(path: string, token: string): Promise<T> => {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: path === '/plans' ? {} : { Authorization: `Bearer ${token}` },
-  });
+  const headers: HeadersInit = {};
+  if (path !== '/plans') headers.Authorization = 'Bearer '.concat(token);
+  const response = await fetch(`${API_BASE}${path}`, { headers });
   const data = await response.json() as { success?: boolean; message?: string };
   if (!response.ok || data.success === false) {
     throw new Error(data.message || `A API respondeu com status ${response.status}.`);
@@ -64,5 +84,24 @@ export class PlanService {
   static async subscriptions(token: string): Promise<UserSubscription[]> {
     const data = await request<{ subscriptions: UserSubscription[] }>('/subscriptions/me', token);
     return data.subscriptions;
+  }
+
+  static async freeTrial(token: string): Promise<FreeTrialStatus> {
+    return request<FreeTrialStatus>('/free-trial/me', token);
+  }
+
+  static async activateFreeTrial(token: string, planId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/free-trial/activate`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer '.concat(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ planId }),
+    });
+    const data = await response.json() as { success?: boolean; message?: string };
+    if (!response.ok || data.success === false) {
+      throw new Error(data.message || `A API respondeu com status ${response.status}.`);
+    }
   }
 }

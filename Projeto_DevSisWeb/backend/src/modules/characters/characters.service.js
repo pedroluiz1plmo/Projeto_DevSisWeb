@@ -5,6 +5,76 @@ const validId = (value) => /^\d+$/.test(String(value));
 const validName = (value) => typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 120;
 const validData = (value) => value === undefined || (value !== null && typeof value === 'object' && !Array.isArray(value));
 const validWorkspaceType = (value) => value === 'player' || value === 'master';
+const vampireAttributeGroups = {
+  physical: ['strength', 'dexterity', 'stamina'],
+  social: ['charisma', 'manipulation', 'composure'],
+  mental: ['intelligence', 'wits', 'resolve'],
+};
+
+const validateSystemAttributes = (systemSlug, versionSlug, data, isCreate, existingData = null) => {
+  if (systemSlug === 'call-of-cthulhu' && versionSlug === '7a-edicao') {
+    const keys = ['str', 'con', 'siz', 'dex', 'app', 'int', 'pow', 'edu', 'luck'];
+    const unchanged = !isCreate && existingData && keys.every((key) =>
+      Object.hasOwn(existingData, `inline-coc-${key}`)
+      && String(existingData[`inline-coc-${key}`]) === String(data[`inline-coc-${key}`]),
+    );
+    if (unchanged) return null;
+    const hasAttributes = keys.some((key) => Object.hasOwn(data, `inline-coc-${key}`));
+    if (!hasAttributes) return null;
+    const valid = keys.every((key) => {
+      const value = Number(data[`inline-coc-${key}`]);
+      return Number.isInteger(value) && value >= 0 && value <= 100;
+    });
+    return valid
+      ? null
+      : { status: 400, body: { success: false, message: 'As nove características de Call of Cthulhu devem ser números inteiros entre 0 e 100.' } };
+  }
+
+  if (systemSlug !== 'vampiro-a-mascara' || versionSlug !== 'v5') return null;
+  const keys = Object.values(vampireAttributeGroups).flat();
+  const hasAttributes = keys.some((key) => Object.hasOwn(data, `inline-vampire-${key}`));
+  if (!hasAttributes) return null;
+  const priorityValue = data['inline-vampire-priorities'];
+  const unchanged = !isCreate
+    && existingData
+    && keys.every((key) =>
+      Object.hasOwn(existingData, `inline-vampire-${key}`)
+      && String(existingData[`inline-vampire-${key}`]) === String(data[`inline-vampire-${key}`]),
+    )
+    && String(existingData['inline-vampire-priorities'] ?? '')
+      === String(priorityValue ?? '');
+  if (unchanged) return null;
+  if (!priorityValue && !isCreate) return null;
+  const priorities = typeof priorityValue === 'string' ? priorityValue.split(',') : [];
+  if (
+    priorities.length !== 3
+    || new Set(priorities).size !== 3
+    || priorities.some((group) => !Object.hasOwn(vampireAttributeGroups, group))
+  ) {
+    return {
+      status: 400,
+      body: { success: false, message: 'Selecione a prioridade dos três grupos de atributos V5.' },
+    };
+  }
+  const values = Object.fromEntries(keys.map((key) => [
+    key,
+    Number(data[`inline-vampire-${key}`]),
+  ]));
+  if (keys.some((key) => !Number.isInteger(values[key]) || values[key] < 1 || values[key] > 5)) {
+    return {
+      status: 400,
+      body: { success: false, message: 'Os atributos V5 devem ser números inteiros entre 1 e 5.' },
+    };
+  }
+  const pointsByPriority = [7, 5, 3];
+  const valid = priorities.every((group, index) =>
+    vampireAttributeGroups[group].reduce((total, key) => total + values[key], 0) - 3
+      === pointsByPriority[index],
+  );
+  return valid
+    ? null
+    : { status: 400, body: { success: false, message: 'A distribuição V5 deve respeitar as prioridades 7/5/3.' } };
+};
 
 const resolveWorkspaceType = (value, fallback = 'player') => {
   if (typeof value !== 'string') return fallback;
@@ -110,6 +180,7 @@ export const createCharacter = async (userId, workspaceTypeOrBody, maybeBody = {
 
   const requestedVersionId = body.systemVersionId ?? body.system_version_id ?? null;
   let systemVersionId = null;
+  let versionSlug = null;
 
   if (requestedVersionId !== null && requestedVersionId !== undefined && requestedVersionId !== '') {
     if (!validId(requestedVersionId)) {
@@ -123,7 +194,11 @@ export const createCharacter = async (userId, workspaceTypeOrBody, maybeBody = {
       return { status: 400, body: { success: false, message: 'A versão informada não pertence ao sistema selecionado.' } };
     }
     systemVersionId = String(requestedVersionId);
+    versionSlug = versionQuery.rows[0].slug;
   }
+
+  const validation = validateSystemAttributes(system.rows[0].slug, versionSlug, body.data, true);
+  if (validation) return validation;
 
   if (body.data && body.data.level !== undefined && body.data.level !== null && body.data.level !== '') {
     const parsedLevel = typeof body.data.level === 'string' && body.data.level.trim() !== ''
@@ -171,6 +246,7 @@ export const updateCharacter = async (id, userId, workspaceTypeOrBody, maybeBody
   const hasExplicitVersion = 'systemVersionId' in body || 'system_version_id' in body;
   const requestedVersionId = body.systemVersionId ?? body.system_version_id ?? null;
   let systemVersionId = null;
+  let versionSlug = null;
 
   if (hasExplicitVersion) {
     if (requestedVersionId !== null && requestedVersionId !== undefined && requestedVersionId !== '') {
@@ -185,6 +261,7 @@ export const updateCharacter = async (id, userId, workspaceTypeOrBody, maybeBody
         return { status: 400, body: { success: false, message: 'A versão informada não pertence ao sistema selecionado.' } };
       }
       systemVersionId = String(requestedVersionId);
+      versionSlug = versionQuery.rows[0].slug;
     } else {
       systemVersionId = null;
     }
@@ -195,6 +272,23 @@ export const updateCharacter = async (id, userId, workspaceTypeOrBody, maybeBody
       systemVersionId = null;
     }
   }
+
+  if (
+   !versionSlug
+   && systemVersionId
+   && ['call-of-cthulhu', 'vampiro-a-mascara'].includes(system.rows[0].slug)
+  ) {
+   const versionQuery = await charactersRepository.findSystemVersionById(systemVersionId);
+   versionSlug = versionQuery.rows[0]?.slug ?? null;
+  }
+  const validation = validateSystemAttributes(
+    system.rows[0].slug,
+    versionSlug,
+    body.data,
+    false,
+    current.dados,
+  );
+  if (validation) return validation;
 
   if (body.data && body.data.level !== undefined && body.data.level !== null && body.data.level !== '') {
     const parsedLevel = typeof body.data.level === 'string' && body.data.level.trim() !== ''

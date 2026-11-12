@@ -4,6 +4,10 @@ import 'local_storage.dart';
 
 enum RpgDataSource { server, localCache }
 
+class CombatDeletionCacheException extends ApiException {
+  const CombatDeletionCacheException(super.message);
+}
+
 class OfflineDataUnavailableException extends NetworkUnavailableException {
   const OfflineDataUnavailableException(super.message);
 }
@@ -94,19 +98,142 @@ class RpgApi {
     return _objectItems(data, 'subscriptions');
   }
 
+  Future<Map<String, dynamic>> freeTrialStatus() =>
+      client.get('/free-trial/me');
+
+  Future<Map<String, dynamic>> activateFreeTrial(String planId) =>
+      client.post('/free-trial/activate', {'planId': planId});
+
+  String _adminPath(String path, Map<String, String?> query) {
+    final parameters = <String, String>{};
+    for (final entry in query.entries) {
+      final value = entry.value;
+      if (value != null && value.isNotEmpty) parameters[entry.key] = value;
+    }
+    if (parameters.isEmpty) return path;
+    return '$path?${Uri(queryParameters: parameters).query}';
+  }
+
   Future<Map<String, dynamic>> adminIdentity() => client.get('/admin/me');
 
   Future<Map<String, dynamic>> adminDashboard() =>
       client.get('/admin/dashboard');
 
-  Future<Map<String, dynamic>> adminUsers() => client.get('/admin/users');
+  Future<Map<String, dynamic>> adminPermissions() =>
+      client.get('/admin/permissions');
 
-  Future<Map<String, dynamic>> adminSubscriptions() =>
-      client.get('/admin/subscriptions');
+  Future<Map<String, dynamic>> adminUsers({
+    String search = '',
+    String status = '',
+    int page = 1,
+    int limit = 25,
+  }) =>
+      client.get(_adminPath('/admin/users', {
+        'search': search,
+        'status': status,
+        'page': '$page',
+        'limit': '$limit',
+      }));
 
-  Future<Map<String, dynamic>> adminPayments() => client.get('/admin/payments');
+  Future<Map<String, dynamic>> adminSetUserActive(
+    String userId,
+    bool isActive,
+  ) =>
+      client.patch('/admin/users/$userId/active', {'isActive': isActive});
 
-  Future<Map<String, dynamic>> adminExpenses() => client.get('/admin/expenses');
+  Future<Map<String, dynamic>> adminChangePermission(
+    String userId,
+    String permission,
+    bool granted,
+  ) =>
+      client.put('/admin/users/$userId/permissions', {
+        'permission': permission,
+        'granted': granted,
+      });
+
+  Future<Map<String, dynamic>> adminPlans() => client.get('/admin/plans');
+
+  Future<Map<String, dynamic>> adminCreatePlan(
+    Map<String, dynamic> plan,
+  ) =>
+      client.post('/admin/plans', plan);
+
+  Future<Map<String, dynamic>> adminUpdatePlan(
+    String planId,
+    Map<String, dynamic> plan,
+  ) =>
+      client.put('/admin/plans/$planId', plan);
+
+  Future<Map<String, dynamic>> adminSystems() => client.get('/admin/systems');
+
+  Future<Map<String, dynamic>> adminSubscriptions({String status = ''}) =>
+      client.get(_adminPath('/admin/subscriptions', {'status': status}));
+
+  Future<Map<String, dynamic>> adminCancelSubscription(String id) =>
+      client.post('/admin/subscriptions/$id/cancel');
+
+  Future<Map<String, dynamic>> adminPayments({
+    String from = '',
+    String to = '',
+    String status = '',
+    String userId = '',
+    String currency = '',
+  }) =>
+      client.get(_adminPath('/admin/payments', {
+        'from': from,
+        'to': to,
+        'status': status,
+        'userId': userId,
+        'currency': currency,
+      }));
+
+  Future<Map<String, dynamic>> adminExpenses({
+    String from = '',
+    String to = '',
+    String status = '',
+    String currency = '',
+    String search = '',
+  }) =>
+      client.get(_adminPath('/admin/expenses', {
+        'from': from,
+        'to': to,
+        'status': status,
+        'currency': currency,
+        'search': search,
+      }));
+
+  Future<Map<String, dynamic>> adminCreateExpense(
+    Map<String, dynamic> expense,
+  ) =>
+      client.post('/admin/expenses', expense);
+
+  Future<Map<String, dynamic>> adminUpdateExpense(
+    String id,
+    Map<String, dynamic> expense,
+  ) =>
+      client.put('/admin/expenses/$id', expense);
+
+  Future<Map<String, dynamic>> adminVoidExpense(String id) =>
+      client.delete('/admin/expenses/$id');
+
+  Future<Map<String, dynamic>> adminReports({
+    String from = '',
+    String to = '',
+  }) =>
+      client.get(_adminPath('/admin/reports', {'from': from, 'to': to}));
+
+  Future<Map<String, dynamic>> adminAudit({int page = 1, int limit = 50}) =>
+      client.get(_adminPath('/admin/audit', {
+        'page': '$page',
+        'limit': '$limit',
+      }));
+
+  Future<Map<String, dynamic>> adminSettings() => client.get('/admin/settings');
+
+  Future<Map<String, dynamic>> adminUpdateSettings(int activeUserWindowDays) =>
+      client.put('/admin/settings', {
+        'activeUserWindowDays': activeUserWindowDays,
+      });
 
   Future<void> logout() async {
     try {
@@ -136,6 +263,35 @@ class RpgApi {
       'currentPassword': currentPassword,
       'newPassword': newPassword,
     });
+  }
+
+  Future<String?> requestPasswordRecovery(String email) async {
+    final response = await client.post('/auth/password-recovery', {
+      'email': email,
+    });
+    final message = response['message'];
+    return message is String && message.trim().isNotEmpty ? message : null;
+  }
+
+  Future<void> resetPassword({
+    required String email,
+    required String token,
+    required String newPassword,
+  }) async {
+    await client.post('/auth/password-recovery/confirm', {
+      'email': email,
+      'token': token,
+      'newPassword': newPassword,
+    });
+  }
+
+  Future<void> deleteAccount(String currentPassword) async {
+    await client.delete('/users/me', {'currentPassword': currentPassword});
+  }
+
+  Future<void> clearLocalAccountData(String ownerId) async {
+    await _localStorage.clearForOwner(ownerId);
+    setCacheOwner(null);
   }
 
   Future<List<Campaign>> campaigns() async {
@@ -197,6 +353,158 @@ class RpgApi {
     await client.delete('/campaigns/$id');
     await _removeCached('campaigns', id);
     await _removeCached('campaign:$id', id);
+    await _invalidateCached('campaign_combats:$id');
+  }
+
+  Future<List<CampaignCombat>> campaignCombats(String campaignId) async {
+    final combats = await _cachedList(
+      kind: 'campaign_combats:$campaignId',
+      key: 'combats',
+      request: () => client.get('/campaigns/$campaignId/combats'),
+      parse: (response) => _items(response, 'combats', CampaignCombat.fromJson),
+      serialize: (combat) => combat.toJson(),
+    );
+    for (final combat in combats) {
+      await _cacheConfirmedWrite(
+        'campaign_combat:${combat.id}',
+        combat.toJson(),
+      );
+    }
+    return combats;
+  }
+
+  Future<CampaignCombat> campaignCombat(String combatId) => _cachedModel(
+        kind: 'campaign_combat:$combatId',
+        key: 'combat',
+        request: () => client.get('/combats/$combatId'),
+        parse: (response) =>
+            _modelField(response, 'combat', CampaignCombat.fromJson),
+        serialize: (combat) => combat.toJson(),
+      );
+
+  Future<CampaignCombat> createCombat(
+    String campaignId,
+    String name,
+  ) async {
+    final combat = _modelField(
+      await client.post('/campaigns/$campaignId/combats', {'name': name}),
+      'combat',
+      CampaignCombat.fromJson,
+    );
+    await _cacheCombatWrite(combat);
+    return combat;
+  }
+
+  Future<CampaignCombat> updateCombatName(
+    String combatId,
+    String name,
+  ) async {
+    final combat = _modelField(
+      await client.put('/combats/$combatId', {'name': name}),
+      'combat',
+      CampaignCombat.fromJson,
+    );
+    await _cacheCombatWrite(combat);
+    return combat;
+  }
+
+  Future<void> deleteCombat(String campaignId, String combatId) async {
+    await client.delete('/combats/$combatId');
+    try {
+      await _removeCached('campaign_combat:$combatId', combatId);
+      await _invalidateCached('campaign_combats:$campaignId');
+    } on ApiException catch (error) {
+      throw CombatDeletionCacheException(error.message);
+    }
+  }
+
+  Future<CampaignCombat> saveCombatParticipant({
+    required String combatId,
+    String? participantId,
+    required String type,
+    required String name,
+    required int initiativeValue,
+    String? characterId,
+  }) async {
+    final payload = <String, dynamic>{
+      'type': type,
+      'name': name,
+      'initiativeValue': initiativeValue,
+      if (characterId != null) 'characterId': characterId,
+    };
+    final response = participantId == null
+        ? await client.post('/combats/$combatId/participants', payload)
+        : await client.put(
+            '/combats/$combatId/participants/$participantId',
+            payload,
+          );
+    final combat = _modelField(
+      response,
+      'combat',
+      CampaignCombat.fromJson,
+    );
+    await _cacheCombatWrite(combat);
+    return combat;
+  }
+
+  Future<CampaignCombat> removeCombatParticipant({
+    required String combatId,
+    required String participantId,
+  }) async {
+    final combat = _modelField(
+      await client.delete(
+        '/combats/$combatId/participants/$participantId',
+      ),
+      'combat',
+      CampaignCombat.fromJson,
+    );
+    await _cacheCombatWrite(combat);
+    return combat;
+  }
+
+  Future<CampaignCombat> updateCombatOrder(
+    String combatId,
+    List<String> participantIds,
+  ) async {
+    final combat = _modelField(
+      await client.patch('/combats/$combatId/order', {
+        'participantIds': participantIds,
+      }),
+      'combat',
+      CampaignCombat.fromJson,
+    );
+    await _cacheCombatWrite(combat);
+    return combat;
+  }
+
+  Future<CampaignCombat> updateCombatTurn(
+    String combatId, {
+    required String action,
+    String? participantId,
+  }) async {
+    final combat = _modelField(
+      await client.patch('/combats/$combatId/turn', {
+        'action': action,
+        if (participantId != null) 'participantId': participantId,
+      }),
+      'combat',
+      CampaignCombat.fromJson,
+    );
+    await _cacheCombatWrite(combat);
+    return combat;
+  }
+
+  Future<CampaignCombat> updateCombatStatus(
+    String combatId,
+    String status,
+  ) async {
+    final combat = _modelField(
+      await client.patch('/combats/$combatId/status', {'status': status}),
+      'combat',
+      CampaignCombat.fromJson,
+    );
+    await _cacheCombatWrite(combat);
+    return combat;
   }
 
   Future<List<CampaignMember>> campaignMembers(String id) => _cachedList(
@@ -211,16 +519,178 @@ class RpgApi {
         },
       );
 
-  Future<void> addCampaignMember(
-    String id,
-    String userId,
-    String role,
-  ) async {
-    await client.post('/campaigns/$id/members', {
-      'userId': userId,
-      'role': role,
+  Future<CampaignInviteInfo?> campaignInviteStatus(String campaignId) async {
+    final response = await client.get('/campaigns/$campaignId/invite-code');
+    if (!response.containsKey('invite')) {
+      throw ApiException('A API não informou o estado do convite.');
+    }
+    final value = response['invite'];
+    if (value == null) return null;
+    if (value is! Map || value.keys.any((key) => key is! String)) {
+      throw ApiException('A API retornou um convite inválido.');
+    }
+    return CampaignInviteInfo.fromJson(Map<String, dynamic>.from(value));
+  }
+
+  Future<CampaignInviteInfo> renewCampaignInvite(String campaignId) async {
+    final response = await client.post(
+      '/campaigns/$campaignId/invite-code',
+      {},
+    );
+    return CampaignInviteInfo.fromJson(_objectField(response, 'invite'));
+  }
+
+  Future<void> revokeCampaignInvite(String campaignId) async {
+    await client.delete('/campaigns/$campaignId/invite-code');
+  }
+
+  Future<CampaignInvitePreview> previewCampaignInvite(String code) async {
+    final response = await client.post('/campaign-invites/preview', {
+      'code': code.trim(),
     });
-    await _invalidateCached('campaign_members:$id');
+    return CampaignInvitePreview.fromJson(
+      _objectField(response, 'campaign'),
+    );
+  }
+
+  Future<CampaignJoinRequest> requestCampaignJoin(String code) async {
+    final response = await client.post('/campaign-invites/requests', {
+      'code': code.trim(),
+    });
+    return CampaignJoinRequest.fromJson(_objectField(response, 'request'));
+  }
+
+  Future<List<CampaignJoinRequest>> campaignJoinRequests(
+    String campaignId,
+  ) async {
+    final response = await client.get('/campaigns/$campaignId/join-requests');
+    return _items(response, 'requests', CampaignJoinRequest.fromJson);
+  }
+
+  Future<CampaignJoinRequest> reviewCampaignJoinRequest({
+    required String campaignId,
+    required String requestId,
+    required String action,
+  }) async {
+    final response = await client.patch(
+      '/campaigns/$campaignId/join-requests/$requestId',
+      {'action': action},
+    );
+    await _invalidateCached('campaign_members:$campaignId');
+    return CampaignJoinRequest.fromJson(_objectField(response, 'request'));
+  }
+
+  Future<List<CampaignJoinRequest>> myCampaignJoinRequests() async {
+    final response = await client.get('/me/campaign-join-requests');
+    return _items(response, 'requests', CampaignJoinRequest.fromJson);
+  }
+
+  Future<void> cancelCampaignJoinRequest(String requestId) async {
+    await client.delete('/campaign-join-requests/$requestId');
+  }
+
+  Future<CampaignUserSearchResult> searchCampaignUser({
+    required String campaignId,
+    required String username,
+  }) async {
+    final query = Uri(queryParameters: {'username': username.trim()}).query;
+    final response = await client.get(
+      '/campaigns/$campaignId/users/search?$query',
+    );
+    return CampaignUserSearchResult.fromJson(_objectField(response, 'user'));
+  }
+
+  Future<List<FriendshipUser>> searchUsers(String username) async {
+    final query = Uri(queryParameters: {'username': username.trim()}).query;
+    final response = await client.get('/users/search?$query');
+    return _items(response, 'users', FriendshipUser.fromJson);
+  }
+
+  Future<List<FriendshipUser>> friendships() async {
+    final response = await client.get('/friendships');
+    return _items(response, 'friends', FriendshipUser.fromJson);
+  }
+
+  Future<List<FriendshipRequest>> receivedFriendshipRequests() async {
+    final response = await client.get('/friendships/requests/received');
+    return _items(response, 'requests', FriendshipRequest.fromJson);
+  }
+
+  Future<List<FriendshipRequest>> sentFriendshipRequests() async {
+    final response = await client.get('/friendships/requests/sent');
+    return _items(response, 'requests', FriendshipRequest.fromJson);
+  }
+
+  Future<void> sendFriendshipRequest(String recipientId) async {
+    await client.post('/friendships/requests', {'recipientId': recipientId});
+  }
+
+  Future<void> respondToFriendshipRequest({
+    required String requestId,
+    required String action,
+  }) async {
+    if (action != 'accept' && action != 'reject') {
+      throw ArgumentError.value(action, 'action');
+    }
+    await client.patch('/friendships/requests/$requestId/$action', {});
+  }
+
+  Future<void> removeFriendship(String friendshipId) async {
+    await client.delete('/friendships/$friendshipId');
+  }
+
+  Future<CampaignUserInvitation> inviteCampaignUser({
+    required String campaignId,
+    required String username,
+  }) async {
+    final response = await client.post(
+      '/campaigns/$campaignId/user-invitations',
+      {'username': username.trim()},
+    );
+    return CampaignUserInvitation.fromJson(
+      _objectField(response, 'invitation'),
+    );
+  }
+
+  Future<List<CampaignUserInvitation>> campaignUserInvitations(
+    String campaignId,
+  ) async {
+    final response = await client.get(
+      '/campaigns/$campaignId/user-invitations',
+    );
+    return _items(response, 'invitations', CampaignUserInvitation.fromJson);
+  }
+
+  Future<void> cancelCampaignUserInvitation({
+    required String campaignId,
+    required String invitationId,
+  }) async {
+    await client.delete(
+      '/campaigns/$campaignId/user-invitations/$invitationId',
+    );
+  }
+
+  Future<List<CampaignUserInvitation>> myCampaignInvitations() async {
+    final response = await client.get('/me/campaign-invitations');
+    return _items(response, 'invitations', CampaignUserInvitation.fromJson);
+  }
+
+  Future<CampaignUserInvitation> respondToCampaignInvitation({
+    required String invitationId,
+    required String action,
+  }) async {
+    final response = await client.post(
+      '/campaign-user-invitations/$invitationId/respond',
+      {'action': action},
+    );
+    final invitation = CampaignUserInvitation.fromJson(
+      _objectField(response, 'invitation'),
+    );
+    await _invalidateCached('campaigns');
+    if (invitation.campaignId != null) {
+      await _invalidateCached('campaign_members:${invitation.campaignId}');
+    }
+    return invitation;
   }
 
   Future<void> updateCampaignMember(
@@ -288,6 +758,28 @@ class RpgApi {
             _modelField(response, 'character', RpgCharacter.fromJson),
         serialize: (character) => character.toJson(),
       );
+
+  Future<Map<String, dynamic>> generateCharacterAttributes({
+    required String systemSlug,
+    required String versionSlug,
+    List<String>? priorities,
+  }) async {
+    final response = await client.post('/character-generation/attributes', {
+      'systemSlug': systemSlug,
+      'versionSlug': versionSlug,
+      if (priorities != null) 'priorities': priorities,
+    });
+    final attributes = response['attributes'];
+    final derived = response['derived'];
+    if (attributes is! Map || derived is! Map) {
+      throw const ApiException(
+          'A API retornou dados inválidos para a geração.');
+    }
+    return {
+      'attributes': Map<String, dynamic>.from(attributes),
+      'derived': Map<String, dynamic>.from(derived),
+    };
+  }
 
   Future<RpgCharacter> saveCharacter({
     String? id,
@@ -717,6 +1209,17 @@ class RpgApi {
         'A operação foi confirmada no servidor, mas não foi possível atualizar o cache local: ${error.message}',
       );
     }
+  }
+
+  Future<void> _cacheCombatWrite(CampaignCombat combat) async {
+    await _cacheConfirmedWrite(
+      'campaign_combat:${combat.id}',
+      combat.toJson(),
+    );
+    await _cacheConfirmedWrite(
+      'campaign_combats:${combat.campaignId}',
+      combat.toJson(),
+    );
   }
 
   Future<void> _removeCached(String kind, String id) async {

@@ -1,6 +1,11 @@
 import { requireAuth } from '../../middleware/auth.js';
 import { pool } from '../../config/database.js';
 import * as adminService from './admin.service.js';
+import { activateMyTrial, getMyTrial, listTrialsForAdmin } from '../free-trials/free-trials.service.js';
+import {
+  deliverSubscriptionEmailNotification,
+  listSubscriptionEmailNotifications,
+} from '../billing/subscription_notifications.service.js';
 
 const unauthorized = { status: 401, body: { success: false, message: 'Não autorizado.' } };
 const forbidden = { status: 403, body: { success: false, message: 'Você não possui permissão para esta operação.' } };
@@ -25,6 +30,9 @@ const permissionFor = (method, url) => {
   if (url === '/api/admin/subscriptions' || /^\/api\/admin\/subscriptions\/\d+\/cancel$/.test(url)) {
     return method === 'GET' ? 'subscriptions.read' : 'subscriptions.manage';
   }
+  if (url === '/api/admin/free-trials') return 'subscriptions.read';
+  if (url === '/api/admin/subscription-notifications') return 'subscriptions.read';
+  if (/^\/api\/admin\/subscription-notifications\/\d+\/retry$/.test(url)) return 'subscriptions.manage';
   if (url === '/api/admin/payments') return 'payments.read';
   if (url === '/api/admin/expenses') return method === 'GET' ? 'expenses.read' : 'expenses.manage';
   if (/^\/api\/admin\/expenses\/\d+$/.test(url)) return method === 'GET' ? 'expenses.read' : 'expenses.manage';
@@ -76,6 +84,16 @@ export const handleAdminRoute = async (request, body = {}) => {
     if (!token) return unauthorized;
     return adminService.listMySubscriptions(token.sub);
   }
+  if (url === '/api/free-trial/me' && method === 'GET') {
+    const token = requireAuth(request);
+    if (!token) return unauthorized;
+    return getMyTrial(token.sub);
+  }
+  if (url === '/api/free-trial/activate' && method === 'POST') {
+    const token = requireAuth(request);
+    if (!token) return unauthorized;
+    return activateMyTrial(token.sub, body);
+  }
 
   if (!url.startsWith('/api/admin/')) return null;
   const requiredPermission = permissionFor(method, url);
@@ -95,7 +113,12 @@ export const handleAdminRoute = async (request, body = {}) => {
   if (method === 'GET' && url === '/api/admin/permissions') {
     return { status: 200, body: { success: true, permissions: adminService.listPermissions() } };
   }
-  if (method === 'GET' && url === '/api/admin/users') return adminService.listUsers(query);
+  if (method === 'GET' && url === '/api/admin/users') {
+    return adminService.listUsers(
+      query,
+      access.permissions.includes('admin.permissions.manage'),
+    );
+  }
 
   const activeMatch = url.match(/^\/api\/admin\/users\/(\d+)\/active$/);
   if (activeMatch && method === 'PATCH') {
@@ -125,6 +148,14 @@ export const handleAdminRoute = async (request, body = {}) => {
   if (planMatch && method === 'PUT') return adminService.updatePlan(actorId, planMatch[1], body);
 
   if (method === 'GET' && url === '/api/admin/subscriptions') return adminService.listSubscriptions(query);
+  if (method === 'GET' && url === '/api/admin/free-trials') return listTrialsForAdmin();
+  if (method === 'GET' && url === '/api/admin/subscription-notifications') {
+    return listSubscriptionEmailNotifications();
+  }
+  const notificationRetryMatch = url.match(/^\/api\/admin\/subscription-notifications\/(\d+)\/retry$/);
+  if (method === 'POST' && notificationRetryMatch) {
+    return deliverSubscriptionEmailNotification(notificationRetryMatch[1]);
+  }
   const cancelMatch = url.match(/^\/api\/admin\/subscriptions\/(\d+)\/cancel$/);
   if (cancelMatch && method === 'POST') return adminService.cancelSubscription(actorId, cancelMatch[1]);
   if (method === 'GET' && url === '/api/admin/payments') return adminService.listPayments(query);

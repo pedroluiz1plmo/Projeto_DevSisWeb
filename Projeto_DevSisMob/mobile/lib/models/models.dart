@@ -90,6 +90,7 @@ class Campaign {
     required this.name,
     required this.description,
     required this.isActive,
+    this.workspaceType = 'player',
   });
 
   final String id;
@@ -97,6 +98,7 @@ class Campaign {
   final String name;
   final String description;
   final bool isActive;
+  final String workspaceType;
 
   factory Campaign.fromJson(Map<String, dynamic> json) => Campaign(
         id: _requiredId(json, 'id'),
@@ -104,6 +106,9 @@ class Campaign {
         name: _requiredString(json, 'name'),
         description: _requiredString(json, 'description', allowEmpty: true),
         isActive: _requiredBool(json, 'isActive'),
+        workspaceType: json['workspaceType'] is String
+            ? json['workspaceType'] as String
+            : 'player',
       );
 
   Map<String, dynamic> toJson() => {
@@ -112,6 +117,7 @@ class Campaign {
         'name': name,
         'description': description,
         'isActive': isActive,
+        'workspaceType': workspaceType,
       };
 }
 
@@ -141,6 +147,192 @@ class CampaignMember {
         'username': username,
         'role': role,
       };
+}
+
+class CampaignInviteInfo {
+  const CampaignInviteInfo({
+    required this.status,
+    required this.createdAt,
+    this.revokedAt,
+    this.code,
+  });
+
+  final String status;
+  final String createdAt;
+  final String? revokedAt;
+  final String? code;
+
+  factory CampaignInviteInfo.fromJson(Map<String, dynamic> json) =>
+      CampaignInviteInfo(
+        status: _requiredString(json, 'status'),
+        createdAt: _requiredString(json, 'createdAt'),
+        revokedAt: _optionalString(json, 'revokedAt'),
+        code: _optionalString(json, 'code'),
+      );
+}
+
+class CampaignInvitePreview {
+  const CampaignInvitePreview({
+    required this.name,
+    required this.description,
+  });
+
+  final String name;
+  final String description;
+
+  factory CampaignInvitePreview.fromJson(Map<String, dynamic> json) =>
+      CampaignInvitePreview(
+        name: _requiredString(json, 'name'),
+        description: _requiredString(json, 'description', allowEmpty: true),
+      );
+}
+
+class CampaignUserSearchResult {
+  const CampaignUserSearchResult({
+    required this.name,
+    required this.username,
+  });
+
+  final String name;
+  final String username;
+
+  factory CampaignUserSearchResult.fromJson(Map<String, dynamic> json) =>
+      CampaignUserSearchResult(
+        name: _requiredString(json, 'name'),
+        username: _requiredString(json, 'username'),
+      );
+}
+
+class FriendshipUser {
+  const FriendshipUser({
+    required this.id,
+    required this.name,
+    required this.username,
+    this.relationship,
+    this.friendshipId,
+    this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final String username;
+  final String? relationship;
+  final String? friendshipId;
+  final String? createdAt;
+
+  factory FriendshipUser.fromJson(Map<String, dynamic> json) => FriendshipUser(
+        id: _requiredId({'userId': json['userId'] ?? json['id']}, 'userId'),
+        name: _requiredString(json, 'name'),
+        username: _requiredString(json, 'username'),
+        relationship: _optionalString(json, 'relationship'),
+        friendshipId: _optionalId(json, 'id'),
+        createdAt: _optionalString(json, 'createdAt'),
+      );
+}
+
+class FriendshipRequest {
+  const FriendshipRequest({
+    required this.id,
+    required this.requesterId,
+    required this.recipientId,
+    required this.name,
+    required this.username,
+    required this.status,
+    this.createdAt,
+  });
+
+  final String id;
+  final String requesterId;
+  final String recipientId;
+  final String name;
+  final String username;
+  final String status;
+  final String? createdAt;
+
+  factory FriendshipRequest.fromJson(Map<String, dynamic> json) =>
+      FriendshipRequest(
+        id: _requiredId(json, 'id'),
+        requesterId: _requiredId(json, 'requesterId'),
+        recipientId: _requiredId(json, 'recipientId'),
+        name: _requiredString(json, 'name'),
+        username: _requiredString(json, 'username'),
+        status: _requiredString(json, 'status'),
+        createdAt: _optionalString(json, 'createdAt'),
+      );
+}
+
+class CampaignJoinRequest {
+  const CampaignJoinRequest({
+    required this.id,
+    required this.status,
+    this.name,
+    this.username,
+    this.campaignName,
+    this.ownerName,
+    this.requestedAt,
+    this.reviewedAt,
+  });
+
+  final String id;
+  final String status;
+  final String? name;
+  final String? username;
+  final String? campaignName;
+  final String? ownerName;
+  final String? requestedAt;
+  final String? reviewedAt;
+
+  factory CampaignJoinRequest.fromJson(Map<String, dynamic> json) =>
+      CampaignJoinRequest(
+        id: _requiredId(json, 'id'),
+        status: _requiredString(json, 'status'),
+        name: _optionalString(json, 'name'),
+        username: _optionalString(json, 'username'),
+        campaignName: _optionalString(json, 'campaignName'),
+        ownerName: _optionalString(json, 'ownerName'),
+        requestedAt: _optionalString(json, 'requestedAt'),
+        reviewedAt: _optionalString(json, 'reviewedAt'),
+      );
+}
+
+class CampaignUserInvitation {
+  const CampaignUserInvitation({
+    required this.id,
+    required this.status,
+    this.name,
+    this.username,
+    this.campaignName,
+    this.ownerName,
+    this.ownerUsername,
+    this.invitedAt,
+    this.campaignId,
+    this.userId,
+  });
+
+  final String id;
+  final String status;
+  final String? name;
+  final String? username;
+  final String? campaignName;
+  final String? ownerName;
+  final String? ownerUsername;
+  final String? invitedAt;
+  final String? campaignId;
+  final String? userId;
+
+  factory CampaignUserInvitation.fromJson(Map<String, dynamic> json) =>
+      CampaignUserInvitation(
+        id: _requiredId(json, 'id'),
+        status: _requiredString(json, 'status'),
+        name: _optionalString(json, 'name'),
+        username: _optionalString(json, 'username'),
+        campaignName: _optionalString(json, 'campaignName'),
+        ownerName: _optionalString(json, 'ownerName'),
+        ownerUsername: _optionalString(json, 'ownerUsername'),
+        invitedAt: _optionalString(json, 'invitedAt'),
+        campaignId: _optionalId(json, 'campaignId'),
+        userId: _optionalId(json, 'userId'),
+      );
 }
 
 class RpgSystem {
@@ -337,6 +529,131 @@ class CampaignCharacter {
         'id': id,
         'name': name,
         'system': systemName.isEmpty ? null : {'name': systemName},
+      };
+}
+
+class CampaignCombatParticipant {
+  const CampaignCombatParticipant({
+    required this.id,
+    required this.combatId,
+    required this.campaignId,
+    required this.characterId,
+    required this.type,
+    required this.name,
+    required this.initiativeValue,
+    required this.turnOrder,
+  });
+
+  final String id;
+  final String combatId;
+  final String campaignId;
+  final String? characterId;
+  final String type;
+  final String name;
+  final int initiativeValue;
+  final int turnOrder;
+
+  factory CampaignCombatParticipant.fromJson(Map<String, dynamic> json) {
+    final initiative = json['initiativeValue'];
+    final order = json['turnOrder'];
+    if (initiative is! int || order is! int) {
+      throw const FormatException(
+        'Iniciativa e posição precisam ser números inteiros.',
+      );
+    }
+    final type = _requiredString(json, 'type');
+    if (type != 'character' && type != 'monster' && type != 'npc') {
+      throw const FormatException('Tipo de participante inválido.');
+    }
+    return CampaignCombatParticipant(
+      id: _requiredId(json, 'id'),
+      combatId: _requiredId(json, 'combatId'),
+      campaignId: _requiredId(json, 'campaignId'),
+      characterId: _optionalId(json, 'characterId'),
+      type: type,
+      name: _requiredString(json, 'name'),
+      initiativeValue: initiative,
+      turnOrder: order,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'combatId': combatId,
+        'campaignId': campaignId,
+        'characterId': characterId,
+        'type': type,
+        'name': name,
+        'initiativeValue': initiativeValue,
+        'turnOrder': turnOrder,
+      };
+}
+
+class CampaignCombat {
+  const CampaignCombat({
+    required this.id,
+    required this.campaignId,
+    required this.name,
+    required this.status,
+    required this.currentRound,
+    required this.currentParticipantId,
+    required this.participants,
+  });
+
+  final String id;
+  final String campaignId;
+  final String name;
+  final String status;
+  final int currentRound;
+  final String? currentParticipantId;
+  final List<CampaignCombatParticipant> participants;
+
+  bool get isActive => status == 'active';
+  bool get isFinished => status == 'finished';
+
+  factory CampaignCombat.fromJson(Map<String, dynamic> json) {
+    final round = json['currentRound'];
+    final rawParticipants = json['participants'];
+    final status = _requiredString(json, 'status');
+    if (round is! int || round < 1) {
+      throw const FormatException('Rodada atual inválida.');
+    }
+    if (status != 'preparing' && status != 'active' && status != 'finished') {
+      throw const FormatException('Status de combate inválido.');
+    }
+    if (rawParticipants is! List) {
+      throw const FormatException('Participantes precisam ser uma lista.');
+    }
+    return CampaignCombat(
+      id: _requiredId(json, 'id'),
+      campaignId: _requiredId(json, 'campaignId'),
+      name: _requiredString(json, 'name'),
+      status: status,
+      currentRound: round,
+      currentParticipantId: _optionalId(json, 'currentParticipantId'),
+      participants: rawParticipants.map((participant) {
+        if (participant is! Map ||
+            participant.keys.any((key) => key is! String)) {
+          throw const FormatException(
+            'Cada participante precisa ser um objeto JSON.',
+          );
+        }
+        return CampaignCombatParticipant.fromJson(
+          Map<String, dynamic>.from(participant),
+        );
+      }).toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'campaignId': campaignId,
+        'name': name,
+        'status': status,
+        'currentRound': currentRound,
+        'currentParticipantId': currentParticipantId,
+        'participants':
+            participants.map((participant) => participant.toJson()).toList(),
       };
 }
 

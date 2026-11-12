@@ -55,6 +55,20 @@ const transaction = async (operation) => {
   }
 };
 
+const lockAdminRoster = (client) => (
+  client.query('SELECT pg_advisory_xact_lock(137438, 1)')
+);
+
+const activeAdminCount = async (client) => {
+  const result = await client.query(
+    `SELECT COUNT(DISTINCT u.id)::int AS total
+       FROM users u
+       JOIN admin_permissions p ON p.user_id = u.id
+      WHERE u.is_active = TRUE`,
+  );
+  return result.rows[0].total;
+};
+
 const audit = (client, actorId, action, entityType, entityId, beforeData, afterData, metadata = {}) => (
   client.query(
     `INSERT INTO admin_audit_log
@@ -347,33 +361,43 @@ export const getDashboard = async () => {
   });
 };
 
-export const listUsers = async (query = {}) => {
+export const listUsers = async (query = {}, includePermissions = false) => {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 25));
   const offset = (page - 1) * limit;
   const search = typeof query.search === 'string' ? query.search.trim().slice(0, 100) : '';
+  const status = typeof query.status === 'string' ? query.status : '';
+  if (status && !['active', 'blocked'].includes(status)) {
+    return fail(400, 'Filtro de situação de usuário inválido.');
+  }
   const result = await pool.query(
     `SELECT u.id, u.name, u.username, u.email, u.is_active, u.created_at, u.last_login_at,
             EXISTS (SELECT 1 FROM characters c WHERE c.user_id = u.id AND c.workspace_type = 'player')
               OR EXISTS (SELECT 1 FROM campaigns c WHERE c.owner_id = u.id AND c.workspace_type = 'player') AS player_workspace,
             EXISTS (SELECT 1 FROM campaigns c WHERE c.owner_id = u.id AND c.workspace_type = 'master')
-              OR EXISTS (SELECT 1 FROM characters c WHERE c.user_id = u.id AND c.workspace_type = 'master') AS master_workspace
+              OR EXISTS (SELECT 1 FROM characters c WHERE c.user_id = u.id AND c.workspace_type = 'master') AS master_workspace,
+            CASE WHEN $4::boolean THEN ARRAY(
+              SELECT permission FROM admin_permissions p WHERE p.user_id = u.id ORDER BY permission
+            ) ELSE ARRAY[]::varchar[] END AS permissions
        FROM users u
       WHERE ($1 = '' OR u.name ILIKE '%' || $1 || '%' OR u.username ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%')
+        AND ($5 = '' OR u.is_active = ($5 = 'active'))
       ORDER BY u.created_at DESC, u.id DESC
       LIMIT $2 OFFSET $3`,
-    [search, limit, offset],
+    [search, limit, offset, includePermissions, status],
   );
   const total = await pool.query(
     `SELECT COUNT(*)::int AS total FROM users
-      WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' OR username ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')`,
-    [search],
+      WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' OR username ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
+        AND ($2 = '' OR is_active = ($2 = 'active'))`,
+    [search, status],
   );
   return success(200, {
     users: result.rows.map((row) => ({
       id: String(row.id), name: row.name, username: row.username, email: row.email,
       isActive: row.is_active, createdAt: row.created_at, lastLoginAt: row.last_login_at,
       playerWorkspace: row.player_workspace, masterWorkspace: row.master_workspace,
+      ...(includePermissions ? { permissions: row.permissions } : {}),
     })),
     page,
     limit,
@@ -385,17 +409,30 @@ export const setUserActive = async (actorId, userId, isActive) => {
   if (!validId(userId) || typeof isActive !== 'boolean') return fail(400, 'Identificador ou status de usuário inválido.');
   if (String(actorId) === String(userId) && !isActive) return fail(400, 'Não é possível bloquear a própria conta ADM.');
   const result = await transaction(async (client) => {
+    await lockAdminRoster(client);
     const before = await client.query(
       'SELECT id, name, username, email, is_active FROM users WHERE id = $1 FOR UPDATE',
       [userId],
     );
     if (!before.rowCount) return fail(404, 'Usuário não encontrado.');
+    if (before.rows[0].is_active && !isActive) {
+      const targetAdmin = await client.query(
+        'SELECT 1 FROM admin_permissions WHERE user_id = $1 LIMIT 1',
+        [userId],
+      );
+      if (targetAdmin.rowCount && await activeAdminCount(client) <= 1) {
+        return fail(409, 'Não é possível bloquear o último administrador ativo.');
+      }
+    }
+    if (before.rows[0].is_active === isActive) {
+      return success(200, { user: { id: String(userId), isActive }, changed: false });
+    }
     const updated = await client.query(
       'UPDATE users SET is_active = $2, updated_at = NOW() WHERE id = $1 RETURNING id, name, username, email, is_active',
       [userId, isActive],
     );
     await audit(client, actorId, isActive ? 'user.unblocked' : 'user.blocked', 'user', userId, before.rows[0], updated.rows[0]);
-    return success(200, { user: { id: String(userId), isActive } });
+    return success(200, { user: { id: String(userId), isActive }, changed: true });
   });
   return result;
 };
@@ -584,6 +621,7 @@ const serializeSubscription = (row) => ({
   status: row.effective_status ?? row.status,
   user: { id: String(row.user_id), name: row.user_name, username: row.username, email: row.email },
   planSlug: row.plan_slug,
+  history: row.history ?? [],
 });
 
 export const listSubscriptions = async (query = {}) => {
@@ -592,7 +630,15 @@ export const listSubscriptions = async (query = {}) => {
   const result = await pool.query(
     `SELECT s.*, CASE WHEN s.status = 'active' AND s.ends_at IS NOT NULL AND s.ends_at <= NOW()
                       THEN 'expired' ELSE s.status END AS effective_status,
-            u.name AS user_name, u.username, u.email, p.slug AS plan_slug
+            u.name AS user_name, u.username, u.email, p.slug AS plan_slug,
+            COALESCE(
+              (SELECT jsonb_agg(jsonb_build_object(
+                'action', h.action, 'createdAt', h.created_at,
+                'before', h.before_data, 'after', h.after_data
+              ) ORDER BY h.created_at DESC)
+                 FROM subscription_history h WHERE h.subscription_id = s.id),
+              '[]'::jsonb
+            ) AS history
        FROM subscriptions s
        JOIN users u ON u.id = s.user_id
        JOIN plans p ON p.id = s.plan_id
@@ -631,15 +677,26 @@ export const cancelSubscription = async (actorId, subscriptionId, isAdmin = true
 export const listPayments = async (query = {}) => {
   const range = dateRange(query);
   if (!range) return fail(400, 'Informe um intervalo de datas válido.');
+  const status = typeof query.status === 'string' ? query.status : '';
+  const userId = typeof query.userId === 'string' ? query.userId : '';
+  const currency = typeof query.currency === 'string' ? query.currency.toUpperCase() : '';
+  if (status && !['pending', 'paid', 'failed', 'canceled', 'refunded'].includes(status)) {
+    return fail(400, 'Filtro de pagamento inválido.');
+  }
+  if (userId && !validId(userId)) return fail(400, 'Filtro de usuário inválido.');
+  if (currency && !currencyPattern.test(currency)) return fail(400, 'Filtro de moeda inválido.');
   const result = await pool.query(
     `SELECT p.id, p.subscription_id, p.user_id, u.name AS user_name, u.username,
             p.external_provider, p.external_payment_id, p.status, p.amount,
             p.refunded_amount, p.provider_fee, p.currency, p.occurred_at, p.paid_at
        FROM payments p JOIN users u ON u.id = p.user_id
       WHERE p.occurred_at::date BETWEEN $1::date AND $2::date
+        AND ($3 = '' OR p.status = $3)
+        AND ($4 = '' OR p.user_id = NULLIF($4, '')::bigint)
+        AND ($5 = '' OR p.currency = $5)
       ORDER BY p.occurred_at DESC, p.id DESC
       LIMIT 1000`,
-    [range.from, range.to],
+    [range.from, range.to, status, userId, currency],
   );
   return success(200, { payments: result.rows.map((row) => ({
     id: String(row.id), subscriptionId: row.subscription_id === null ? null : String(row.subscription_id),
@@ -670,12 +727,23 @@ const expenseSnapshot = (row) => ({
 export const listExpenses = async (query = {}) => {
   const range = dateRange(query);
   if (!range) return fail(400, 'Informe um intervalo de datas válido.');
+  const status = typeof query.status === 'string' ? query.status : '';
+  const currency = typeof query.currency === 'string' ? query.currency.toUpperCase() : '';
+  const search = typeof query.search === 'string' ? query.search.trim().slice(0, 100) : '';
+  if (status && !['paid', 'pending', 'void'].includes(status)) {
+    return fail(400, 'Filtro de despesa inválido.');
+  }
+  if (currency && !currencyPattern.test(currency)) return fail(400, 'Filtro de moeda inválido.');
   const result = await pool.query(
     `SELECT * FROM expenses
       WHERE occurred_on BETWEEN $1::date AND $2::date
+        AND ($3 = '' OR status = $3)
+        AND ($4 = '' OR currency = $4)
+        AND ($5 = '' OR description ILIKE '%' || $5 || '%'
+          OR category ILIKE '%' || $5 || '%' OR notes ILIKE '%' || $5 || '%')
       ORDER BY occurred_on DESC, id DESC
       LIMIT 1000`,
-    [range.from, range.to],
+    [range.from, range.to, status, currency, search],
   );
   return success(200, { expenses: result.rows.map(expenseSnapshot), range });
 };
@@ -832,8 +900,24 @@ export const changePermission = async (actorId, userId, permission, granted) => 
     return fail(400, 'Não é possível remover de si mesmo a permissão necessária para administrar permissões.');
   }
   return transaction(async (client) => {
-    const user = await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    await lockAdminRoster(client);
+    const user = await client.query('SELECT id, is_active FROM users WHERE id = $1 FOR UPDATE', [userId]);
     if (!user.rowCount) return fail(404, 'Usuário não encontrado.');
+    const currentPermissions = await client.query(
+      'SELECT permission FROM admin_permissions WHERE user_id = $1 ORDER BY permission',
+      [userId],
+    );
+    const currentlyGranted = currentPermissions.rows.some((row) => row.permission === permission);
+    if (currentlyGranted === granted) {
+      return success(200, {
+        changed: false,
+        permissions: currentPermissions.rows.map((row) => row.permission),
+      });
+    }
+    if (!granted && user.rows[0].is_active && currentPermissions.rowCount === 1
+      && await activeAdminCount(client) <= 1) {
+      return fail(409, 'Não é possível remover a última permissão do último administrador ativo.');
+    }
     let result;
     if (granted) {
       result = await client.query(

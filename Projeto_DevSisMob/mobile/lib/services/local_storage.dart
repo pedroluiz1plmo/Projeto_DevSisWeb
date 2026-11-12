@@ -197,6 +197,20 @@ class LocalStorageService {
     await preferences.remove(_recordsKey(kind, ownerId, workspaceType));
   }
 
+  Future<void> clearForOwner(String ownerId) async {
+    if (ownerId.trim().isEmpty || ownerId.trim().toLowerCase() == 'null') {
+      throw ArgumentError.value(ownerId, 'ownerId', 'Owner ID is required.');
+    }
+    final preferences = await _getPreferences();
+    final prefix = 'rpg_local_cache_v1_${Uri.encodeComponent(ownerId)}_';
+    for (final key in preferences
+        .getKeys()
+        .where((key) => key.startsWith(prefix))
+        .toList()) {
+      await preferences.remove(key);
+    }
+  }
+
   Future<List<Map<String, dynamic>>> loadMany(
     String kind, {
     required String ownerId,

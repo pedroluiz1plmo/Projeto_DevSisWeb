@@ -19,6 +19,12 @@ type CharacterPayload = {
   data: Record<string, unknown>;
 };
 
+export type GeneratedCharacterAttributes = {
+  system: { slug: string; versionSlug: string };
+  attributes: Record<string, number>;
+  derived: Record<string, number>;
+};
+
 export class CharacterService {
   private static readonly baseUrl = 'http://localhost:3000/api';
 
@@ -55,5 +61,21 @@ export class CharacterService {
 
   public static async excluir(id: string, token: string): Promise<void> {
     await this.request(`/characters/${id}`, token, { method: 'DELETE' });
+  }
+
+  public static async gerarAtributos(
+    payload: {
+      systemSlug: string;
+      versionSlug: string;
+      priorities?: string[];
+    },
+    token: string,
+  ): Promise<GeneratedCharacterAttributes> {
+    const body = await this.request<GeneratedCharacterAttributes>(
+      '/character-generation/attributes',
+      token,
+      { method: 'POST', body: JSON.stringify(payload) },
+    );
+    return body;
   }
 }
