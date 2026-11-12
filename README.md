@@ -49,10 +49,12 @@ O **RPG HUB** é uma aplicação web moderna focada na experiência do usuário 
 # 1. Clonar o repositório
 git clone https://github.com/pedroluiz1plmo/Projeto_DevSisWeb.git
 
-# 2. Acessar a pasta do projeto
-cd Projeto_DevSisWeb
+# 2. Acessar as duas pastas do projeto
+|-cd Projeto_DevSisWeb/
+|  |-web/
+|  |-backend/
 
-# 3. Instalar as dependências
+# 3. Instalar as dependências nas duas pastas
 npm install
 
 # 4. Iniciar o servidor de desenvolvimento
