@@ -295,6 +295,120 @@ class CampaignJoinRequest {
       );
 }
 
+class CampaignCharacterLinkRequest {
+      const CampaignCharacterLinkRequest({
+        required this.id,
+        required this.campaignId,
+        required this.characterId,
+        required this.requesterId,
+        required this.status,
+        this.characterName,
+        this.playerName,
+        this.requestedAt,
+        this.reviewedAt,
+        this.reason,
+        this.characterSheet,
+      });
+
+      final String id;
+      final String campaignId;
+      final String characterId;
+      final String requesterId;
+      final String status;
+      final String? characterName;
+      final String? playerName;
+      final String? requestedAt;
+      final String? reviewedAt;
+      final String? reason;
+      final CampaignCharacterSheet? characterSheet;
+
+      factory CampaignCharacterLinkRequest.fromJson(Map<String, dynamic> json) {
+        final sheet = json['characterSheet'];
+        return CampaignCharacterLinkRequest(
+          id: _requiredId(json, 'id'),
+          campaignId: _requiredId(json, 'campaignId'),
+          characterId: _requiredId(json, 'characterId'),
+          requesterId: _requiredId(json, 'requesterId'),
+          status: _requiredString(json, 'status'),
+          characterName: _optionalString(json, 'characterName'),
+          playerName: _optionalString(json, 'playerName'),
+          requestedAt: _optionalString(json, 'requestedAt'),
+          reviewedAt: _optionalString(json, 'reviewedAt'),
+          reason: _optionalString(json, 'reason'),
+          characterSheet: sheet == null
+              ? null
+              : CampaignCharacterSheet.fromJson(
+                  _requiredObject({'sheet': sheet}, 'sheet'),
+                ),
+        );
+      }
+}
+
+class CampaignMyCharacterLinks {
+      const CampaignMyCharacterLinks({
+        required this.requests,
+        this.activeCharacterId,
+      });
+
+      final List<CampaignCharacterLinkRequest> requests;
+      final String? activeCharacterId;
+
+      factory CampaignMyCharacterLinks.fromJson(Map<String, dynamic> json) {
+        final requests = json['characterLinks'];
+        final activeCharacter = json['activeCharacter'];
+        if (requests is! List || requests.any((item) => item is! Map)) {
+          throw const FormatException(
+            'Campo "characterLinks" deve conter uma lista de solicitações.',
+          );
+        }
+        return CampaignMyCharacterLinks(
+          requests: requests
+              .map((item) => CampaignCharacterLinkRequest.fromJson(
+                    Map<String, dynamic>.from(item as Map),
+                  ))
+              .toList(),
+          activeCharacterId: activeCharacter == null
+              ? null
+              : _optionalId(
+                  _requiredObject({'activeCharacter': activeCharacter},
+                      'activeCharacter'),
+                  'id',
+                ),
+        );
+      }
+}
+
+class CampaignCharacterSheet {
+      const CampaignCharacterSheet({
+        required this.name,
+        required this.data,
+        this.ownerId,
+        this.ownerName,
+        this.system,
+      });
+
+      final String name;
+      final Map<String, dynamic> data;
+      final String? ownerId;
+      final String? ownerName;
+      final RpgSystem? system;
+
+      factory CampaignCharacterSheet.fromJson(Map<String, dynamic> json) {
+        final systemJson = json['system'];
+        return CampaignCharacterSheet(
+          name: _requiredString(json, 'name'),
+          data: _requiredObject(json, 'data'),
+          ownerId: _optionalId(json, 'ownerId'),
+          ownerName: _optionalString(json, 'ownerName'),
+          system: systemJson == null
+              ? null
+              : RpgSystem.fromJson(
+                  _requiredObject({'system': systemJson}, 'system'),
+                ),
+        );
+      }
+}
+
 class CampaignUserInvitation {
   const CampaignUserInvitation({
     required this.id,
@@ -506,11 +620,15 @@ class CampaignCharacter {
     required this.id,
     required this.name,
     required this.systemName,
+    this.playerName,
+    this.status,
   });
 
   final String id;
   final String name;
   final String systemName;
+  final String? playerName;
+  final String? status;
 
   factory CampaignCharacter.fromJson(Map<String, dynamic> json) {
     final system = json['system'];
@@ -522,6 +640,8 @@ class CampaignCharacter {
       id: _requiredId(json, 'id'),
       name: _requiredString(json, 'name'),
       systemName: systemName,
+      playerName: _optionalString(json, 'playerName'),
+      status: _optionalString(json, 'status'),
     );
   }
 
@@ -529,6 +649,8 @@ class CampaignCharacter {
         'id': id,
         'name': name,
         'system': systemName.isEmpty ? null : {'name': systemName},
+        if (playerName != null) 'playerName': playerName,
+        if (status != null) 'status': status,
       };
 }
 

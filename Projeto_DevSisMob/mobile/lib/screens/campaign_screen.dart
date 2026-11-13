@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
@@ -197,7 +199,10 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   List<CampaignMember> _members = [];
   List<CampaignCharacter> _characters = [];
   List<RpgCharacter> _availableCharacters = [];
+  List<CampaignCharacterLinkRequest> _characterLinkRequests = [];
+  CampaignMyCharacterLinks? _myCharacterLinks;
   List<CampaignUserInvitation> _invitations = [];
+  final Map<String, String> _campaignCharacterIds = {};
   bool _loading = true;
   bool _hasLoaded = false;
   String? _error;
@@ -233,6 +238,25 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         } catch (error) {
           _error = requestErrorMessage(error);
         }
+        try {
+          _characterLinkRequests =
+              await widget.api.campaignCharacterLinkRequests(_campaign.id);
+        } catch (error) {
+          _error = requestErrorMessage(error);
+        }
+        _myCharacterLinks = null;
+      } else if (_members.any((member) => member.userId == widget.user.id)) {
+        try {
+          _myCharacterLinks =
+              await widget.api.myCampaignCharacterLinks(_campaign.id);
+        } catch (error) {
+          _myCharacterLinks = null;
+          _error = requestErrorMessage(error);
+        }
+        _characterLinkRequests = [];
+      } else {
+        _myCharacterLinks = null;
+        _characterLinkRequests = [];
       }
     } catch (error) {
       if (mounted) setState(() => _error = requestErrorMessage(error));
@@ -336,6 +360,362 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     } catch (error) {
       if (mounted) showRequestError(context, error);
     }
+  }
+
+  Future<void> _requestCharacterLink() async {
+    if (widget.isMaster ||
+        _isOwner ||
+        !_members.any((member) => member.userId == widget.user.id)) {
+      return;
+    }
+    final linkState = _myCharacterLinks;
+    if (linkState?.activeCharacterId != null ||
+        linkState?.requests.any((request) => request.status == 'pending') ==
+            true) {
+      return;
+    }
+    if (_availableCharacters.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Você ainda não possui fichas próprias.')),
+      );
+      return;
+    }
+
+    final selected = await showModalBottomSheet<RpgCharacter>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text('Selecione sua ficha'),
+              subtitle: Text('A ficha será enviada ao Mestre para aprovação.'),
+            ),
+            ..._availableCharacters.map((character) => ListTile(
+                  leading: const Icon(Icons.badge_outlined),
+                  title: Text(character.name),
+                  subtitle: Text(character.system.name),
+                  onTap: () => Navigator.pop(context, character),
+                )),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    try {
+      final targetWorkspace = _campaign.workspaceType;
+      var targetCharacterId = _campaignCharacterIds[
+          '${_campaign.id}:${selected.id}:$targetWorkspace'];
+      if (targetCharacterId == null) {
+        if (selected.workspaceType == targetWorkspace) {
+          targetCharacterId = selected.id;
+        } else {
+          final copiedCharacter = await widget.api.saveCharacter(
+            name: selected.name,
+            systemId: selected.system.id,
+            systemVersionId: selected.version?.id,
+            data: selected.data,
+            workspaceType: targetWorkspace,
+          );
+          targetCharacterId = copiedCharacter.id;
+        }
+        _campaignCharacterIds[
+                '${_campaign.id}:${selected.id}:$targetWorkspace'] =
+            targetCharacterId;
+      }
+
+      await widget.api.requestCampaignCharacterLink(
+        campaignId: _campaign.id,
+        characterId: targetCharacterId,
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) showRequestError(context, error);
+    }
+  }
+
+  Future<void> _cancelCharacterLinkRequest(
+    CampaignCharacterLinkRequest request,
+  ) async {
+    try {
+      await widget.api.cancelCampaignCharacterLinkRequest(
+        campaignId: _campaign.id,
+        requestId: request.id,
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) showRequestError(context, error);
+    }
+  }
+
+  Future<void> _reviewCharacterLinkRequest(
+    CampaignCharacterLinkRequest request,
+    String action,
+  ) async {
+    try {
+      await widget.api.reviewCampaignCharacterLinkRequest(
+        campaignId: _campaign.id,
+        requestId: request.id,
+        action: action,
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) showRequestError(context, error);
+    }
+  }
+
+  Future<void> _showCampaignCharacterSheet({
+    required String characterId,
+    CampaignCharacterSheet? preview,
+  }) async {
+    try {
+      final sheet = preview ??
+          await widget.api.campaignCharacterSheet(
+            campaignId: _campaign.id,
+            characterId: characterId,
+          );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(sheet.name),
+          content: SizedBox(
+            width: 520,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Text(
+                  '${sheet.system?.name ?? 'Sistema não informado'}'
+                  '${sheet.ownerName == null ? '' : ' · ${sheet.ownerName}'}',
+                ),
+                const Divider(height: 24),
+                if (sheet.data.isEmpty)
+                  const Text('Esta ficha não possui informações adicionais.')
+                else
+                  ...sheet.data.entries.map((entry) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 5),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.key
+                                  .replaceAllMapped(
+                                    RegExp(r'([a-z])([A-Z])'),
+                                    (match) => '${match[1]} ${match[2]}',
+                                  )
+                                  .replaceAll(RegExp(r'[_-]'), ' '),
+                              style: Theme.of(context).textTheme.labelMedium,
+                            ),
+                            const SizedBox(height: 2),
+                            SelectableText(_displaySheetValue(entry.value)),
+                          ],
+                        ),
+                      )),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Fechar'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (mounted) showRequestError(context, error);
+    }
+  }
+
+  String _displaySheetValue(Object? value) {
+    if (value == null) return '—';
+    if (value is String) return value;
+    return const JsonEncoder.withIndent('  ').convert(value);
+  }
+
+  List<Widget> _buildPlayerCharacterSection() {
+    final linkState = _myCharacterLinks;
+    if (linkState == null) {
+      return const [
+        _SectionHeading(title: 'Meu personagem na campanha'),
+        ListTile(
+          title: Text('Não foi possível carregar o estado do vínculo.'),
+        ),
+      ];
+    }
+    final requests = linkState.requests;
+    final pending = _firstWhereOrNull(
+      requests,
+      (request) => request.status == 'pending',
+    );
+    final rejected = _firstWhereOrNull(
+      requests,
+      (request) => request.status == 'rejected',
+    );
+    final activeId = linkState.activeCharacterId;
+    final activeRequest = requests
+        .where((request) =>
+            request.status == 'approved' && request.characterId == activeId)
+        .toList();
+    final approvedRequest = activeRequest.isEmpty ? null : activeRequest.first;
+    final linkedCharacters =
+        _characters.where((character) => character.id == activeId).toList();
+    final activeCharacter =
+        linkedCharacters.isEmpty ? null : linkedCharacters.first;
+
+    return [
+      const _SectionHeading(title: 'Meu personagem na campanha'),
+      if (pending != null) ...[
+        ListTile(
+          leading: const Icon(Icons.hourglass_top),
+          title: Text(pending.characterName ?? 'Personagem solicitado'),
+          subtitle: Text(
+            'Aguardando aprovação do Mestre'
+            '${_formatRequestedAt(pending.requestedAt)}',
+          ),
+          trailing: IconButton(
+            tooltip: 'Cancelar solicitação',
+            onPressed: () => _cancelCharacterLinkRequest(pending),
+            icon: const Icon(Icons.cancel_outlined),
+          ),
+        ),
+      ] else if (activeId != null) ...[
+        ListTile(
+          leading: const Icon(Icons.verified_outlined),
+          title: Text(approvedRequest?.characterName ??
+              activeCharacter?.name ??
+              'Personagem aprovado'),
+          subtitle: const Text('Vínculo aprovado pelo Mestre'),
+          trailing: IconButton(
+            tooltip: 'Consultar minha ficha',
+            onPressed: () => _showCampaignCharacterSheet(
+              characterId: activeId,
+            ),
+            icon: const Icon(Icons.visibility_outlined),
+          ),
+        ),
+      ] else ...[
+        if (rejected != null)
+          ListTile(
+            leading: const Icon(Icons.cancel_outlined),
+            title: Text(rejected.characterName ?? 'Solicitação rejeitada'),
+            subtitle: const Text(
+              'Sua solicitação foi rejeitada. Você pode enviar outra.',
+            ),
+          )
+        else
+          const ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('Você ainda não possui personagem nesta campanha.'),
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: FilledButton.icon(
+            onPressed: _requestCharacterLink,
+            icon: const Icon(Icons.add),
+            label: const Text('Adicionar meu personagem'),
+          ),
+        ),
+      ],
+    ];
+  }
+
+  String _formatRequestedAt(String? value) {
+    final parsed = value == null ? null : DateTime.tryParse(value);
+    if (parsed == null) return '';
+    final local = parsed.toLocal();
+    final date =
+        '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year}';
+    return ' · Solicitado em $date';
+  }
+
+  String _campaignCharacterSubtitle(CampaignCharacter character) {
+    final link = _firstWhereOrNull(
+      _characterLinkRequests,
+      (request) =>
+          request.characterId == character.id && request.status == 'approved',
+    );
+    final owner = character.playerName ?? link?.playerName;
+    final rawStatus = character.status ?? link?.status;
+    final status = switch (rawStatus) {
+      'active' || 'approved' => 'Aprovado',
+      null => 'Vinculado',
+      _ => rawStatus,
+    };
+    return [
+      if (owner != null && owner.isNotEmpty) owner,
+      if (character.systemName.isNotEmpty) character.systemName,
+      status,
+    ].join(' · ');
+  }
+
+  T? _firstWhereOrNull<T>(Iterable<T> values, bool Function(T) test) {
+    for (final value in values) {
+      if (test(value)) return value;
+    }
+    return null;
+  }
+
+  List<Widget> _buildMasterCharacterRequests() {
+    final pending =
+        _characterLinkRequests.where((request) => request.status == 'pending');
+    return [
+      const _SectionHeading(title: 'Solicitações de personagens'),
+      if (pending.isEmpty)
+        const ListTile(title: Text('Nenhuma solicitação pendente.')),
+      ...pending.map((request) {
+        final sheet = request.characterSheet;
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.person_add_alt_1_outlined),
+                title: Text(request.characterName ?? 'Personagem'),
+                subtitle: Text(
+                  '${request.playerName ?? 'Jogador'} · Pendente'
+                  '${_formatRequestedAt(request.requestedAt)}',
+                ),
+              ),
+              if (sheet != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => _showCampaignCharacterSheet(
+                      characterId: request.characterId,
+                      preview: sheet,
+                    ),
+                    icon: const Icon(Icons.visibility_outlined),
+                    label: const Text('Consultar ficha enviada'),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () =>
+                          _reviewCharacterLinkRequest(request, 'reject'),
+                      child: const Text('Rejeitar'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () =>
+                          _reviewCharacterLinkRequest(request, 'approve'),
+                      child: const Text('Aprovar'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    ];
   }
 
   Future<void> _inviteFriends() async {
@@ -581,6 +961,11 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                           )
                                         : null,
                                   )),
+                              if (!widget.isMaster &&
+                                  !_isOwner &&
+                                  _members.any((member) =>
+                                      member.userId == widget.user.id))
+                                ..._buildPlayerCharacterSection(),
                               if (widget.isMaster && _isOwner)
                                 _SectionHeading(
                                   title: 'Adicionar amigos',
@@ -618,8 +1003,10 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                   trailing: const Icon(Icons.chevron_right),
                                   onTap: _openInvitations,
                                 ),
+                              if (widget.isMaster && _isOwner)
+                                ..._buildMasterCharacterRequests(),
                               _SectionHeading(
-                                title: 'Personagens vinculados',
+                                title: 'Personagens da campanha',
                                 action: widget.isMaster && _isOwner
                                     ? _addCharacter
                                     : null,
@@ -631,15 +1018,34 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                               ..._characters.map((character) => ListTile(
                                     leading: const Icon(Icons.badge_outlined),
                                     title: Text(character.name),
-                                    subtitle: Text(character.systemName),
-                                    trailing: widget.isMaster && _isOwner
-                                        ? IconButton(
+                                    subtitle: Text(_campaignCharacterSubtitle(
+                                      character,
+                                    )),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (widget.isMaster &&
+                                            _isOwner &&
+                                            (character.status == 'active' ||
+                                                character.status == 'approved'))
+                                          IconButton(
+                                            tooltip: 'Consultar ficha',
+                                            onPressed: () =>
+                                                _showCampaignCharacterSheet(
+                                              characterId: character.id,
+                                            ),
+                                            icon: const Icon(
+                                                Icons.visibility_outlined),
+                                          ),
+                                        if (widget.isMaster && _isOwner)
+                                          IconButton(
                                             tooltip: 'Desvincular personagem',
                                             onPressed: () =>
                                                 _removeCharacter(character),
                                             icon: const Icon(Icons.link_off),
-                                          )
-                                        : null,
+                                          ),
+                                      ],
+                                    ),
                                   )),
                               if (widget.isMaster && _isOwner)
                                 _SectionHeading(

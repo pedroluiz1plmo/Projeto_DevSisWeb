@@ -119,6 +119,26 @@ class ApiClient {
   ]) =>
       _request('POST', path, body: body);
 
+  Future<Map<String, dynamic>> postInWorkspace(
+    String path,
+    Map<String, dynamic> body, {
+    required String workspaceType,
+  }) {
+    if (workspaceType != 'player' && workspaceType != 'master') {
+      throw ArgumentError.value(
+        workspaceType,
+        'workspaceType',
+        'Workspace must be player or master.',
+      );
+    }
+    return _request(
+      'POST',
+      path,
+      body: body,
+      workspaceType: workspaceType,
+    );
+  }
+
   Future<Map<String, dynamic>> patch(
     String path,
     Map<String, dynamic> body,
@@ -141,9 +161,20 @@ class ApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    String? workspaceType,
   }) async {
     final headers = <String, String>{'Accept': 'application/json'};
-    if (workspaceType != null) headers['X-Workspace-Type'] = workspaceType!;
+    final requestWorkspace = workspaceType ?? this.workspaceType;
+    if (requestWorkspace != null) {
+      if (requestWorkspace != 'player' && requestWorkspace != 'master') {
+        throw ArgumentError.value(
+          requestWorkspace,
+          'workspaceType',
+          'Workspace must be player or master.',
+        );
+      }
+      headers['X-Workspace-Type'] = requestWorkspace;
+    }
     if (body != null) headers['Content-Type'] = 'application/json';
     if (token != null) headers['Authorization'] = 'Bearer $token';
 

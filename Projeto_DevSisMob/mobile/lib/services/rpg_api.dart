@@ -716,6 +716,88 @@ class RpgApi {
         serialize: (character) => character.toJson(),
       );
 
+  Future<CampaignMyCharacterLinks> myCampaignCharacterLinks(
+    String campaignId,
+  ) async {
+    final response =
+        await client.get('/campaigns/$campaignId/my-character-links');
+    final links = CampaignMyCharacterLinks.fromJson(response);
+    _setReadSource(
+        'campaign_character_links:$campaignId', RpgDataSource.server);
+    return links;
+  }
+
+  Future<List<CampaignCharacterLinkRequest>> campaignCharacterLinkRequests(
+    String campaignId,
+  ) async {
+    final response =
+        await client.get('/campaigns/$campaignId/character-link-requests');
+    final requests = _items(
+      response,
+      'requests',
+      CampaignCharacterLinkRequest.fromJson,
+    );
+    _setReadSource(
+      'campaign_character_requests:$campaignId',
+      RpgDataSource.server,
+    );
+    return requests;
+  }
+
+  Future<CampaignCharacterLinkRequest> requestCampaignCharacterLink({
+    required String campaignId,
+    required String characterId,
+  }) async {
+    final response = await client.post(
+      '/campaigns/$campaignId/character-link-requests',
+      {'characterId': characterId},
+    );
+    final request = CampaignCharacterLinkRequest.fromJson(
+      _objectField(response, 'request'),
+    );
+    await _invalidateCached('campaign_characters:$campaignId');
+    return request;
+  }
+
+  Future<CampaignCharacterLinkRequest> cancelCampaignCharacterLinkRequest({
+    required String campaignId,
+    required String requestId,
+  }) async {
+    final response = await client.delete(
+      '/campaigns/$campaignId/character-link-requests/$requestId',
+    );
+    return CampaignCharacterLinkRequest.fromJson(
+      _objectField(response, 'request'),
+    );
+  }
+
+  Future<CampaignCharacterLinkRequest> reviewCampaignCharacterLinkRequest({
+    required String campaignId,
+    required String requestId,
+    required String action,
+  }) async {
+    final response = await client.patch(
+      '/campaigns/$campaignId/character-link-requests/$requestId',
+      {'action': action},
+    );
+    await _invalidateCached('campaign_characters:$campaignId');
+    return CampaignCharacterLinkRequest.fromJson(
+      _objectField(response, 'request'),
+    );
+  }
+
+  Future<CampaignCharacterSheet> campaignCharacterSheet({
+    required String campaignId,
+    required String characterId,
+  }) async {
+    final response = await client.get(
+      '/campaigns/$campaignId/characters/$characterId',
+    );
+    return CampaignCharacterSheet.fromJson(
+      _objectField(response, 'character'),
+    );
+  }
+
   Future<void> addCampaignCharacter(
       String campaignId, String characterId) async {
     await client.post('/campaigns/$campaignId/characters', {
@@ -788,6 +870,7 @@ class RpgApi {
     required String systemId,
     String? systemVersionId,
     required Map<String, dynamic> data,
+    String? workspaceType,
   }) async {
     final payload = <String, dynamic>{
       'name': name,
@@ -797,11 +880,22 @@ class RpgApi {
       'data': data,
     };
     final response = id == null
-        ? await client.post('/characters', payload)
+        ? workspaceType == null
+            ? await client.post('/characters', payload)
+            : await client.postInWorkspace(
+                '/characters',
+                payload,
+                workspaceType: workspaceType,
+              )
         : await client.put('/characters/$id', payload);
     final character = _modelField(response, 'character', RpgCharacter.fromJson);
-    await _cacheConfirmedWrite('characters', character.toJson());
-    await _cacheConfirmedWrite('character:${character.id}', character.toJson());
+    if (workspaceType == null || workspaceType == client.workspaceType) {
+      await _cacheConfirmedWrite('characters', character.toJson());
+      await _cacheConfirmedWrite(
+        'character:${character.id}',
+        character.toJson(),
+      );
+    }
     return character;
   }
 
