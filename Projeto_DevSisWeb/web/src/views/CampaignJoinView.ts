@@ -1,5 +1,6 @@
 import type { Campanha } from '../models/Campanha';
 import type {
+  ApiCampaignCharacterRequest,
   ApiCampaignInvitePreview,
   ApiCampaignJoinRequest,
   ApiCampaignUserInvitation
@@ -13,7 +14,15 @@ export class CampaignJoinView {
     code: string,
     preview: ApiCampaignInvitePreview | null,
     requestSent: boolean,
-    isLoading = false
+    isLoading = false,
+    myCharacterLinks: Record<string, { characterLinks: ApiCampaignCharacterRequest[]; activeCharacter: { id: string } | null }> = {},
+    playerCharacters: Array<{
+      id: string;
+      label: string;
+      backendId?: string | null;
+      localId?: string;
+      backendIdsByWorkspace?: Partial<Record<'player' | 'master', string>>;
+    }> = []
   ): string {
     const escape = (value: string): string => value.replace(/[&<>"']/g, character => ({
       '&': '&amp;',
@@ -95,12 +104,61 @@ export class CampaignJoinView {
 
       <section class="glass-card" style="margin-top:16px;">
         <h3>Campanhas disponíveis para você</h3>
-        ${isLoading ? '<p class="field-help" role="status">Atualizando suas campanhas...</p>' : campaigns.length ? campaigns.map(campaign => `
-          <div style="padding:8px 0;border-bottom:1px solid var(--border-color);">
-            <strong>${escape(campaign.nomeCampanha)}</strong>
-            ${campaign.lore ? `<p>${escape(campaign.lore)}</p>` : ''}
-          </div>
-        `).join('') : '<p>Você ainda não participa de campanhas.</p>'}
+        ${isLoading ? '<p class="field-help" role="status">Atualizando suas campanhas...</p>' : campaigns.length ? campaigns.map(campaign => {
+          const campaignId = campaign.backendId || '';
+          const linkData = myCharacterLinks[campaignId] || { characterLinks: [], activeCharacter: null };
+          const pendingRequest = (linkData.characterLinks || []).find(item => item.status === 'pending');
+          const rejectedRequest = (linkData.characterLinks || []).find(item => item.status === 'rejected');
+          const activeCharacter = linkData.activeCharacter
+            ? playerCharacters.find(personagem =>
+                (personagem.backendId || personagem.id) === linkData.activeCharacter?.id
+                || Object.values(personagem.backendIdsByWorkspace || {}).includes(linkData.activeCharacter?.id || '')) || null
+            : null;
+          const activeCharacterName = activeCharacter?.label || 'Personagem';
+          return `
+            <div style="padding:12px 0;border-bottom:1px solid var(--border-color);">
+              <div style="margin-bottom: 8px;">
+                <strong>${escape(campaign.nomeCampanha)}</strong>
+                ${campaign.lore ? `<p>${escape(campaign.lore)}</p>` : ''}
+              </div>
+
+              <div class="glass-card" style="padding:12px; background: rgba(255,255,255,0.02);">
+                <h4 style="margin-bottom: 10px;">Meu personagem na campanha</h4>
+                ${pendingRequest ? `
+                  <p><strong>${escape(pendingRequest.characterName || 'Personagem')}</strong></p>
+                  <p class="field-help">Aguardando aprovação do Mestre.</p>
+                  <button class="btn btn-danger btn-cancel-player-character-request" data-campaign-id="${escape(campaignId)}" data-request-id="${escape(pendingRequest.id)}">Cancelar solicitação</button>
+                ` : rejectedRequest ? `
+                  <p class="field-help">Sua solicitação foi rejeitada.</p>
+                  <form class="form-player-character-link" data-campaign-id="${escape(campaignId)}" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                    <select class="form-control" name="characterId" aria-label="Personagem" required>
+                      <option value="">Selecione seu personagem</option>
+                      ${playerCharacters.map(personagem =>
+                        `<option value="${escape(personagem.id)}">${escape(personagem.label)}</option>`
+                      ).join('')}
+                    </select>
+                    <button class="btn btn-primary" type="submit">Adicionar meu personagem</button>
+                  </form>
+                ` : activeCharacter ? `
+                  <p><strong>${escape(activeCharacterName)}</strong></p>
+                  <p class="field-help">Status do vínculo: aprovado</p>
+                  <button class="btn btn-secondary btn-view-campaign-character-sheet" data-campaign-id="${escape(campaignId)}" data-character-id="${escape(linkData.activeCharacter?.id || '')}">Consultar ficha</button>
+                ` : `
+                  <p class="field-help">Você ainda não possui personagem na campanha.</p>
+                  <form class="form-player-character-link" data-campaign-id="${escape(campaignId)}" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                    <select class="form-control" name="characterId" aria-label="Personagem" required>
+                      <option value="">Selecione seu personagem</option>
+                      ${playerCharacters.map(personagem =>
+                        `<option value="${escape(personagem.id)}">${escape(personagem.label)}</option>`
+                      ).join('')}
+                    </select>
+                    <button class="btn btn-primary" type="submit">Adicionar meu personagem</button>
+                  </form>
+                `}
+              </div>
+            </div>
+          `;
+        }).join('') : '<p>Você ainda não participa de campanhas.</p>'}
       </section>
     `;
   }

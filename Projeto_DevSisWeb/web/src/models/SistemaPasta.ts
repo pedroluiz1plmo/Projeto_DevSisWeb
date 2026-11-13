@@ -8,6 +8,8 @@ export interface SistemaInventarioItem {
 
 export interface SistemaPasta {
   id: string;
+  backendId?: string;
+  backendIdsByWorkspace?: Partial<Record<'player' | 'master', string>>;
   nome: string;
   tipo: 'pasta' | 'ficha';
   sistema: string;

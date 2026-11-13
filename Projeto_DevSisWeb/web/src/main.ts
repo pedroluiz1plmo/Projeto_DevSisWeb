@@ -29,6 +29,8 @@ import { isCharacterSheetSystem, renderCharacterSheet, type CharacterSheetSystem
 import type {
   ApiCampaign,
   ApiCampaignCharacter,
+  ApiCampaignCharacterRequest,
+  ApiCampaignCharacterSheet,
   ApiCampaignInviteInfo,
   ApiCampaignInvitePreview,
   ApiCampaignJoinRequest,
@@ -101,6 +103,8 @@ class AppController {
   private openCampaignDetails = new Set<string>();
   private campaignMembers: Record<string, ApiCampaignMember[]> = {};
   private campaignCharacters: Record<string, ApiCampaignCharacter[]> = {};
+  private campaignCharacterRequests: Record<string, ApiCampaignCharacterRequest[]> = {};
+  private myCharacterLinks: Record<string, { characterLinks: ApiCampaignCharacterRequest[]; activeCharacter: { id: string } | null }> = {};
   private campaignDetailsLoading = new Set<string>();
   private campaignInviteStatuses: Record<string, ApiCampaignInviteInfo | null> = {};
   private campaignInviteCodes: Record<string, string> = {};
@@ -164,6 +168,14 @@ class AppController {
       StorageService.definirPerfilAtivo(this.userRole);
 
       this.personagens = StorageService.carregarPersonagens();
+      for (const personagem of this.personagens) {
+        if (personagem.backendId) {
+          personagem.backendIdsByWorkspace = {
+            ...personagem.backendIdsByWorkspace,
+            [StorageService.workspaceType()]: personagem.backendId,
+          };
+        }
+      }
       if (this.authToken && this.networkOnline) {
         try {
           const apiChars = await CharacterService.listar(this.authToken);
@@ -183,6 +195,10 @@ class AppController {
             );
             Object.assign(character, data);
             character.backendId = apiCharacter.id;
+            character.backendIdsByWorkspace = {
+              ...character.backendIdsByWorkspace,
+              [StorageService.workspaceType()]: apiCharacter.id,
+            };
             merged.push(character);
           }
           this.personagens = merged;
@@ -199,6 +215,14 @@ class AppController {
       this.notas = StorageService.carregarNotas();
       this.missoes = StorageService.carregarMissoes();
       this.sistemaItens = StorageService.carregarSistemaPastas();
+      for (const ficha of this.sistemaItens) {
+        if (ficha.backendId) {
+          ficha.backendIdsByWorkspace = {
+            ...ficha.backendIdsByWorkspace,
+            [StorageService.workspaceType()]: ficha.backendId,
+          };
+        }
+      }
       await this.carregarPastasBackend();
       this.monstroItens = StorageService.carregarMonstroPastas();
       await this.sincronizarNotasMissoes();
@@ -338,6 +362,7 @@ class AppController {
     );
     result.backendId = campaign.id;
     result.ownerId = campaign.ownerId;
+    result.workspaceType = campaign.workspaceType;
     return result;
   }
 
@@ -354,15 +379,19 @@ class AppController {
       ]);
       this.campaignMembers[campaignId] = members;
       this.campaignCharacters[campaignId] = characters;
-      if (campaign?.ownerId === String(this.authenticatedUser?.id || '')) {
-        const [inviteStatus, joinRequests, userInvitations] = await Promise.all([
+      const currentUserId = String(this.authenticatedUser?.id || '');
+      const isParticipant = members.some(member => String(member.userId) === currentUserId);
+      if (campaign?.ownerId === currentUserId) {
+        const [inviteStatus, joinRequests, userInvitations, characterRequests] = await Promise.all([
           CampaignService.statusConvite(campaignId, this.authToken),
           CampaignService.listarSolicitacoes(campaignId, this.authToken),
-          CampaignService.listarConvitesEnviados(campaignId, this.authToken)
+          CampaignService.listarConvitesEnviados(campaignId, this.authToken),
+          CampaignService.listarSolicitacoesPersonagens(campaignId, this.authToken)
         ]);
         this.campaignInviteStatuses[campaignId] = inviteStatus;
         this.campaignJoinRequests[campaignId] = joinRequests;
         this.campaignUserInvitations[campaignId] = userInvitations;
+        this.campaignCharacterRequests[campaignId] = characterRequests;
         try {
           this.friendshipFriends = (await FriendshipService.list(this.authToken)).friends;
         } catch (error) {
@@ -371,6 +400,8 @@ class AppController {
             ? error.message
             : 'Não foi possível carregar a lista de amigos.');
         }
+      } else if (isParticipant) {
+        this.myCharacterLinks[campaignId] = await CampaignService.listarMinhasLinksPersonagem(campaignId, this.authToken);
       }
       if (campaign) {
         campaign.personagens = characters
@@ -745,6 +776,8 @@ class AppController {
     this.openCampaignDetails.clear();
     this.campaignMembers = {};
     this.campaignCharacters = {};
+    this.campaignCharacterRequests = {};
+    this.myCharacterLinks = {};
     this.campaignDetailsLoading.clear();
     this.campaignInviteStatuses = {};
     this.campaignInviteCodes = {};
@@ -1178,6 +1211,7 @@ class AppController {
         try {
           const data = JSON.parse(JSON.stringify(personagem)) as Record<string, unknown>;
           delete data.backendId;
+          delete data.backendIdsByWorkspace;
           await CharacterService.atualizar(personagem.backendId, { name: personagem.nomePersonagem, systemId: sistema.id, data }, this.authToken);
         } catch (error) {
           console.warn('Falha ao sincronizar personagem:', error);
@@ -1194,8 +1228,13 @@ class AppController {
     try {
       const data = JSON.parse(JSON.stringify(personagem)) as Record<string, unknown>;
       delete data.backendId;
+      delete data.backendIdsByWorkspace;
       const remoto = await CharacterService.criar({ name: personagem.nomePersonagem, systemId: sistema.id, data }, this.authToken);
       personagem.backendId = remoto.id;
+      personagem.backendIdsByWorkspace = {
+        ...personagem.backendIdsByWorkspace,
+        [StorageService.workspaceType()]: remoto.id,
+      };
       await StorageService.salvarPersonagens(this.personagens);
     } catch (error) {
       console.warn('Não foi possível sincronizar o personagem recém-criado; a cópia local foi preservada.', error);
@@ -2065,6 +2104,53 @@ class AppController {
     return div.innerHTML;
   }
 
+  private showCampaignCharacterSheet(character: ApiCampaignCharacterSheet): void {
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.setAttribute('role', 'presentation');
+    const fields = Object.entries(character.data || {});
+    const stringifyValue = (value: unknown): string => {
+      if (typeof value === 'string') return value;
+      if (value === null || value === undefined) return '—';
+      return JSON.stringify(value, null, 2) ?? String(value);
+    };
+    modal.innerHTML = `
+      <section class="modal-content glass-card" role="dialog" aria-modal="true" aria-labelledby="campaign-character-sheet-title" style="max-width:900px;padding:24px;">
+        <div class="modal-header">
+          <div>
+            <h2 id="campaign-character-sheet-title">${this.escapeHtml(character.name)}</h2>
+            <p class="field-help">${this.escapeHtml(character.system?.name || 'Sistema não informado')} · Jogador: ${this.escapeHtml(character.ownerName || 'Não informado')}</p>
+          </div>
+          <button type="button" class="btn-icon btn-close-campaign-character-sheet" aria-label="Fechar ficha">✕</button>
+        </div>
+        ${fields.length ? `
+          <dl style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:18px;">
+            ${fields.map(([key, value]) => `
+              <div class="glass-card" style="padding:12px;min-width:0;">
+                <dt class="field-help">${this.escapeHtml(key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' '))}</dt>
+                <dd style="margin-top:5px;white-space:pre-wrap;overflow-wrap:anywhere;">${this.escapeHtml(stringifyValue(value))}</dd>
+              </div>
+            `).join('')}
+          </dl>
+        ` : '<p class="field-help" style="margin-top:18px;">Esta ficha não possui informações adicionais.</p>'}
+      </section>
+    `;
+    const close = () => {
+      document.removeEventListener('keydown', onKeyDown);
+      modal.remove();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    modal.addEventListener('click', event => {
+      if (event.target === modal) close();
+    });
+    modal.querySelector('.btn-close-campaign-character-sheet')?.addEventListener('click', close);
+    document.addEventListener('keydown', onKeyDown);
+    document.body.append(modal);
+    modal.querySelector<HTMLButtonElement>('.btn-close-campaign-character-sheet')?.focus();
+  }
+
   private switchTab(tabName: string): void {
     if (tabName !== 'campaign-access') void this.stopPlayerQrScanner();
     this.currentTab = tabName;
@@ -2306,7 +2392,10 @@ class AppController {
           this.campaignUserInvitations,
           this.campaignSearchResults,
           this.campaignDetailsLoading,
-          this.friendshipFriends
+          this.friendshipFriends,
+          this.myCharacterLinks,
+          this.campaignCharacterRequests,
+          this.buildCharacterSelectionOptions()
         );
         this.bindCampanhasEvents();
         break;
@@ -2319,7 +2408,9 @@ class AppController {
           this.playerInviteCode,
           this.playerInvitePreview,
           this.playerInviteRequestSent,
-          this.playerCampaignAccessLoading
+          this.playerCampaignAccessLoading,
+          this.myCharacterLinks,
+          this.buildCharacterSelectionOptions()
         );
         this.bindPlayerCampaignAccessEvents();
         break;
@@ -3743,6 +3834,106 @@ class AppController {
     }
   }
 
+  private buildCharacterSelectionOptions(): Array<{
+    id: string;
+    label: string;
+    backendId?: string | null;
+    localId?: string;
+    backendIdsByWorkspace?: Partial<Record<'player' | 'master', string>>;
+  }> {
+    const options = new Map<string, {
+      id: string;
+      label: string;
+      backendId?: string | null;
+      localId?: string;
+      backendIdsByWorkspace?: Partial<Record<'player' | 'master', string>>;
+    }>();
+
+    for (const personagem of this.personagens) {
+      const optionId = personagem.idPersonagem;
+      options.set(optionId, {
+        id: optionId,
+        label: `${personagem.nomePersonagem}${personagem.classe ? ` (${personagem.classe})` : ''}${personagem.sistema ? ` — ${personagem.sistema}` : ''}`,
+        backendId: personagem.backendId || null,
+        localId: personagem.idPersonagem,
+        backendIdsByWorkspace: personagem.backendIdsByWorkspace,
+      });
+    }
+
+    for (const ficha of this.sistemaItens.filter(item => item.tipo === 'ficha')) {
+      const optionId = ficha.id;
+      if (options.has(optionId)) continue;
+      options.set(optionId, {
+        id: optionId,
+        label: `${ficha.nome}${ficha.sistema ? ` — ${ficha.sistema}` : ''}`,
+        backendId: ficha.backendId || null,
+        localId: ficha.id,
+        backendIdsByWorkspace: ficha.backendIdsByWorkspace,
+      });
+    }
+
+    return Array.from(options.values()).sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+  }
+
+  private async ensureBackendCampaignCharacter(characterId: string, workspaceType: 'player' | 'master'): Promise<string> {
+    if (!this.authToken) throw new Error('Entre na sua conta para vincular uma ficha à campanha.');
+
+    const personagem = this.personagens.find(item =>
+      item.idPersonagem === characterId || item.backendId === characterId);
+    if (personagem) {
+      const existingId = personagem.backendIdsByWorkspace?.[workspaceType]
+        || (workspaceType === StorageService.workspaceType() ? personagem.backendId : undefined);
+      if (existingId) return existingId;
+      if (!this.backendSystems.length) await this.carregarSistemasBackend();
+      const system = this.obterSistemaBackend(personagem.sistema);
+      if (!system) throw new Error(`O sistema "${personagem.sistema}" não está disponível na API.`);
+      const data = JSON.parse(JSON.stringify(personagem)) as Record<string, unknown>;
+      delete data.backendId;
+      delete data.backendIdsByWorkspace;
+      const remote = await CharacterService.criar({
+        name: personagem.nomePersonagem,
+        systemId: system.id,
+        data,
+      }, this.authToken, workspaceType);
+      personagem.backendIdsByWorkspace = {
+        ...personagem.backendIdsByWorkspace,
+        [workspaceType]: remote.id,
+      };
+      if (workspaceType === StorageService.workspaceType()) {
+        personagem.backendId = remote.id;
+      }
+      await StorageService.salvarPersonagens(this.personagens);
+      return remote.id;
+    }
+
+    const ficha = this.sistemaItens.find(item =>
+      item.tipo === 'ficha' && (item.id === characterId || item.backendId === characterId));
+    if (ficha) {
+      const existingId = ficha.backendIdsByWorkspace?.[workspaceType]
+        || (workspaceType === StorageService.workspaceType() ? ficha.backendId : undefined);
+      if (existingId) return existingId;
+      if (!this.backendSystems.length) await this.carregarSistemasBackend();
+      const system = this.obterSistemaBackend(ficha.sistema);
+      if (!system) throw new Error(`O sistema "${ficha.sistema}" não está disponível na API.`);
+      const remote = await CharacterService.criar({
+        name: ficha.nome,
+        systemId: system.id,
+        data: { ...(ficha.dados || {}), description: ficha.descricao },
+      }, this.authToken, workspaceType);
+      ficha.backendIdsByWorkspace = {
+        ...ficha.backendIdsByWorkspace,
+        [workspaceType]: remote.id,
+      };
+      if (workspaceType === StorageService.workspaceType()) {
+        ficha.backendId = remote.id;
+      }
+      await StorageService.salvarSistemaPastas(this.sistemaItens);
+      return remote.id;
+    }
+
+    throw new Error('A ficha selecionada não foi encontrada. Atualize a tela e tente novamente.');
+  }
+
   private async loadPlayerCampaignAccess(): Promise<void> {
     if (!this.authToken) return;
     this.playerCampaignAccessLoading = true;
@@ -3755,6 +3946,16 @@ class AppController {
       ]);
       this.playerCampaignInvitations = invitations;
       this.playerCampaignRequests = requests;
+      this.myCharacterLinks = {};
+      await Promise.allSettled(
+        this.campanhas
+          .filter(campaign => Boolean(campaign.backendId))
+          .map(async (campaign) => {
+            if (!campaign.backendId) return;
+            const links = await CampaignService.listarMinhasLinksPersonagem(campaign.backendId, this.authToken!);
+            this.myCharacterLinks[campaign.backendId] = links;
+          })
+      );
       if (this.currentTab === 'campaign-access') this.renderCurrentView();
     } catch (error) {
       this.showToast(error instanceof Error ? error.message : 'Não foi possível carregar convites e solicitações.');
@@ -3958,6 +4159,62 @@ class AppController {
           await this.loadPlayerCampaignAccess();
         } catch (error) {
           this.showToast(error instanceof Error ? error.message : 'Não foi possível cancelar a solicitação.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLFormElement>('.form-player-character-link').forEach(form => {
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const campaignId = form.dataset.campaignId;
+        const characterId = String(new FormData(form).get('characterId') || '');
+        if (!campaignId || !characterId || !this.authToken) return;
+        try {
+          const campaign = this.campanhas.find(item => item.backendId === campaignId);
+          const backendCharacterId = await this.ensureBackendCampaignCharacter(
+            characterId,
+            campaign?.workspaceType || StorageService.workspaceType(),
+          );
+          await CampaignService.solicitarVinculoPersonagem(campaignId, backendCharacterId, this.authToken);
+          await this.loadPlayerCampaignAccess();
+          this.showToast('Solicitação de vínculo enviada.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível enviar a solicitação de vínculo.');
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-cancel-player-character-request').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        const requestId = button.dataset.requestId;
+        if (!campaignId || !requestId || !this.authToken || !confirm('Cancelar esta solicitação de personagem?')) return;
+        button.disabled = true;
+        try {
+          await CampaignService.cancelarSolicitacaoPersonagem(campaignId, requestId, this.authToken);
+          await this.loadPlayerCampaignAccess();
+          this.showToast('Solicitação cancelada.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível cancelar a solicitação.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-view-campaign-character-sheet').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        const characterId = button.dataset.characterId;
+        if (!campaignId || !characterId || !this.authToken) return;
+        button.disabled = true;
+        try {
+          const character = await CampaignService.consultarFichaPersonagem(campaignId, characterId, this.authToken);
+          this.showCampaignCharacterSheet(character);
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível consultar a ficha.');
         } finally {
           if (button.isConnected) button.disabled = false;
         }
@@ -4445,6 +4702,81 @@ class AppController {
       });
     });
 
+    document.querySelectorAll<HTMLButtonElement>('.btn-review-character-link-request').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        const requestId = button.dataset.requestId;
+        const action = button.dataset.action;
+        if (!campaignId || !requestId || !this.authToken || (action !== 'approve' && action !== 'reject')) return;
+        button.disabled = true;
+        try {
+          await CampaignService.revisarSolicitacaoPersonagem(campaignId, requestId, action, this.authToken);
+          await this.carregarDetalhesCampanha(campaignId);
+          this.showToast(action === 'approve' ? 'Solicitação de personagem aprovada.' : 'Solicitação de personagem rejeitada.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível revisar a solicitação do personagem.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLFormElement>('.form-player-character-link').forEach(form => {
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const campaignId = form.dataset.campaignId;
+        const characterId = String(new FormData(form).get('characterId') || '');
+        if (!campaignId || !characterId || !this.authToken) return;
+        try {
+          const campaign = this.campanhas.find(item => item.backendId === campaignId);
+          const backendCharacterId = await this.ensureBackendCampaignCharacter(
+            characterId,
+            campaign?.workspaceType || StorageService.workspaceType(),
+          );
+          await CampaignService.solicitarVinculoPersonagem(campaignId, backendCharacterId, this.authToken);
+          await this.carregarDetalhesCampanha(campaignId);
+          this.showToast('Solicitação de vínculo enviada.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível enviar a solicitação de vínculo.');
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-cancel-player-character-request').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        const requestId = button.dataset.requestId;
+        if (!campaignId || !requestId || !this.authToken || !confirm('Cancelar esta solicitação de personagem?')) return;
+        button.disabled = true;
+        try {
+          await CampaignService.cancelarSolicitacaoPersonagem(campaignId, requestId, this.authToken);
+          await this.carregarDetalhesCampanha(campaignId);
+          this.showToast('Solicitação cancelada.');
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível cancelar a solicitação.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.btn-view-campaign-character-sheet').forEach(button => {
+      button.addEventListener('click', async () => {
+        const campaignId = button.dataset.campaignId;
+        const characterId = button.dataset.characterId;
+        if (!campaignId || !characterId || !this.authToken) return;
+        button.disabled = true;
+        try {
+          const character = await CampaignService.consultarFichaPersonagem(campaignId, characterId, this.authToken);
+          this.showCampaignCharacterSheet(character);
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : 'Não foi possível consultar a ficha.');
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    });
+
     document.querySelectorAll<HTMLButtonElement>('.btn-cancel-campaign-invitation').forEach(button => {
       button.addEventListener('click', async () => {
         const campaignId = button.dataset.campaignId;
@@ -4504,7 +4836,12 @@ class AppController {
         const characterId = String(new FormData(form).get('characterId') || '');
         if (!campaignId || !characterId || !this.authToken) return;
         try {
-          await CampaignService.adicionarPersonagem(campaignId, characterId, this.authToken);
+          const campaign = this.campanhas.find(item => item.backendId === campaignId);
+          const backendCharacterId = await this.ensureBackendCampaignCharacter(
+            characterId,
+            campaign?.workspaceType || StorageService.workspaceType(),
+          );
+          await CampaignService.adicionarPersonagem(campaignId, backendCharacterId, this.authToken);
           await this.carregarDetalhesCampanha(campaignId);
           this.showToast('Personagem vinculado à campanha.');
         } catch (error) {

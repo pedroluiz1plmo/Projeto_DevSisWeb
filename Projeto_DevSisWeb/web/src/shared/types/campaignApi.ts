@@ -24,6 +24,40 @@ export type ApiCampaignCharacter = {
   joinedAt: string;
 };
 
+export type ApiCampaignPublicCharacter = {
+  id: string;
+  name: string;
+  playerName: string;
+  status: string;
+};
+
+export type ApiCampaignCharacterRequest = {
+  id: string;
+  campaignId: string;
+  characterId: string;
+  requesterId: string;
+  characterName?: string | null;
+  playerName?: string | null;
+  characterSheet?: {
+    name: string | null;
+    system: { id: string; name: string; slug: string } | null;
+    data: Record<string, unknown>;
+  };
+  status: string;
+  requestedAt?: string | null;
+  reviewedAt?: string | null;
+  reason?: string | null;
+};
+
+export type ApiCampaignCharacterSheet = {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerName: string;
+  system: { id: string; name: string; slug: string } | null;
+  data: Record<string, unknown>;
+};
+
 export type ApiCampaignInviteInfo = {
   status: string;
   createdAt: string;

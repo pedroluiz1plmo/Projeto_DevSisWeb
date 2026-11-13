@@ -12,6 +12,7 @@ export interface Atributos {
 
 export class Personagem {
   public backendId?: string;
+  public backendIdsByWorkspace?: Partial<Record<'player' | 'master', string>>;
   public idPersonagem: string;
   public nomePersonagem: string;
   public sistema: string;

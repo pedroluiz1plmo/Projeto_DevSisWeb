@@ -555,6 +555,7 @@ export class StorageService {
         p.idPersonagem,
       );
       personagem.backendId = p.backendId;
+      personagem.backendIdsByWorkspace = p.backendIdsByWorkspace;
       personagem.pontosVida = p.pontosVida ?? personagem.pontosVidaMax;
       personagem.pontosVidaMax = p.pontosVidaMax ?? personagem.pontosVidaMax;
       personagem.pontosMana = p.pontosMana ?? 10;

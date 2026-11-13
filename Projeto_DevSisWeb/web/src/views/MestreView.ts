@@ -6,6 +6,7 @@ import type { MonstroPasta } from '../models/MonstroPasta';
 import type { SistemaPasta } from '../models/SistemaPasta';
 import type {
   ApiCampaignCharacter,
+  ApiCampaignCharacterRequest,
   ApiCampaignInviteInfo,
   ApiCampaignJoinRequest,
   ApiCampaignMember,
@@ -29,11 +30,20 @@ export class MestreView {
     campaignInviteStatuses: Record<string, ApiCampaignInviteInfo | null> = {},
     campaignInviteCodes: Record<string, string> = {},
     campaignInviteQrCodes: Record<string, string> = {},
-    campaignJoinRequests: Record<string, ApiCampaignJoinRequest[]> = {},
+    _campaignJoinRequests: Record<string, ApiCampaignJoinRequest[]> = {},
     campaignUserInvitations: Record<string, ApiCampaignUserInvitation[]> = {},
     campaignSearchResults: Record<string, ApiCampaignUser> = {},
     campaignDetailsLoading: Set<string> = new Set(),
-    friendshipFriends: ApiFriend[] = []
+    friendshipFriends: ApiFriend[] = [],
+    myCharacterLinks: Record<string, { characterLinks: ApiCampaignCharacterRequest[]; activeCharacter: { id: string } | null }> = {},
+    campaignCharacterRequests: Record<string, ApiCampaignCharacterRequest[]> = {},
+    campaignCharacterOptions: Array<{
+      id: string;
+      label: string;
+      backendId?: string | null;
+      localId?: string;
+      backendIdsByWorkspace?: Partial<Record<'player' | 'master', string>>;
+    }> = []
   ): string {
     const escape = (value: string): string => value.replace(/[&<>"']/g, character => ({
       '&': '&amp;',
@@ -47,19 +57,36 @@ export class MestreView {
       const date = new Date(value);
       return Number.isNaN(date.getTime()) ? 'Data não informada' : date.toLocaleString('pt-BR');
     };
-    const invitationStatus = (value: string): string => ({
-      pending: 'Pendente',
-      accepted: 'Aceito',
-      declined: 'Recusado',
-      cancelled: 'Cancelado'
-    }[value] || value);
-    const requestStatus = (value: string): string => ({
-      pending: 'Aguardando aprovação',
-      approved: 'Aprovada',
-      rejected: 'Recusada',
-      cancelled: 'Cancelada'
-    }[value] || value);
-
+    const fallbackCharacterOptions = new Map<string, {
+      id: string;
+      label: string;
+      backendId?: string | null;
+      localId?: string;
+      backendIdsByWorkspace?: Partial<Record<'player' | 'master', string>>;
+    }>();
+    for (const personagem of personagens) {
+      const optionId = personagem.backendId || personagem.idPersonagem;
+      fallbackCharacterOptions.set(optionId, {
+        id: optionId,
+        label: `${personagem.nomePersonagem}${personagem.classe ? ` (${personagem.classe})` : ''}${personagem.sistema ? ` — ${personagem.sistema}` : ''}`,
+        backendId: personagem.backendId || null,
+        localId: personagem.idPersonagem,
+        backendIdsByWorkspace: personagem.backendIdsByWorkspace,
+      });
+    }
+    for (const ficha of fichas.filter(item => item.tipo === 'ficha')) {
+      const optionId = ficha.backendId || ficha.id;
+      if (fallbackCharacterOptions.has(optionId)) continue;
+      fallbackCharacterOptions.set(optionId, {
+        id: optionId,
+        label: `${ficha.nome}${ficha.sistema ? ` — ${ficha.sistema}` : ''}`,
+        backendId: ficha.backendId || null,
+        localId: ficha.id,
+        backendIdsByWorkspace: ficha.backendIdsByWorkspace,
+      });
+    }
+    const normalizedCampaignCharacterOptions = (campaignCharacterOptions.length ? campaignCharacterOptions : Array.from(fallbackCharacterOptions.values()))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
     return `
       <div class="glass-card">
         <div class="glass-card-header">
@@ -75,185 +102,243 @@ export class MestreView {
             <div style="text-align: center; padding: 40px; color: var(--text-dim);">
               Nenhuma campanha criada ainda. Inicie sua primeira mesa clicando no botão acima!
             </div>
-          ` : campanhas.map(c => `
-            <div class="glass-card" style="background: rgba(0,0,0,0.3); border-left: 4px solid var(--gold);">
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                <div>
-                  <h4 style="font-family: var(--font-title); font-size: 1.3rem; color: #fde047;">${escape(c.nomeCampanha)}</h4>
-                  <span style="font-size: 0.75rem; color: var(--text-dim);">Criada em: ${c.dataCriacao}</span>
-                </div>
-                <div style="display: flex; gap: 8px;">
-                  ${!c.backendId || c.ownerId === String(authenticatedUserId) ? `
-                    <button class="btn btn-secondary btn-edit-campanha" data-id="${escape(c.idCampanha)}" style="padding: 4px 10px; font-size: 0.8rem;">Editar</button>
-                    <button class="btn btn-danger btn-remove-campanha" data-id="${escape(c.idCampanha)}" style="padding: 4px 10px; font-size: 0.8rem;">Excluir</button>
-                  ` : ''}
-                </div>
-              </div>
+          ` : campanhas.map(c => {
+            const campaignDetailsVisible = openCampaignIds.has(c.idCampanha)
+              || Boolean(c.backendId && ((campaignMembers[c.backendId] || []).length || (campaignCharacters[c.backendId] || []).length || (myCharacterLinks[c.backendId]?.characterLinks?.length) || (campaignCharacterRequests[c.backendId]?.length)));
 
-              <div style="background: rgba(255,255,255,0.02); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px;">
-                <h5 style="color: #94a3b8; font-size: 0.8rem; text-transform: uppercase; margin-bottom: 4px;">Lore & Resumo do Enredo:</h5>
-                <p style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6;">${escape(c.lore)}</p>
-              </div>
-
-              <div class="grid-2">
-                <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: var(--radius-sm);">
-                  <strong style="font-size: 0.85rem; color: #a7f3d0;">🗂️ Fichas de Sistemas (${c.fichas.length})</strong>
-                  <ul style="list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; margin-top: 8px;">
-                    ${c.fichas.length === 0 ? '<li style="color: var(--text-dim);">Nenhuma ficha vinculada.</li>' : c.fichas.map(f => `<li style="padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; display: flex; justify-content: space-between;"><span>${f.nome}</span><span style="color: var(--text-muted);">${f.sistema}</span></li>`).join('')}
-                  </ul>
+            return `
+              <div class="glass-card" style="background: rgba(0,0,0,0.3); border-left: 4px solid var(--gold);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                  <div>
+                    <h4 style="font-family: var(--font-title); font-size: 1.3rem; color: #fde047;">${escape(c.nomeCampanha)}</h4>
+                    <span style="font-size: 0.75rem; color: var(--text-dim);">Criada em: ${c.dataCriacao}</span>
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    ${!c.backendId || c.ownerId === String(authenticatedUserId) ? `
+                      <button class="btn btn-secondary btn-edit-campanha" data-id="${escape(c.idCampanha)}" style="padding: 4px 10px; font-size: 0.8rem;">Editar</button>
+                      <button class="btn btn-danger btn-remove-campanha" data-id="${escape(c.idCampanha)}" style="padding: 4px 10px; font-size: 0.8rem;">Excluir</button>
+                    ` : ''}
+                  </div>
                 </div>
 
-                <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: var(--radius-sm);">
-                  <strong style="font-size: 0.85rem; color: #fda4af;">🐲 Fichas de Monstros (${c.monstros.length})</strong>
-                  <ul style="list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; margin-top: 8px;">
-                    ${c.monstros.length === 0 ? '<li style="color: var(--text-dim);">Nenhum monstro vinculado.</li>' : c.monstros.map(m => `<li style="padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; display: flex; justify-content: space-between;"><span>${m.nome}</span><span style="color: var(--text-muted);">${m.sistema}</span></li>`).join('')}
-                  </ul>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px;">
+                  <h5 style="color: #94a3b8; font-size: 0.8rem; text-transform: uppercase; margin-bottom: 4px;">Lore & Resumo do Enredo:</h5>
+                  <p style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6;">${escape(c.lore)}</p>
                 </div>
-              </div>
-              ${c.backendId ? `
-                <div style="margin-top: 16px;">
-                  <button class="btn btn-secondary btn-toggle-campaign-details" data-id="${escape(c.idCampanha)}">
-                    ${openCampaignIds.has(c.idCampanha) ? 'Ocultar membros e personagens' : 'Membros e personagens'}
-                  </button>
-                  ${openCampaignIds.has(c.idCampanha) ? `
-                    <div class="grid-2" style="margin-top: 12px;">
-                      <section class="glass-card" style="padding: 14px;">
-                        <h5>Participantes (${(campaignMembers[c.backendId] || []).length})</h5>
-                        <ul style="list-style: none; padding: 8px 0; display: flex; flex-direction: column; gap: 8px;">
-                          ${campaignDetailsLoading.has(c.backendId) ? '<li class="field-help" role="status">Carregando participantes...</li>' : (campaignMembers[c.backendId] || []).map(member => `
-                            <li style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                              <span>
-                                ${escape(member.name || member.username || `Usuário ${member.userId}`)}
-                                ${member.username ? `(@${escape(member.username)})` : ''}
-                                — ${escape(member.role)}
-                                ${member.joinedAt ? `<small class="field-help">Entrou em ${escape(formatDate(member.joinedAt))}</small>` : ''}
-                              </span>
-                              ${String(member.userId) !== c.ownerId && c.ownerId === String(authenticatedUserId) ? `
-                                <input class="form-control campaign-member-role" data-campaign-id="${escape(c.backendId || '')}" data-user-id="${escape(member.userId)}" value="${escape(member.role)}" maxlength="30" aria-label="Papel do membro" style="max-width: 140px;" />
-                                <button class="btn btn-secondary btn-save-campaign-role" data-campaign-id="${escape(c.backendId || '')}" data-user-id="${escape(member.userId)}">Salvar papel</button>
-                                <button class="btn btn-danger btn-remove-campaign-member" data-campaign-id="${escape(c.backendId || '')}" data-user-id="${escape(member.userId)}">Remover</button>
-                              ` : String(member.userId) === c.ownerId ? '<span class="badge">Proprietário</span>' : ''}
-                            </li>
-                          `).join('')}
-                        </ul>
-                        ${!campaignDetailsLoading.has(c.backendId) && !(campaignMembers[c.backendId] || []).length ? '<p class="field-help">Nenhum participante encontrado.</p>' : ''}
-                        ${c.ownerId === String(authenticatedUserId) ? `
-                          <section class="campaign-invitation-manager" style="margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 14px;">
-                            <h5>Gerenciar jogadores</h5>
-                            <p class="field-help">${campaignInviteStatuses[c.backendId]?.status === 'active' ? 'Código ativo. O código completo só é exibido quando gerado ou renovado.' : 'Nenhum código ativo.'}</p>
-                            <button class="btn btn-secondary btn-generate-campaign-code" data-campaign-id="${escape(c.backendId)}">${campaignInviteStatuses[c.backendId]?.status === 'active' ? 'Renovar código' : 'Gerar código'}</button>
-                            ${campaignInviteStatuses[c.backendId]?.status === 'active' ? `<button class="btn btn-danger btn-revoke-campaign-code" data-campaign-id="${escape(c.backendId)}">Revogar</button>` : ''}
-                            ${campaignInviteCodes[c.backendId] ? `
-                              <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px;">
-                                <code>${escape(campaignInviteCodes[c.backendId])}</code>
-                                ${campaignInviteQrCodes[c.backendId] ? `<img src="${escape(campaignInviteQrCodes[c.backendId])}" alt="QR Code do convite" style="width: 180px; height: 180px; background: white; padding: 6px;" />` : ''}
-                                <button class="btn btn-secondary btn-copy-campaign-code" data-campaign-id="${escape(c.backendId)}">Copiar código</button>
-                                <button class="btn btn-secondary btn-share-campaign-code" data-campaign-id="${escape(c.backendId)}">Compartilhar</button>
-                                ${campaignInviteQrCodes[c.backendId] ? `<a class="btn btn-secondary" href="${escape(campaignInviteQrCodes[c.backendId])}" download="convite-${escape(c.backendId)}.png">Baixar QR Code</a>` : ''}
-                              </div>
-                              <p class="field-help">O QR Code contém o mesmo código aceito pelo Mobile. Ler ou informar o código envia uma solicitação, sujeita à aprovação do Mestre.</p>
-                            ` : ''}
-                            <form class="form-campaign-search-user" data-campaign-id="${escape(c.backendId)}" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
-                              <input class="form-control" name="username" type="text" placeholder="Username do jogador" aria-label="Username do jogador" required maxlength="50" style="max-width: 240px;" />
-                              <button class="btn btn-secondary" type="submit">Pesquisar usuário</button>
-                            </form>
-                            ${campaignSearchResults[c.backendId] ? `
-                              <div class="campaign-search-result" style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
-                                <span>${escape(campaignSearchResults[c.backendId].name)} (@${escape(campaignSearchResults[c.backendId].username)})</span>
-                                <button class="btn btn-primary btn-send-campaign-invitation" data-campaign-id="${escape(c.backendId)}">Enviar convite</button>
-                              </div>
-                            ` : ''}
-                            <h6 style="margin-top: 16px;">Adicionar amigos</h6>
-                            ${friendshipFriends.length ? `
-                              <form class="form-campaign-invite-friends" data-campaign-id="${escape(c.backendId)}">
-                                <input class="form-control campaign-friend-filter" type="search"
-                                  placeholder="Pesquisar amigos pelo username" aria-label="Pesquisar amigos pelo username"
-                                  style="max-width: 320px; margin: 8px 0;" />
-                                <ul style="list-style:none;padding:8px 0;display:flex;flex-direction:column;gap:8px;">
-                                  ${friendshipFriends.map(friend => {
-                                    const member = (campaignMembers[c.backendId || ''] || []).some(
-                                      participant => participant.userId === friend.userId
-                                    );
-                                    const pending = (campaignUserInvitations[c.backendId || ''] || []).some(
-                                      invitation => invitation.userId === friend.userId && invitation.status === 'pending'
-                                    );
-                                    return `
-                                      <li class="campaign-friend-option" data-username="${escape(friend.username.toLowerCase())}">
-                                        <label style="display:flex;gap:8px;align-items:center;">
-                                          <input type="checkbox" name="friendIds" value="${escape(friend.userId)}"
-                                            ${member || pending ? 'disabled' : ''} />
-                                          <span>${escape(friend.name)} (@${escape(friend.username)})</span>
-                                          ${member ? '<small class="field-help">Já participa</small>' : ''}
-                                          ${pending ? '<small class="field-help">Convite pendente</small>' : ''}
-                                        </label>
-                                      </li>
-                                    `;
-                                  }).join('')}
-                                </ul>
-                                <button class="btn btn-primary" type="submit">Convidar selecionados</button>
+
+                <div class="grid-2">
+                  <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: var(--radius-sm);">
+                    <strong style="font-size: 0.85rem; color: #a7f3d0;">🗂️ Fichas de Sistemas (${c.fichas.length})</strong>
+                    <ul style="list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; margin-top: 8px;">
+                      ${c.fichas.length === 0 ? '<li style="color: var(--text-dim);">Nenhuma ficha vinculada.</li>' : c.fichas.map(f => `<li style="padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; display: flex; justify-content: space-between;"><span>${f.nome}</span><span style="color: var(--text-muted);">${f.sistema}</span></li>`).join('')}
+                    </ul>
+                  </div>
+
+                  <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: var(--radius-sm);">
+                    <strong style="font-size: 0.85rem; color: #fda4af;">🐲 Fichas de Monstros (${c.monstros.length})</strong>
+                    <ul style="list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; margin-top: 8px;">
+                      ${c.monstros.length === 0 ? '<li style="color: var(--text-dim);">Nenhum monstro vinculado.</li>' : c.monstros.map(m => `<li style="padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; display: flex; justify-content: space-between;"><span>${m.nome}</span><span style="color: var(--text-muted);">${m.sistema}</span></li>`).join('')}
+                    </ul>
+                  </div>
+                </div>
+
+                ${c.backendId ? `
+                  <div style="margin-top: 16px;">
+                    <button class="btn btn-secondary btn-toggle-campaign-details" data-id="${escape(c.idCampanha)}">
+                      ${openCampaignIds.has(c.idCampanha) ? 'Ocultar membros e personagens' : 'Membros e personagens'}
+                    </button>
+                    ${campaignDetailsVisible ? `
+                      <div class="grid-2" style="margin-top: 12px;">
+                        <section class="glass-card" style="padding: 14px;">
+                          <h5>Participantes (${(campaignMembers[c.backendId] || []).length})</h5>
+                          <ul style="list-style: none; padding: 8px 0; display: flex; flex-direction: column; gap: 8px;">
+                            ${campaignDetailsLoading.has(c.backendId) ? '<li class="field-help" role="status">Carregando participantes...</li>' : (campaignMembers[c.backendId] || []).map(member => `
+                              <li style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <span>
+                                  ${escape(member.name || member.username || `Usuário ${member.userId}`)}
+                                  ${member.username ? `(@${escape(member.username)})` : ''}
+                                  — ${escape(member.role)}
+                                  ${member.joinedAt ? `<small class="field-help">Entrou em ${escape(formatDate(member.joinedAt))}</small>` : ''}
+                                </span>
+                                ${String(member.userId) !== c.ownerId && c.ownerId === String(authenticatedUserId) ? `
+                                  <input class="form-control campaign-member-role" data-campaign-id="${escape(c.backendId || '')}" data-user-id="${escape(member.userId)}" value="${escape(member.role)}" maxlength="30" aria-label="Papel do membro" style="max-width: 140px;" />
+                                  <button class="btn btn-secondary btn-save-campaign-role" data-campaign-id="${escape(c.backendId || '')}" data-user-id="${escape(member.userId)}">Salvar papel</button>
+                                  <button class="btn btn-danger btn-remove-campaign-member" data-campaign-id="${escape(c.backendId || '')}" data-user-id="${escape(member.userId)}">Remover</button>
+                                ` : String(member.userId) === c.ownerId ? '<span class="badge">Proprietário</span>' : ''}
+                              </li>
+                            `).join('')}
+                          </ul>
+                          ${!campaignDetailsLoading.has(c.backendId) && !(campaignMembers[c.backendId] || []).length ? '<p class="field-help">Nenhum participante encontrado.</p>' : ''}
+                          ${c.ownerId === String(authenticatedUserId) ? `
+                            <section class="campaign-invitation-manager" style="margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 14px;">
+                              <h5>Gerenciar jogadores</h5>
+                              <p class="field-help">${campaignInviteStatuses[c.backendId]?.status === 'active' ? 'Código ativo. O código completo só é exibido quando gerado ou renovado.' : 'Nenhum código ativo.'}</p>
+                              <button class="btn btn-secondary btn-generate-campaign-code" data-campaign-id="${escape(c.backendId)}">${campaignInviteStatuses[c.backendId]?.status === 'active' ? 'Renovar código' : 'Gerar código'}</button>
+                              ${campaignInviteStatuses[c.backendId]?.status === 'active' ? `<button class="btn btn-danger btn-revoke-campaign-code" data-campaign-id="${escape(c.backendId)}">Revogar</button>` : ''}
+                              ${campaignInviteCodes[c.backendId] ? `
+                                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px;">
+                                  <code>${escape(campaignInviteCodes[c.backendId])}</code>
+                                  ${campaignInviteQrCodes[c.backendId] ? `<img src="${escape(campaignInviteQrCodes[c.backendId])}" alt="QR Code do convite" style="width: 180px; height: 180px; background: white; padding: 6px;" />` : ''}
+                                  <button class="btn btn-secondary btn-copy-campaign-code" data-campaign-id="${escape(c.backendId)}">Copiar código</button>
+                                  <button class="btn btn-secondary btn-share-campaign-code" data-campaign-id="${escape(c.backendId)}">Compartilhar</button>
+                                  ${campaignInviteQrCodes[c.backendId] ? `<a class="btn btn-secondary" href="${escape(campaignInviteQrCodes[c.backendId])}" download="convite-${escape(c.backendId)}.png">Baixar QR Code</a>` : ''}
+                                </div>
+                                <p class="field-help">O QR Code contém o mesmo código aceito pelo Mobile. Ler ou informar o código envia uma solicitação, sujeita à aprovação do Mestre.</p>
+                              ` : ''}
+                              <form class="form-campaign-search-user" data-campaign-id="${escape(c.backendId)}" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
+                                <input class="form-control" name="username" type="text" placeholder="Username do jogador" aria-label="Username do jogador" required maxlength="50" style="max-width: 240px;" />
+                                <button class="btn btn-secondary" type="submit">Pesquisar usuário</button>
                               </form>
-                            ` : '<p class="field-help">Você ainda não tem amigos para convidar.</p>'}
-                            <h6 style="margin-top: 16px;">Solicitações de entrada</h6>
+                              ${campaignSearchResults[c.backendId] ? `
+                                <div class="campaign-search-result" style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                                  <span>${escape(campaignSearchResults[c.backendId].name)} (@${escape(campaignSearchResults[c.backendId].username)})</span>
+                                  <button class="btn btn-primary btn-send-campaign-invitation" data-campaign-id="${escape(c.backendId)}">Enviar convite</button>
+                                </div>
+                              ` : ''}
+                              <h6 style="margin-top: 16px;">Adicionar amigos</h6>
+                              ${friendshipFriends.length ? `
+                                <form class="form-campaign-invite-friends" data-campaign-id="${escape(c.backendId)}">
+                                  <input class="form-control campaign-friend-filter" type="search" placeholder="Pesquisar amigos pelo username" aria-label="Pesquisar amigos pelo username" style="max-width: 320px; margin: 8px 0;" />
+                                  <ul style="list-style:none;padding:8px 0;display:flex;flex-direction:column;gap:8px;">
+                                    ${friendshipFriends.map(friend => {
+                                      const member = (campaignMembers[c.backendId || ''] || []).some(participant => participant.userId === friend.userId);
+                                      const pending = (campaignUserInvitations[c.backendId || ''] || []).some(invitation => invitation.userId === friend.userId && invitation.status === 'pending');
+                                      return `
+                                        <li class="campaign-friend-option" data-username="${escape(friend.username.toLowerCase())}">
+                                          <label style="display:flex;gap:8px;align-items:center;">
+                                            <input type="checkbox" name="friendIds" value="${escape(friend.userId)}" ${member || pending ? 'disabled' : ''} />
+                                            <span>${escape(friend.name)} (@${escape(friend.username)})</span>
+                                            ${member ? '<small class="field-help">Já participa</small>' : ''}
+                                            ${pending ? '<small class="field-help">Convite pendente</small>' : ''}
+                                          </label>
+                                        </li>
+                                      `;
+                                    }).join('')}
+                                  </ul>
+                                  <button class="btn btn-primary" type="submit">Convidar selecionados</button>
+                                </form>
+                              ` : '<p class="field-help">Nenhum amigo disponível para convite.</p>'}
+                            </section>
+                          ` : ''}
+                        </section>
+
+                        ${c.ownerId !== String(authenticatedUserId) && c.backendId ? (() => {
+                          const linkData = myCharacterLinks[c.backendId] || { characterLinks: [], activeCharacter: null };
+                          const pendingRequest = (linkData.characterLinks || []).find(item => item.status === 'pending');
+                          const rejectedRequest = (linkData.characterLinks || []).find(item => item.status === 'rejected');
+                          const activeCharacter = linkData.activeCharacter
+                            ? normalizedCampaignCharacterOptions.find(option =>
+                                (option.backendId || option.id) === linkData.activeCharacter?.id
+                                || Object.values(option.backendIdsByWorkspace || {}).includes(linkData.activeCharacter?.id || '')) || null
+                            : null;
+
+                          return `
+                            <section class="glass-card" style="padding: 14px;">
+                              <h5>Meu personagem na campanha</h5>
+                              ${pendingRequest ? `
+                                <p><strong>${escape(pendingRequest.characterName || 'Personagem')}</strong></p>
+                                <p class="field-help">Aguardando aprovação do Mestre.</p>
+                                <button class="btn btn-danger btn-cancel-player-character-request" data-campaign-id="${escape(c.backendId || '')}" data-request-id="${escape(pendingRequest.id)}">Cancelar solicitação</button>
+                              ` : rejectedRequest ? `
+                                <p class="field-help">Sua solicitação foi rejeitada.</p>
+                                <form class="form-player-character-link" data-campaign-id="${escape(c.backendId || '')}" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                                  <select class="form-control" name="characterId" aria-label="Personagem" required>
+                                    <option value="">Selecione seu personagem</option>
+                                    ${normalizedCampaignCharacterOptions.map(option =>
+                                      `<option value="${escape(option.id)}">${escape(option.label)}</option>`
+                                    ).join('')}
+                                  </select>
+                                  <button class="btn btn-primary" type="submit">Adicionar meu personagem</button>
+                                </form>
+                              ` : activeCharacter ? `
+                                <p><strong>${escape(activeCharacter.label)}</strong></p>
+                                <p class="field-help">Status do vínculo: aprovado</p>
+                                <button class="btn btn-secondary btn-view-campaign-character-sheet" data-campaign-id="${escape(c.backendId || '')}" data-character-id="${escape(linkData.activeCharacter?.id || '')}">Consultar ficha</button>
+                              ` : `
+                                <p class="field-help">Você ainda não possui personagem na campanha.</p>
+                                <form class="form-player-character-link" data-campaign-id="${escape(c.backendId || '')}" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                                  <select class="form-control" name="characterId" aria-label="Personagem" required>
+                                    <option value="">Selecione seu personagem</option>
+                                    ${normalizedCampaignCharacterOptions.map(option =>
+                                      `<option value="${escape(option.id)}">${escape(option.label)}</option>`
+                                    ).join('')}
+                                  </select>
+                                  <button class="btn btn-primary" type="submit">Adicionar meu personagem</button>
+                                </form>
+                              `}
+                            </section>
+                          `;
+                        })() : ''}
+
+                        ${c.ownerId === String(authenticatedUserId) ? (() => {
+                          const requests = (campaignCharacterRequests[c.backendId || ''] || []).filter(request => request.status === 'pending');
+                          return `
+                            <section class="glass-card" style="padding: 14px;">
+                              <h5>Solicitações de personagens</h5>
+                              ${requests.length ? `
+                                <ul style="list-style: none; padding: 8px 0; display: flex; flex-direction: column; gap: 8px;">
+                                  ${requests.map(request => `
+                                    <li style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                      <span>
+                                        <strong>${escape(request.characterName || 'Personagem')}</strong>
+                                        — ${escape(request.playerName || 'Jogador')}
+                                        ${request.requestedAt ? `<small class="field-help">${escape(formatDate(request.requestedAt))}</small>` : ''}
+                                      </span>
+                                      ${request.characterSheet ? `
+                                        <details class="campaign-request-character-sheet" style="flex-basis:100%;">
+                                          <summary>Ver ficha (${escape(request.characterSheet.system?.name || 'Sistema')})</summary>
+                                          <dl style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:10px 0;">
+                                            ${Object.entries(request.characterSheet.data).map(([key, value]) => `
+                                              <div>
+                                                <dt class="field-help">${escape(key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' '))}</dt>
+                                                <dd style="white-space:pre-wrap;overflow-wrap:anywhere;">${escape(typeof value === 'string' ? value : JSON.stringify(value))}</dd>
+                                              </div>
+                                            `).join('')}
+                                          </dl>
+                                        </details>
+                                      ` : ''}
+                                      <button class="btn btn-primary btn-review-character-link-request" data-campaign-id="${escape(c.backendId || '')}" data-request-id="${escape(request.id)}" data-action="approve">Aprovar</button>
+                                      <button class="btn btn-danger btn-review-character-link-request" data-campaign-id="${escape(c.backendId || '')}" data-request-id="${escape(request.id)}" data-action="reject">Rejeitar</button>
+                                    </li>
+                                  `).join('')}
+                                </ul>
+                              ` : '<p class="field-help">Nenhuma solicitação pendente de personagem.</p>'}
+                            </section>
+                          `;
+                        })() : ''}
+
+                        <section class="glass-card" style="padding: 14px;">
+                          <h5>Personagens (${(campaignCharacters[c.backendId] || []).length})</h5>
+                          ${(campaignCharacters[c.backendId] || []).length ? `
                             <ul style="list-style: none; padding: 8px 0; display: flex; flex-direction: column; gap: 8px;">
-                              ${campaignDetailsLoading.has(c.backendId) ? '<li class="field-help" role="status">Carregando solicitações...</li>' : (campaignJoinRequests[c.backendId] || []).map(request => `
+                              ${(campaignCharacters[c.backendId] || []).map(character => `
                                 <li style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                  <span>
-                                    <strong>${escape(request.name || request.username || 'Jogador')}</strong>
-                                    ${request.username ? `(@${escape(request.username)})` : ''}
-                                    — ${escape(requestStatus(request.status))}
-                                    <small class="field-help">${escape(formatDate(request.requestedAt))} · Origem: código/QR</small>
-                                  </span>
-                                  ${request.status === 'pending' ? `
-                                    <button class="btn btn-primary btn-review-campaign-request" data-campaign-id="${escape(c.backendId || '')}" data-request-id="${escape(request.id)}" data-action="approve">Aprovar</button>
-                                    <button class="btn btn-danger btn-review-campaign-request" data-campaign-id="${escape(c.backendId || '')}" data-request-id="${escape(request.id)}" data-action="reject">Recusar</button>
-                                  ` : ''}
+                                  <span>${escape(character.name)}${character.system ? ` (${escape(character.system.name)})` : ''}</span>
+                                  ${personagens.some(personagem => personagem.backendId === character.id) ? '<small class="field-help">Proprietário: personagem local</small>' : '<small class="field-help">Proprietário: ficha vinculada</small>'}
+                                  ${c.ownerId === String(authenticatedUserId) || personagens.some(personagem => personagem.backendId === character.id) ? `<button class="btn btn-danger btn-remove-campaign-character" data-campaign-id="${escape(c.backendId || '')}" data-character-id="${escape(character.id)}">Desvincular</button>` : ''}
+                                  <button class="btn btn-secondary btn-view-campaign-character-sheet" data-campaign-id="${escape(c.backendId || '')}" data-character-id="${escape(character.id)}">Consultar ficha</button>
                                 </li>
-                              `).join('') || '<li class="field-help">Nenhuma solicitação pendente.</li>'}
+                              `).join('')}
                             </ul>
-                            <h6>Convites por username</h6>
-                            <ul style="list-style: none; padding: 8px 0; display: flex; flex-direction: column; gap: 8px;">
-                              ${campaignDetailsLoading.has(c.backendId) ? '<li class="field-help" role="status">Carregando convites...</li>' : (campaignUserInvitations[c.backendId] || []).map(invitation => `
-                                <li style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                  <span>
-                                    ${escape(invitation.name || invitation.username || 'Jogador')}
-                                    ${invitation.username ? `(@${escape(invitation.username)})` : ''}
-                                    — ${escape(invitationStatus(invitation.status))}
-                                    <small class="field-help">Enviado em ${escape(formatDate(invitation.invitedAt))}</small>
-                                  </span>
-                                  ${invitation.status === 'pending' ? `<button class="btn btn-danger btn-cancel-campaign-invitation" data-campaign-id="${escape(c.backendId || '')}" data-invitation-id="${escape(invitation.id)}">Cancelar</button>` : ''}
-                                </li>
-                              `).join('') || '<li class="field-help">Nenhum convite enviado.</li>'}
-                            </ul>
-                          </section>
-                        ` : ''}
-                      </section>
-                      <section class="glass-card" style="padding: 14px;">
-                        <h5>Personagens (${(campaignCharacters[c.backendId] || []).length})</h5>
-                        <ul style="list-style: none; padding: 8px 0; display: flex; flex-direction: column; gap: 8px;">
-                          ${(campaignCharacters[c.backendId] || []).map(character => `
-                            <li style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                              <span>${escape(character.name)}${character.system ? ` (${escape(character.system.name)})` : ''}</span>
-                              ${c.ownerId === String(authenticatedUserId) || personagens.some(personagem => personagem.backendId === character.id) ? `<button class="btn btn-danger btn-remove-campaign-character" data-campaign-id="${escape(c.backendId || '')}" data-character-id="${escape(character.id)}">Desvincular</button>` : ''}
-                            </li>
-                          `).join('')}
-                        </ul>
-                        <form class="form-campaign-add-character" data-campaign-id="${escape(c.backendId)}" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
-                          <select class="form-control" name="characterId" aria-label="Personagem" required>
-                            <option value="">Selecione um personagem seu</option>
-                            ${personagens.filter(personagem => personagem.backendId).map(personagem =>
-                              `<option value="${escape(personagem.backendId || '')}">${escape(personagem.nomePersonagem)} (${escape(personagem.classe)})</option>`
-                            ).join('')}
-                          </select>
-                          <button class="btn btn-primary" type="submit">Vincular personagem</button>
-                        </form>
-                      </section>
-                    </div>
-                    ${remoteAvailable ? '' : '<p class="field-help">API indisponível; os dados locais continuam disponíveis.</p>'}
-                  ` : ''}
-                </div>
-              ` : ''}
-            </div>
-          `).join('')}
+                          ` : '<p class="field-help">Nenhum personagem vinculado à campanha.</p>'}
+                          <form class="form-campaign-add-character" data-campaign-id="${escape(c.backendId)}" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+                            <select class="form-control" name="characterId" aria-label="Personagem" required>
+                              <option value="">Selecione um personagem seu</option>
+                              ${normalizedCampaignCharacterOptions.map(option =>
+                                `<option value="${escape(option.id)}">${escape(option.label)}</option>`
+                              ).join('')}
+                            </select>
+                            <button class="btn btn-primary" type="submit">Vincular personagem</button>
+                          </form>
+                        </section>
+                      </div>
+                      ${remoteAvailable ? '' : '<p class="field-help">API indisponível; os dados locais continuam disponíveis.</p>'}
+                    ` : ''}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
         </div>
       </div>
 
@@ -305,7 +390,6 @@ export class MestreView {
       </div>
     `;
   }
-
   public static renderNPCs(npcs: NPC[]): string {
     return `
       <div class="glass-card">

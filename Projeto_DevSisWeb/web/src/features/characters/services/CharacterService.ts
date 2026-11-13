@@ -28,11 +28,22 @@ export type GeneratedCharacterAttributes = {
 export class CharacterService {
   private static readonly baseUrl = 'http://localhost:3000/api';
 
-  private static async request<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  private static async request<T>(
+    path: string,
+    token: string,
+    init: RequestInit = {},
+    workspaceType?: 'player' | 'master',
+  ): Promise<T> {
     init = StorageService.withWorkspace(init);
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    headers.set('Content-Type', 'application/json');
+    if (workspaceType) {
+      headers.set('X-Workspace-Type', workspaceType);
+    }
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
+      headers,
     });
     const body = await response.json() as { success?: boolean; message?: string } & T;
     if (!response.ok || !body.success) throw new Error(body.message || 'Não foi possível concluir a operação com personagens.');
@@ -49,8 +60,17 @@ export class CharacterService {
     return body.character;
   }
 
-  public static async criar(payload: CharacterPayload, token: string): Promise<ApiCharacter> {
-    const body = await this.request<{ character: ApiCharacter }>('/characters', token, { method: 'POST', body: JSON.stringify(payload) });
+  public static async criar(
+    payload: CharacterPayload,
+    token: string,
+    workspaceType?: 'player' | 'master',
+  ): Promise<ApiCharacter> {
+    const body = await this.request<{ character: ApiCharacter }>(
+      '/characters',
+      token,
+      { method: 'POST', body: JSON.stringify(payload) },
+      workspaceType,
+    );
     return body.character;
   }
 

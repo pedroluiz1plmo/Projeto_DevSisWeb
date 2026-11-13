@@ -1,10 +1,13 @@
 import type {
   ApiCampaign,
   ApiCampaignCharacter,
+  ApiCampaignCharacterRequest,
+  ApiCampaignCharacterSheet,
   ApiCampaignInviteInfo,
   ApiCampaignInvitePreview,
   ApiCampaignJoinRequest,
   ApiCampaignMember,
+  ApiCampaignPublicCharacter,
   ApiMasterDashboard,
   ApiCampaignUser,
   ApiCampaignUserInvitation
@@ -177,6 +180,66 @@ export class CampaignService {
 
   public static async removerMembro(campaignId: string, userId: string, token: string): Promise<void> {
     await this.request(`/campaigns/${campaignId}/members/${userId}`, token, { method: 'DELETE' });
+  }
+
+  public static async listarPersonagensPublicos(campaignId: string, token: string): Promise<ApiCampaignPublicCharacter[]> {
+    const body = await this.request<{ characters: ApiCampaignPublicCharacter[] }>(`/campaigns/${campaignId}/characters`, token);
+    return body.characters;
+  }
+
+  public static async listarMinhasLinksPersonagem(campaignId: string, token: string): Promise<{
+    characterLinks: ApiCampaignCharacterRequest[];
+    activeCharacter: { id: string } | null;
+  }> {
+    const body = await this.request<{ characterLinks: ApiCampaignCharacterRequest[]; activeCharacter: { id: string } | null }>(
+      `/campaigns/${campaignId}/my-character-links`,
+      token,
+    );
+    return body;
+  }
+
+  public static async listarSolicitacoesPersonagens(campaignId: string, token: string): Promise<ApiCampaignCharacterRequest[]> {
+    const body = await this.request<{ requests: ApiCampaignCharacterRequest[] }>(`/campaigns/${campaignId}/character-link-requests`, token);
+    return body.requests;
+  }
+
+  public static async solicitarVinculoPersonagem(
+    campaignId: string,
+    characterId: string,
+    token: string,
+    reason?: string,
+  ): Promise<{ request: ApiCampaignCharacterRequest }> {
+    const body = await this.request<{ request: ApiCampaignCharacterRequest }>(`/campaigns/${campaignId}/character-link-requests`, token, {
+      method: 'POST',
+      body: JSON.stringify({ characterId, reason }),
+    });
+    return body;
+  }
+
+  public static async cancelarSolicitacaoPersonagem(campaignId: string, requestId: string, token: string): Promise<ApiCampaignCharacterRequest> {
+    const body = await this.request<{ request: ApiCampaignCharacterRequest }>(`/campaigns/${campaignId}/character-link-requests/${requestId}`, token, {
+      method: 'DELETE',
+    });
+    return body.request;
+  }
+
+  public static async revisarSolicitacaoPersonagem(
+    campaignId: string,
+    requestId: string,
+    action: 'approve' | 'reject',
+    token: string,
+    reason?: string,
+  ): Promise<ApiCampaignCharacterRequest> {
+    const body = await this.request<{ request: ApiCampaignCharacterRequest }>(`/campaigns/${campaignId}/character-link-requests/${requestId}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ action, reason }),
+    });
+    return body.request;
+  }
+
+  public static async consultarFichaPersonagem(campaignId: string, characterId: string, token: string): Promise<ApiCampaignCharacterSheet> {
+    const body = await this.request<{ character: ApiCampaignCharacterSheet }>(`/campaigns/${campaignId}/characters/${characterId}`, token);
+    return body.character;
   }
 
   public static async listarPersonagens(campaignId: string, token: string): Promise<ApiCampaignCharacter[]> {

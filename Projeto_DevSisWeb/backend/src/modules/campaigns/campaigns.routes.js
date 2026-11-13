@@ -56,6 +56,36 @@ export const handleCampaignRoute = async (request, body) => {
     );
   }
 
+  const myCharacterLinksMatch = url.match(/^\/api\/campaigns\/(\d+)\/my-character-links$/);
+  if (myCharacterLinksMatch && request.method === 'GET') {
+    return handleCampaignController(
+      request,
+      'listMyCharacterLinks',
+      { campaignId: myCharacterLinksMatch[1] },
+      body,
+    );
+  }
+
+  const characterLinkRequestsMatch = url.match(/^\/api\/campaigns\/(\d+)\/character-link-requests(?:\/(\d+))?$/);
+  if (characterLinkRequestsMatch) {
+    const operation = (() => {
+      if (!characterLinkRequestsMatch[2] && request.method === 'GET') return 'listCharacterLinkRequests';
+      if (!characterLinkRequestsMatch[2] && request.method === 'POST') return 'requestCharacterLink';
+      if (characterLinkRequestsMatch[2] && request.method === 'PATCH') return 'reviewCharacterLinkRequest';
+      if (characterLinkRequestsMatch[2] && request.method === 'DELETE') return 'cancelCharacterLinkRequest';
+      return null;
+    })();
+
+    if (operation) {
+      return handleCampaignController(
+        request,
+        operation,
+        { campaignId: characterLinkRequestsMatch[1], requestId: characterLinkRequestsMatch[2] },
+        body,
+      );
+    }
+  }
+
   const charactersListMatch = url.match(/^\/api\/campaigns\/(\d+)\/characters$/);
   if (charactersListMatch) {
     const operation = {
@@ -72,7 +102,11 @@ export const handleCampaignRoute = async (request, body) => {
 
   const characterMatch = url.match(/^\/api\/campaigns\/(\d+)\/characters\/(\d+)$/);
   if (characterMatch) {
-    const operation = request.method === 'DELETE' ? 'removeCampaignCharacter' : null;
+    const operation = request.method === 'GET'
+      ? 'getCampaignCharacterSheet'
+      : request.method === 'DELETE'
+        ? 'removeCampaignCharacter'
+        : null;
     return handleCampaignController(
       request,
       operation,

@@ -1,8 +1,8 @@
-# Install script for directory: /mnt/0D8F154B0D8F154B/Usuario/Projeto/Projeto_DevSisWeb1.16/Projeto_DevSisMob/mobile/linux/flutter/ephemeral/.plugin_symlinks/url_launcher_linux/linux
+# Install script for directory: /mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/linux/flutter/ephemeral/.plugin_symlinks/url_launcher_linux/linux
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "/mnt/0D8F154B0D8F154B/Usuario/Projeto/Projeto_DevSisWeb1.16/Projeto_DevSisMob/mobile/build/linux/x64/debug/bundle")
+  set(CMAKE_INSTALL_PREFIX "/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/bundle")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 

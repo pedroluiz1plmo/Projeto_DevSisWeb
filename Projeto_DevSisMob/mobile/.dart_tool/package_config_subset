@@ -298,10 +298,6 @@ xml
 3.2
 file:///home/danny/.pub-cache/hosted/pub.dev/xml-6.5.0/
 file:///home/danny/.pub-cache/hosted/pub.dev/xml-6.5.0/lib/
-mobile
-3.6
-file:///mnt/0D8F154B0D8F154B/Usuario/Projeto/Projeto_DevSisWeb1.16/Projeto_DevSisMob/mobile/
-file:///mnt/0D8F154B0D8F154B/Usuario/Projeto/Projeto_DevSisWeb1.16/Projeto_DevSisMob/mobile/lib/
 sky_engine
 3.2
 file:///mnt/0D8F154B0D8F154B/Usuario/Projeto/flutter/bin/cache/pkg/sky_engine/
@@ -318,4 +314,8 @@ flutter_web_plugins
 3.2
 file:///mnt/0D8F154B0D8F154B/Usuario/Projeto/flutter/packages/flutter_web_plugins/
 file:///mnt/0D8F154B0D8F154B/Usuario/Projeto/flutter/packages/flutter_web_plugins/lib/
+mobile
+3.6
+file:///mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/
+file:///mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/lib/
 2

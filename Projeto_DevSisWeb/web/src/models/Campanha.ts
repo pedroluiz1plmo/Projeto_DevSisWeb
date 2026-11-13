@@ -6,6 +6,7 @@ import type { MonstroPasta } from './MonstroPasta';
 export class Campanha {
   public backendId?: string;
   public ownerId?: string;
+  public workspaceType?: 'master' | 'player';
   public idCampanha: string;
   public nomeCampanha: string;
   public lore: string;

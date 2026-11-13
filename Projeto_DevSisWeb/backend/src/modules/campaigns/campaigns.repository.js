@@ -188,6 +188,136 @@ export const findLinkedCampaignCharacter = (campaignId, characterId, workspaceTy
   [campaignId, characterId, normalizeWorkspaceType(workspaceType)],
 );
 
+export const findPublicCampaignCharacters = (campaignId, workspaceType = 'player') => pool.query(
+  `SELECT cc.character_id, c.name AS character_name, u.name AS player_name, 'active'::text AS status, cc.joined_at
+   FROM campaign_characters cc
+   JOIN characters c ON c.id = cc.character_id
+   JOIN users u ON u.id = c.user_id
+   JOIN campaigns camp ON camp.id = cc.campaign_id
+   WHERE cc.campaign_id = $1
+     AND camp.workspace_type = $2
+     AND c.workspace_type = $2
+     AND cc.workspace_type = $2
+   ORDER BY cc.joined_at DESC`,
+  [campaignId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const findCharacterSheet = (campaignId, characterId, workspaceType = 'player') => pool.query(
+  `SELECT c.id AS character_id, c.name AS character_name, c.user_id AS owner_id, owner.name AS owner_name,
+          c.system_id, s.name AS system_name, s.slug AS system_slug, c.dados,
+          c.workspace_type
+   FROM campaign_characters cc
+   JOIN characters c ON c.id = cc.character_id
+   JOIN users owner ON owner.id = c.user_id
+   JOIN systems s ON s.id = c.system_id
+   JOIN campaigns camp ON camp.id = cc.campaign_id
+   WHERE cc.campaign_id = $1
+     AND cc.character_id = $2
+     AND camp.workspace_type = $3
+     AND c.workspace_type = $3
+     AND cc.workspace_type = $3`,
+  [campaignId, characterId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const findActiveCampaignCharacterByUser = (campaignId, userId, workspaceType = 'player') => pool.query(
+  `SELECT cc.character_id
+   FROM campaign_characters cc
+   JOIN characters c ON c.id = cc.character_id
+   JOIN campaigns camp ON camp.id = cc.campaign_id
+   WHERE cc.campaign_id = $1
+     AND c.user_id = $2
+     AND camp.workspace_type = $3
+     AND c.workspace_type = $3
+     AND cc.workspace_type = $3
+   LIMIT 1`,
+  [campaignId, userId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const findPendingCharacterRequest = (campaignId, requesterId, characterId, workspaceType = 'player') => pool.query(
+  `SELECT id, campaign_id, character_id, requester_id, status, requested_at, reviewed_at, review_note
+   FROM campaign_character_requests
+   WHERE campaign_id = $1
+     AND requester_id = $2
+     AND character_id = $3
+     AND workspace_type = $4
+     AND status = 'pending'
+   LIMIT 1`,
+  [campaignId, requesterId, characterId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const findCharacterRequestById = (requestId, campaignId, workspaceType = 'player') => pool.query(
+  `SELECT cr.id, cr.campaign_id, cr.character_id, cr.requester_id, cr.status, cr.requested_at,
+          cr.reviewed_at, cr.review_note, cr.reviewed_by_user_id,
+          c.name AS character_name, u.name AS player_name, s.name AS system_name, s.slug AS system_slug
+   FROM campaign_character_requests cr
+   JOIN characters c ON c.id = cr.character_id
+   JOIN users u ON u.id = cr.requester_id
+   LEFT JOIN systems s ON s.id = c.system_id
+   WHERE cr.id = $1
+     AND cr.campaign_id = $2
+     AND cr.workspace_type = $3`,
+  [requestId, campaignId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const findMyCharacterRequests = (campaignId, requesterId, workspaceType = 'player') => pool.query(
+  `SELECT cr.id, cr.campaign_id, cr.character_id, cr.requester_id, cr.status, cr.requested_at,
+          cr.reviewed_at, cr.review_note, c.name AS character_name, s.name AS system_name, s.slug AS system_slug
+   FROM campaign_character_requests cr
+   JOIN characters c ON c.id = cr.character_id
+   LEFT JOIN systems s ON s.id = c.system_id
+   WHERE cr.campaign_id = $1
+     AND cr.requester_id = $2
+     AND cr.workspace_type = $3
+   ORDER BY cr.requested_at DESC`,
+  [campaignId, requesterId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const findCharacterRequestsByCampaign = (campaignId, workspaceType = 'player') => pool.query(
+  `SELECT cr.id, cr.campaign_id, cr.character_id, cr.requester_id, cr.status, cr.requested_at,
+          cr.reviewed_at, cr.review_note, c.name AS character_name, c.dados AS character_data,
+          u.name AS player_name, s.id AS system_id, s.name AS system_name, s.slug AS system_slug
+   FROM campaign_character_requests cr
+   JOIN characters c ON c.id = cr.character_id
+   JOIN users u ON u.id = cr.requester_id
+   LEFT JOIN systems s ON s.id = c.system_id
+   WHERE cr.campaign_id = $1
+     AND cr.workspace_type = $2
+   ORDER BY cr.requested_at DESC`,
+  [campaignId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const createCharacterRequest = (campaignId, characterId, requesterId, workspaceType = 'player', reason = null) => pool.query(
+  `INSERT INTO campaign_character_requests (campaign_id, character_id, requester_id, workspace_type, status, review_note)
+   VALUES ($1, $2, $3, $4, 'pending', $5)
+   RETURNING id, campaign_id, character_id, requester_id, status, requested_at, workspace_type, review_note`,
+  [campaignId, characterId, requesterId, normalizeWorkspaceType(workspaceType), reason],
+);
+
+export const updateCharacterRequestStatus = (requestId, status, reviewedByUserId, reason, workspaceType = 'player') => pool.query(
+  `UPDATE campaign_character_requests
+   SET status = $1,
+       reviewed_at = NOW(),
+       reviewed_by_user_id = $2,
+       review_note = $3,
+       updated_at = NOW()
+   WHERE id = $4
+     AND workspace_type = $5
+     AND status = 'pending'
+   RETURNING id, campaign_id, character_id, requester_id, status, requested_at, reviewed_at, review_note, reviewed_by_user_id`,
+  [status, reviewedByUserId, reason ?? null, requestId, normalizeWorkspaceType(workspaceType)],
+);
+
+export const cancelCharacterRequest = (requestId, requesterId, workspaceType = 'player') => pool.query(
+  `UPDATE campaign_character_requests
+   SET status = 'cancelled', reviewed_at = NOW(), updated_at = NOW()
+   WHERE id = $1
+     AND requester_id = $2
+     AND workspace_type = $3
+     AND status = 'pending'
+   RETURNING id, campaign_id, character_id, requester_id, status, requested_at, reviewed_at`,
+  [requestId, requesterId, normalizeWorkspaceType(workspaceType)],
+);
+
 export const deleteCampaignCharacter = (campaignId, characterId, userId, workspaceType = 'player') => pool.query(
   `DELETE FROM campaign_characters cc
    USING characters ch, campaigns camp
