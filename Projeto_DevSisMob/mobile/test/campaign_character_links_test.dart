@@ -97,6 +97,7 @@ void main() {
     expect(find.text('Personagens da campanha'), findsOneWidget);
     expect(find.text('Heroi'), findsWidgets);
     expect(find.textContaining('Jogador um'), findsWidgets);
+    expect(find.byTooltip('Consultar ficha'), findsOneWidget);
 
     await tester.drag(find.byType(ListView).first, const Offset(0, -800));
     await tester.pumpAndSettle();
@@ -337,8 +338,7 @@ const _ownedCharacter = {
 const _linkedCharacter = {
   'id': '16',
   'name': 'Heroi',
-  'playerName': 'Jogador um',
-  'status': 'active',
+  'joinedAt': '2026-01-01T00:00:00.000Z',
   'system': {'id': '1', 'name': 'Sistema', 'slug': 'sistema'},
 };
 

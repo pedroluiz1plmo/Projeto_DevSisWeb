@@ -1024,10 +1024,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                     trailing: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        if (widget.isMaster &&
-                                            _isOwner &&
-                                            (character.status == 'active' ||
-                                                character.status == 'approved'))
+                                        if (widget.isMaster && _isOwner)
                                           IconButton(
                                             tooltip: 'Consultar ficha',
                                             onPressed: () =>
