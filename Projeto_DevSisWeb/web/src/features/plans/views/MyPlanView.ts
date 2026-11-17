@@ -99,6 +99,7 @@ export class MyPlanView {
       container.innerHTML = this.renderContent(access, plans, subscriptions, trial);
       container.querySelector<HTMLButtonElement>('[data-my-plan-retry]')?.addEventListener('click', () => void this.render(container, token));
       this.bindTrial(container, token, trial);
+      this.bindCancellation(container, token, subscriptions);
       if (trial.trial?.status === 'active') {
         this.countdownTimer = window.setInterval(() => {
           const output = container.querySelector<HTMLElement>('[data-trial-countdown]');
@@ -124,19 +125,46 @@ export class MyPlanView {
       const planId = container.querySelector<HTMLSelectElement>('[data-trial-plan]')?.value;
       const selectedPlan = trial.premiumPlans.find((plan) => plan.id === planId);
       if (!selectedPlan) return;
+      const launchOffer = trial.launchOffer.spotsRemaining > 0;
+      const durationDays = launchOffer ? trial.launchOffer.durationDays : 7;
       const confirmed = window.confirm(
-        `Iniciar o teste gratuito de 7 dias do plano ${selectedPlan.name}? ` +
-        'Nenhuma cobrança será feita agora ou automaticamente ao final. Depois dos 7 dias, ' +
+        `Ativar o Premium gratuitamente por ${durationDays} dias no plano ${selectedPlan.name}? ` +
+        'Nenhuma cobrança será feita agora ou automaticamente ao final. Depois do período, ' +
         'sua conta volta ao Freemium, a menos que você contrate o Premium manualmente.',
       );
       if (!confirmed) return;
       button.disabled = true;
       try {
-        await PlanService.activateFreeTrial(token, selectedPlan.id);
-        window.alert('Teste Premium ativado por 7 dias. Nenhuma cobrança automática será realizada.');
+        await PlanService.activateFreeTrial(token, selectedPlan.id, launchOffer);
+        window.alert(`Premium ativado por ${durationDays} dias. Nenhuma cobrança automática será realizada.`);
         await this.render(container, token);
       } catch (error) {
         window.alert(error instanceof Error ? error.message : 'Não foi possível ativar o teste.');
+        await this.render(container, token);
+      }
+    });
+  }
+
+  private static bindCancellation(
+    container: HTMLElement,
+    token: string,
+    subscriptions: UserSubscription[],
+  ): void {
+    const button = container.querySelector<HTMLButtonElement>('[data-cancel-my-subscription]');
+    button?.addEventListener('click', async () => {
+      const subscription = subscriptions.find((item) => item.id === button.dataset.cancelMySubscription);
+      if (!subscription) return;
+      const endDate = displayDate(subscription.endsAt || subscription.renewsAt);
+      if (!window.confirm(
+        `Cancelar a renovação desta assinatura? O Premium continua disponível até ${endDate}.`,
+      )) return;
+      button.disabled = true;
+      try {
+        await PlanService.cancelSubscription(token, subscription.id);
+        window.alert(`Renovação cancelada. Seu acesso Premium continua até ${endDate}.`);
+        await this.render(container, token);
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Não foi possível cancelar a renovação.');
         button.disabled = false;
       }
     });
@@ -150,7 +178,9 @@ export class MyPlanView {
   ): string {
     const selected = plans.find((plan) => plan.id === access.plan.id);
     const activeSubscription = subscriptions.find((subscription) =>
-      subscription.status === 'active' && subscription.planId === access.plan.id);
+      (subscription.status === 'active'
+        || (subscription.status === 'canceled' && subscription.cancelAtPeriodEnd))
+      && subscription.planId === access.plan.id);
     const currentPrice = activeSubscription
       ? money(activeSubscription.contractedPrice, activeSubscription.currency)
       : selected
@@ -159,7 +189,10 @@ export class MyPlanView {
     const currentPeriod = activeSubscription?.billingPeriod || access.plan.billingPeriod;
     const currentDetails = activeSubscription
       ? `<p>Valor contratado: <strong>${escapeHtml(currentPrice)}</strong> · ${escapeHtml(periodLabel(currentPeriod))}</p>
-         <p>Início: ${escapeHtml(displayDate(activeSubscription.startsAt))} · Renovação: ${escapeHtml(displayDate(activeSubscription.renewsAt))}</p>`
+         <p>Início: ${escapeHtml(displayDate(activeSubscription.startsAt))} · Renovação: ${escapeHtml(displayDate(activeSubscription.renewsAt))}</p>
+         ${activeSubscription.cancelAtPeriodEnd
+            ? `<p class="my-plan-trial-warning">Renovação cancelada. Seu acesso Premium permanece até ${escapeHtml(displayDate(activeSubscription.endsAt || activeSubscription.renewsAt))}.</p>`
+            : `<button type="button" class="btn btn-secondary" data-cancel-my-subscription="${escapeHtml(activeSubscription.id)}">Cancelar renovação</button>`}`
       : `<p>${escapeHtml(currentPrice)} · ${escapeHtml(periodLabel(currentPeriod))}</p>`;
     const planCards = plans.length
       ? plans.map((plan) => planCard(plan, access.plan.id)).join('')
@@ -170,8 +203,11 @@ export class MyPlanView {
     const trialSection = trial.trial
       ? `<section class="my-plan-trial" aria-live="polite">
           <p class="my-plan-eyebrow">AVALIAÇÃO PREMIUM</p>
-          <h3>${trial.trial.status === 'active' ? 'Seu teste Premium está ativo' : 'Seu teste Premium foi encerrado'}</h3>
+          <h3>${trial.trial.status === 'active'
+            ? trial.trial.isLaunchOffer ? 'Sua oferta Premium de 30 dias está ativa' : 'Seu teste Premium está ativo'
+            : 'Seu período Premium gratuito foi encerrado'}</h3>
           <p>Plano: <strong>${escapeHtml(trial.trial.planName)}</strong></p>
+          <p>Duração: <strong>${trial.trial.durationDays} dias</strong></p>
           <p>Ativado em: ${escapeHtml(displayDate(trial.trial.activatedAt))}</p>
           <p>Encerramento: <strong>${escapeHtml(displayDate(trial.trial.endsAt))}</strong></p>
           ${trial.trial.status === 'active'
@@ -181,17 +217,23 @@ export class MyPlanView {
             : '<p>O acesso temporário terminou. Sua conta usa as permissões do Freemium, salvo se houver uma assinatura Premium ativa. O teste não pode ser iniciado novamente.</p>'}
         </section>`
       : trial.eligible
-        ? `<section class="my-plan-trial">
-            <p class="my-plan-eyebrow">EXPERIMENTE O PREMIUM</p>
-            <h3>Experimente o Premium gratuitamente por 7 dias.</h3>
-            <p>Use os benefícios do plano escolhido durante sete dias exatos. O período é único por conta e não exige forma de pagamento.</p>
+        ? (() => {
+          const launchOfferAvailable = trial.launchOffer.spotsRemaining > 0;
+          const durationDays = launchOfferAvailable ? trial.launchOffer.durationDays : 7;
+          return `<section class="my-plan-trial">
+            <p class="my-plan-eyebrow">${launchOfferAvailable ? 'OFERTA DE LANÇAMENTO' : 'EXPERIMENTE O PREMIUM'}</p>
+            <h3>${launchOfferAvailable
+              ? `Os ${trial.launchOffer.spotsRemaining} primeiros ativam ${durationDays} dias de Premium gratuito.`
+              : 'Experimente o Premium gratuitamente por 7 dias.'}</h3>
+            <p>Use os benefícios do plano escolhido durante ${durationDays} dias exatos. O período é único por conta e não exige forma de pagamento.</p>
             <label for="my-plan-trial-choice">Plano Premium</label>
             <select id="my-plan-trial-choice" data-trial-plan>
               ${trial.premiumPlans.map((plan) => `<option value="${escapeHtml(plan.id)}">${escapeHtml(plan.name)} · ${escapeHtml(money(plan.price, plan.currency))} após o teste (${escapeHtml(periodLabel(plan.billingPeriod))})</option>`).join('')}
             </select>
-            <button type="button" class="btn btn-primary" data-start-free-trial>Iniciar teste gratuito de 7 dias</button>
+            <button type="button" class="btn btn-primary" data-start-free-trial>Ativar Premium gratuito por ${durationDays} dias</button>
             <p class="my-plan-muted">Ao final, não haverá cobrança nem conversão automática. Você voltará ao Freemium e poderá contratar manualmente pelo preço informado acima.</p>
-          </section>`
+          </section>`;
+        })()
         : trial.hasActiveSubscription
           ? '<section class="my-plan-trial"><h3>Seu plano Premium já está ativo</h3><p>O teste gratuito não está disponível para contas com assinatura ativa.</p></section>'
           : '';

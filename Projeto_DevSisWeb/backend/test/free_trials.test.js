@@ -28,6 +28,9 @@ describe('avaliação gratuita Premium', () => {
         };
       }
       if (query.includes('FROM subscriptions')) return { rowCount: 0, rows: [] };
+      if (query.includes('FROM free_trials WHERE duration_days = 30')) {
+        return { rowCount: 1, rows: [{ spots_remaining: 5 }] };
+      }
       throw new Error(`Consulta inesperada: ${query}`);
     };
 
@@ -52,11 +55,13 @@ describe('avaliação gratuita Premium', () => {
         if (query.includes('FROM plans') && query.includes('FOR SHARE')) {
           return { rowCount: 1, rows: [{ id: '8', slug: 'premium-monthly', name: 'Premium mensal' }] };
         }
+        if (query.includes('pg_advisory_xact_lock')) return { rowCount: 1, rows: [] };
+        if (query.includes('COUNT(*)::int AS used')) return { rowCount: 1, rows: [{ used: 0 }] };
         if (query.includes('INSERT INTO free_trials')) {
           return {
             rowCount: 1,
             rows: [{
-              id: '10', plan_id: '8', status: 'active',
+              id: '10', plan_id: '8', duration_days: 7, status: 'active',
               activated_at: '2025-01-01T10:00:00.000Z',
               starts_at: '2025-01-01T10:00:00.000Z',
               ends_at: '2025-01-08T10:00:00.000Z',
@@ -83,6 +88,51 @@ describe('avaliação gratuita Premium', () => {
     );
     assert.equal(statements.some((query) => query.includes('INSERT INTO subscriptions')), false);
     assert.equal(statements.some((query) => query.includes('INSERT INTO payments')), false);
+  });
+
+  it('concede 30 dias a uma das cinco vagas e impede exceder o limite', async () => {
+    const activate = async (used) => {
+      let insertedValues;
+      pool.connect = async () => ({
+        query: async (query, values = []) => {
+          if (query.includes('SELECT id FROM users')) return { rowCount: 1, rows: [{ id: '42' }] };
+          if (query.includes('SELECT id FROM free_trials')) return { rowCount: 0, rows: [] };
+          if (query.includes('SELECT id FROM subscriptions')) return { rowCount: 0, rows: [] };
+          if (query.includes('FROM plans') && query.includes('FOR SHARE')) {
+            return { rowCount: 1, rows: [{ id: '8', slug: 'premium-monthly', name: 'Premium mensal' }] };
+          }
+          if (query.includes('pg_advisory_xact_lock')) return { rowCount: 1, rows: [] };
+          if (query.includes('COUNT(*)::int AS used')) return { rowCount: 1, rows: [{ used }] };
+          if (query.includes('INSERT INTO free_trials')) {
+            insertedValues = values;
+            return {
+              rowCount: 1,
+              rows: [{
+                id: '10', plan_id: '8', duration_days: values[2], status: 'active',
+                activated_at: '2025-01-01T10:00:00.000Z',
+                starts_at: '2025-01-01T10:00:00.000Z',
+                ends_at: new Date(Date.parse('2025-01-01T10:00:00.000Z') + values[2] * 86400000).toISOString(),
+                remaining_seconds: String(values[2] * 86400),
+              }],
+            };
+          }
+          if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(query)) return { rowCount: 0, rows: [] };
+          throw new Error(`Consulta inesperada: ${query}`);
+        },
+        release: () => {},
+      });
+      return { result: await activateMyTrial('42', { planId: '8', launchOffer: true }), insertedValues };
+    };
+
+    const fifth = await activate(4);
+    assert.equal(fifth.result.status, 201);
+    assert.equal(fifth.result.body.trial.durationDays, 30);
+    assert.equal(fifth.result.body.trial.isLaunchOffer, true);
+    assert.equal(fifth.insertedValues[2], 30);
+
+    const sixth = await activate(5);
+    assert.equal(sixth.result.status, 409);
+    assert.equal(sixth.insertedValues, undefined);
   });
 
   it('impede ativação duplicada e rejeita identificador de plano inválido', async () => {
@@ -144,6 +194,28 @@ describe('avaliação gratuita Premium', () => {
     const access = await getPlanAccess('42');
     assert.equal(access.subscriptionStatus, 'active');
     assert.equal(access.plan.name, 'Premium ativo');
+  });
+
+  it('mantém o acesso até a data final de uma assinatura cancelada ao fim do período', async () => {
+    pool.query = async (query) => {
+      if (query.includes('FROM subscriptions s')) {
+        assert.match(query, /s\.status = 'canceled' AND s\.cancel_at_period_end = TRUE/);
+        assert.match(query, /s\.ends_at > NOW\(\)/);
+        return {
+          rowCount: 1,
+          rows: [{
+            id: '9', slug: 'premium-monthly', name: 'Premium ativo',
+            billing_period: 'monthly', benefits: { campaigns: true },
+            limits: {}, subscription_status: 'canceled',
+          }],
+        };
+      }
+      throw new Error(`Não deveria consultar trial nem Freemium: ${query}`);
+    };
+
+    const access = await getPlanAccess('42');
+    assert.equal(access.subscriptionStatus, 'canceled');
+    assert.equal(access.plan.slug, 'premium-monthly');
   });
 
   it('retorna ao plano gratuito quando o trial expirou sem assinatura ativa', async () => {

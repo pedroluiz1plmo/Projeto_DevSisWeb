@@ -33,6 +33,44 @@ const date = (value: unknown): string => {
   return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleString('pt-BR');
 };
 
+const subscriptionStatusLabels: Record<string, string> = {
+  pending: 'Pendente',
+  active: 'Ativa',
+  past_due: 'Pagamento atrasado',
+  canceled: 'Cancelada',
+  expired: 'Expirada',
+  cancel_at_period_end: 'Renovação cancelada',
+};
+
+const subscriptionPeriodLabels: Record<string, string> = {
+  monthly: 'Mensal',
+  annual: 'Anual',
+  free: 'Gratuito',
+};
+
+const trialStatusLabels: Record<string, string> = {
+  active: 'Ativo',
+  expired: 'Expirado',
+};
+
+const notificationStatusLabels: Record<string, string> = {
+  pending: 'Pendente',
+  sending: 'Enviando',
+  sent: 'Enviado',
+  failed: 'Falhou',
+};
+
+const notificationTypeLabels: Record<string, string> = {
+  subscription_confirmed: 'Assinatura confirmada',
+  subscription_renewed: 'Assinatura renovada',
+  plan_changed: 'Plano alterado',
+};
+
+const normalizeSearch = (value: string): string => value
+  .toLocaleLowerCase('pt-BR')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '');
+
 const table = (headers: string[], rows: string[], empty = 'Nenhum registro encontrado.'): string => (
   `<div class="admin-table-scroll"><table class="admin-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.join('') : `<tr><td colspan="${headers.length}" class="admin-empty">${empty}</td></tr>`}</tbody></table></div>`
 );
@@ -201,42 +239,81 @@ export class AdminConsoleView {
       AdminService.subscriptionNotifications(token),
     ]);
     const canManage = identity.permissions.includes('subscriptions.manage');
-    const rows = (data.subscriptions as Array<Record<string, unknown>>).map((item) => `<tr>
-      <td>${escapeHtml(item.user && (item.user as Record<string, unknown>).username)}<small>${escapeHtml(item.user && (item.user as Record<string, unknown>).email)}</small></td>
-      <td>${escapeHtml(item.planName)} (${escapeHtml(item.billingPeriod)})</td>
-      <td>${money(item.contractedPrice, item.currency)}</td><td>${escapeHtml(item.status)}</td>
-      <td>${date(item.startsAt)}<small>Até: ${date(item.endsAt)}</small></td>
-      <td>${canManage && ['pending', 'active', 'past_due'].includes(String(item.status)) ? `<button class="btn btn-secondary admin-small-button" data-cancel-subscription="${escapeHtml(item.id)}">Cancelar</button>` : '—'}</td></tr>`);
+    const subscriptions = data.subscriptions as Array<Record<string, unknown>>;
+    const statusCounts = subscriptions.reduce<Record<string, number>>((counts, item) => {
+      const status = String(item.status || 'pending');
+      counts[status] = (counts[status] || 0) + 1;
+      return counts;
+    }, {});
+    const rows = subscriptions.map((item) => {
+      const user = item.user as Record<string, unknown> | undefined;
+      const status = String(item.status || 'pending');
+      const planName = String(item.planName || 'Plano não informado');
+      const billingPeriod = String(item.billingPeriod || '');
+      const statusLabel = subscriptionStatusLabels[status] || status;
+      const periodLabel = subscriptionPeriodLabels[billingPeriod] || billingPeriod;
+      const searchable = normalizeSearch(
+        [user?.username, user?.name, user?.email, planName, statusLabel, periodLabel]
+          .filter(Boolean)
+          .join(' '),
+      );
+      const history = Array.isArray(item.history) ? item.history as Array<Record<string, unknown>> : [];
+      return `<tr data-subscription-row data-status="${escapeHtml(status)}" data-search="${escapeHtml(searchable)}">
+        <td>@${escapeHtml(user?.username || '—')}<small>${escapeHtml(user?.name || user?.email || 'Usuário')}</small></td>
+        <td>${escapeHtml(planName)}<small>${escapeHtml(periodLabel)}</small></td>
+        <td>${money(item.contractedPrice, item.currency)}</td>
+        <td><span class="admin-subscription-status admin-subscription-status-${escapeHtml(status)}">${escapeHtml(statusLabel)}</span></td>
+        <td>Início: ${date(item.startsAt)}<small>Renovação: ${date(item.renewsAt)}</small><small>Fim: ${date(item.endsAt)}</small></td>
+        <td>${history.length ? `<details class="admin-subscription-history"><summary>Histórico (${history.length})</summary><ul>${history.map((entry) => `<li><strong>${escapeHtml(subscriptionStatusLabels[String(entry.action)] || String(entry.action || 'Atualização'))}</strong><small>${date(entry.createdAt)}</small></li>`).join('')}</ul></details>` : '—'}</td>
+        <td>${canManage && ['pending', 'active', 'past_due'].includes(status) ? `<button class="btn btn-secondary admin-small-button" data-cancel-subscription="${escapeHtml(item.id)}">Cancelar</button>` : '—'}</td>
+      </tr>`;
+    });
     const trialCounts = trialData.counts as Record<string, unknown>;
     const trialRows = (trialData.trials as Array<Record<string, unknown>>).map((item) => {
       const user = item.user as Record<string, unknown>;
       return `<tr><td>${escapeHtml(user.username)}<small>${escapeHtml(user.name)}</small></td>
-        <td>${escapeHtml(item.planName)}</td><td>${escapeHtml(item.status)}</td>
+        <td>${escapeHtml(item.planName)}</td><td>${escapeHtml(item.isLaunchOffer ? 'Oferta · 30 dias' : `${item.durationDays} dias`)}</td>
+        <td>${escapeHtml(trialStatusLabels[String(item.status)] || item.status)}</td>
         <td>${date(item.activatedAt)}</td><td>${date(item.endsAt)}</td>
         <td>${item.convertedAfterTrial ? 'Sim' : 'Não'}</td></tr>`;
     });
     const notificationRows = (notificationData.notifications as Array<Record<string, unknown>>).map((item) => `<tr>
       <td>@${escapeHtml(item.username)}</td><td>${escapeHtml(item.planName)}</td>
-      <td>${escapeHtml(item.notificationType)}</td><td>${escapeHtml(item.status)}</td>
+      <td>${escapeHtml(notificationTypeLabels[String(item.notificationType)] || item.notificationType)}</td>
+      <td>${escapeHtml(notificationStatusLabels[String(item.status)] || item.status)}</td>
       <td>${escapeHtml(item.attempts)}</td><td>${escapeHtml(item.errorCode || '—')}</td>
       <td>${date(item.sentAt || item.createdAt)}</td>
       <td>${canManage && ['pending', 'failed'].includes(String(item.status))
         ? `<button class="btn btn-secondary admin-small-button" data-retry-subscription-notification="${escapeHtml(item.id)}">${item.status === 'pending' ? 'Enviar agora' : 'Tentar novamente'}</button>`
         : '—'}</td></tr>`);
     return `<div class="admin-view-heading"><div><p class="admin-eyebrow">ASSINATURAS</p><h2>Contratos e testes gratuitos</h2><p>Não é permitido marcar pagamentos como confirmados sem integração de provedor.</p></div><button class="btn btn-secondary" data-admin-refresh>Atualizar</button></div>
-      ${table(['Conta', 'Plano', 'Preço contratado', 'Status', 'Período', 'Ação'], rows)}
+      <div class="admin-metrics admin-metrics-compact admin-subscription-metrics">
+        ${card('Contratos listados', subscriptions.length)}
+        ${card('Ativas', statusCounts.active || 0)}
+        ${card('Pendentes', statusCounts.pending || 0)}
+        ${card('Pagamento atrasado', statusCounts.past_due || 0)}
+      </div>
+      <form class="admin-subscription-filters" id="admin-subscription-filters">
+        <label>Buscar conta ou plano<input type="search" name="search" placeholder="Nome, usuário, e-mail ou plano"></label>
+        <label>Status<select name="status"><option value="">Todos os status</option>
+          ${Object.entries(subscriptionStatusLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}
+        </select></label>
+        <span class="admin-subscription-result-count" id="admin-subscription-result-count" role="status" aria-live="polite"></span>
+      </form>
+      ${table(['Conta', 'Plano', 'Preço contratado', 'Status', 'Período', 'Histórico', 'Ação'], rows, 'Nenhuma assinatura foi registrada.')}
+      ${subscriptions.length >= 500 ? '<p class="admin-notice">Exibindo os 500 contratos mais recentes; use os filtros para localizar uma conta nesta lista.</p>' : ''}
       <section class="admin-panel"><h3>Notificações por e-mail de assinatura</h3>
         <p>Eventos financeiros só geram notificações depois de confirmados pelo provedor. Falhas podem ser reenviadas com segurança pelo evento registrado.</p>
         ${table(['Conta', 'Plano', 'Tipo', 'Envio', 'Tentativas', 'Erro', 'Data', 'Ação'], notificationRows, 'Nenhuma notificação de assinatura foi registrada.') }
         ${Number((notificationData.notifications as Array<unknown>).length) >= 500 ? '<p class="admin-notice">Exibindo as 500 notificações mais recentes.</p>' : ''}
       </section>
-      <section class="admin-panel"><h3>Teste gratuito Premium · 7 dias</h3>
+      <section class="admin-panel"><h3>Períodos gratuitos Premium · oferta de lançamento de 30 dias</h3>
         <div class="admin-metrics admin-metrics-compact">
           ${card('Ativações', trialCounts.total)}${card('Ativos', trialCounts.active)}
           ${card('Expirados', trialCounts.expired)}${card('Premium após o teste', trialCounts.convertedAfterTrial)}
         </div>
         <p>Conversões contam registros de assinatura paga criados após o encerramento do teste; não representam confirmação de pagamento.</p>
-        ${table(['Conta', 'Plano', 'Status', 'Ativação', 'Encerramento', 'Assinou depois'], trialRows, 'Nenhum usuário ativou um teste gratuito.') }
+        ${table(['Conta', 'Plano', 'Duração', 'Status', 'Ativação', 'Encerramento', 'Assinou depois'], trialRows, 'Nenhum usuário ativou um período gratuito.') }
         ${Number(trialCounts.total) > trialRows.length ? '<p class="admin-notice">Exibindo os 500 testes mais recentes; os totais acima consideram todos os registros.</p>' : ''}
       </section>`;
   }
@@ -316,6 +393,36 @@ export class AdminConsoleView {
     container.querySelectorAll<HTMLButtonElement>('[data-admin-refresh]').forEach((button) => {
       button.addEventListener('click', () => void this.render(container, container.dataset.adminTab || 'admin-dashboard', token, identity));
     });
+    const subscriptionFilters = container.querySelector<HTMLFormElement>('#admin-subscription-filters');
+    if (subscriptionFilters) {
+      const filterSubscriptions = () => {
+        const values = new FormData(subscriptionFilters);
+        const search = normalizeSearch(String(values.get('search') || '').trim());
+        const status = String(values.get('status') || '');
+        const rows = Array.from(container.querySelectorAll<HTMLTableRowElement>('[data-subscription-row]'));
+        const tableBody = subscriptionFilters.nextElementSibling?.querySelector('tbody');
+        let visibleCount = 0;
+        rows.forEach((row) => {
+          const matches = (!status || row.dataset.status === status)
+            && (!search || (row.dataset.search || '').includes(search));
+          row.hidden = !matches;
+          if (matches) visibleCount += 1;
+        });
+        tableBody?.querySelector('.admin-subscription-filter-empty')?.remove();
+        if (tableBody && rows.length > 0 && visibleCount === 0) {
+          const emptyRow = document.createElement('tr');
+          emptyRow.className = 'admin-subscription-filter-empty';
+          emptyRow.innerHTML = '<td colspan="7" class="admin-empty">Nenhuma assinatura corresponde aos filtros.</td>';
+          tableBody.append(emptyRow);
+        }
+        const resultCount = container.querySelector<HTMLElement>('#admin-subscription-result-count');
+        if (resultCount) resultCount.textContent = `${visibleCount} de ${rows.length} contratos`;
+      };
+      subscriptionFilters.addEventListener('submit', (event) => event.preventDefault());
+      subscriptionFilters.addEventListener('input', filterSubscriptions);
+      subscriptionFilters.addEventListener('change', filterSubscriptions);
+      filterSubscriptions();
+    }
     container.querySelectorAll<HTMLButtonElement>('[data-user-active]').forEach((button) => {
       button.addEventListener('click', async () => {
         button.disabled = true;
@@ -408,11 +515,13 @@ export class AdminConsoleView {
     container.querySelectorAll<HTMLButtonElement>('[data-cancel-subscription]').forEach((button) => {
       button.addEventListener('click', async () => {
         if (!window.confirm('Cancelar imediatamente esta assinatura?')) return;
+        button.disabled = true;
         try {
           await AdminService.cancelSubscription(token, button.dataset.cancelSubscription || '');
           await this.render(container, 'admin-subscriptions', token, identity);
         } catch (error) {
           window.alert(error instanceof Error ? error.message : 'Não foi possível cancelar a assinatura.');
+          button.disabled = false;
         }
       });
     });

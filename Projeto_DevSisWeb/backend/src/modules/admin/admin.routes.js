@@ -84,6 +84,12 @@ export const handleAdminRoute = async (request, body = {}) => {
     if (!token) return unauthorized;
     return adminService.listMySubscriptions(token.sub);
   }
+  const mySubscriptionCancelMatch = url.match(/^\/api\/subscriptions\/(\d+)\/cancel$/);
+  if (method === 'POST' && mySubscriptionCancelMatch) {
+    const token = requireAuth(request);
+    if (!token) return unauthorized;
+    return adminService.cancelMySubscription(token.sub, mySubscriptionCancelMatch[1]);
+  }
   if (url === '/api/free-trial/me' && method === 'GET') {
     const token = requireAuth(request);
     if (!token) return unauthorized;

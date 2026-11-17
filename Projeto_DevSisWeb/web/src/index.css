@@ -2451,6 +2451,20 @@ body {
 .admin-expense-feedback { min-height: 1.4em; color: var(--text-muted); }
 .admin-expense-feedback-error { color: #fecaca; }
 .admin-expense-form label small { color: var(--text-dim); font-size: .73rem; }
+.admin-subscription-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 14px 0; padding: 14px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-card); }
+.admin-subscription-filters label { display: grid; min-width: min(100%, 240px); flex: 1; gap: 6px; color: var(--text-muted); }
+.admin-subscription-filters input, .admin-subscription-filters select { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-main); background: var(--bg-input); }
+.admin-subscription-result-count { color: var(--text-muted); font-size: .8rem; }
+.admin-subscription-status { display: inline-flex; padding: 4px 9px; border: 1px solid var(--border-color); border-radius: 999px; background: rgba(148, 163, 184, .1); color: #cbd5e1; font-size: .75rem; font-weight: 700; white-space: nowrap; }
+.admin-subscription-status-active { border-color: rgba(16, 185, 129, .35); background: rgba(16, 185, 129, .12); color: #6ee7b7; }
+.admin-subscription-status-pending { border-color: rgba(234, 179, 8, .35); background: rgba(234, 179, 8, .1); color: #fde047; }
+.admin-subscription-status-past_due { border-color: rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .1); color: #fca5a5; }
+.admin-subscription-status-canceled, .admin-subscription-status-expired { color: #cbd5e1; }
+.admin-subscription-history summary { color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.admin-subscription-history ul { display: grid; gap: 7px; min-width: 150px; margin: 8px 0 0; list-style: none; }
+.admin-subscription-history li { display: grid; gap: 2px; font-size: .78rem; }
+.admin-subscription-history li small { color: var(--text-dim); }
+.admin-subscription-metrics { margin-bottom: 14px; }
 
 @media (max-width: 640px) {
   .admin-view-heading, .admin-view-heading > div { flex-direction: column; }

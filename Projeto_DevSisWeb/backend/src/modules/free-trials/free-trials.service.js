@@ -36,14 +36,16 @@ const trialSnapshot = (row) => row ? ({
   activatedAt: row.activated_at,
   startsAt: row.starts_at,
   endsAt: row.ends_at,
+  durationDays: Number(row.duration_days ?? 7),
+  isLaunchOffer: Number(row.duration_days ?? 7) === 30,
   remainingSeconds: Math.max(0, Number(row.remaining_seconds ?? 0)),
 }) : null;
 
 export const getMyTrial = async (userId) => {
-  const [trial, plans, activeSubscription] = await Promise.all([
+  const [trial, plans, activeSubscription, launchOffer] = await Promise.all([
     pool.query(
       `SELECT trial.id, trial.plan_id, plan.name AS plan_name, plan.slug AS plan_slug,
-              trial.status,
+              trial.status, trial.duration_days,
               CASE WHEN trial.ends_at <= NOW() THEN 'expired' ELSE trial.status END AS effective_status,
               trial.activated_at, trial.starts_at, trial.ends_at,
               GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (trial.ends_at - NOW()))))::bigint AS remaining_seconds
@@ -60,10 +62,15 @@ export const getMyTrial = async (userId) => {
     ),
     pool.query(
       `SELECT 1 FROM subscriptions
-       WHERE user_id = $1 AND status = 'active'
+       WHERE user_id = $1
+         AND (status = 'active' OR (status = 'canceled' AND cancel_at_period_end = TRUE))
          AND (ends_at IS NULL OR ends_at > NOW())
        LIMIT 1`,
       [userId],
+    ),
+    pool.query(
+      `SELECT GREATEST(0, 5 - COUNT(*))::int AS spots_remaining
+       FROM free_trials WHERE duration_days = 30`,
     ),
   ]);
   const existingTrial = trial.rows[0] ?? null;
@@ -82,12 +89,19 @@ export const getMyTrial = async (userId) => {
       limits: plan.limits,
     })),
     hasActiveSubscription: activeSubscription.rowCount > 0,
+    launchOffer: {
+      spotsRemaining: launchOffer.rows[0].spots_remaining,
+      durationDays: 30,
+    },
   });
 };
 
 export const activateMyTrial = async (userId, body = {}) => {
   if (!body || typeof body !== 'object' || Array.isArray(body) || !validId(body.planId)) {
     return fail(400, 'Selecione um plano Premium válido para o período de avaliação.');
+  }
+  if (body.launchOffer !== undefined && typeof body.launchOffer !== 'boolean') {
+    return fail(400, 'A opção da oferta de lançamento é inválida.');
   }
 
   try {
@@ -103,12 +117,13 @@ export const activateMyTrial = async (userId, body = {}) => {
         [userId],
       );
       if (alreadyUsed.rowCount) {
-        return fail(409, 'O período gratuito de 7 dias já foi utilizado nesta conta.');
+        return fail(409, 'O período gratuito já foi utilizado nesta conta.');
       }
 
       const paidSubscription = await client.query(
         `SELECT id FROM subscriptions
-         WHERE user_id = $1 AND status = 'active'
+         WHERE user_id = $1
+           AND (status = 'active' OR (status = 'canceled' AND cancel_at_period_end = TRUE))
            AND (ends_at IS NULL OR ends_at > NOW())
          LIMIT 1`,
         [userId],
@@ -127,12 +142,21 @@ export const activateMyTrial = async (userId, body = {}) => {
       );
       if (!plan.rowCount) return fail(404, 'Plano Premium ativo não encontrado.');
 
+      await client.query('SELECT pg_advisory_xact_lock($1)', [20250430]);
+      const promoUsage = await client.query(
+        'SELECT COUNT(*)::int AS used FROM free_trials WHERE duration_days = 30',
+      );
+      const durationDays = body.launchOffer ? 30 : 7;
+      if (body.launchOffer && promoUsage.rows[0].used >= 5) {
+        return fail(409, 'As cinco vagas da oferta de 30 dias já foram utilizadas. Atualize a página para ver as opções disponíveis.');
+      }
+
       const created = await client.query(
-        `INSERT INTO free_trials (user_id, plan_id)
-         VALUES ($1, $2)
-         RETURNING id, plan_id, status, activated_at, starts_at, ends_at,
+        `INSERT INTO free_trials (user_id, plan_id, duration_days, ends_at)
+         VALUES ($1, $2, $3, NOW() + make_interval(days => $3))
+         RETURNING id, plan_id, duration_days, status, activated_at, starts_at, ends_at,
                    GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (ends_at - NOW()))))::bigint AS remaining_seconds`,
-        [userId, body.planId],
+        [userId, body.planId, durationDays],
       );
       return {
         ...created.rows[0],
@@ -141,14 +165,15 @@ export const activateMyTrial = async (userId, body = {}) => {
       };
     });
     if (trial?.body) return trial;
+    const durationDays = Number(trial.duration_days);
     return success(201, {
-      message: 'Teste Premium ativado por 7 dias. Nenhuma cobrança será feita automaticamente.',
+      message: `Premium ativado por ${durationDays} dias. Nenhuma cobrança será feita automaticamente.`,
       eligible: false,
       trial: trialSnapshot(trial),
     });
   } catch (error) {
     if (error.code === '23505') {
-      return fail(409, 'O período gratuito de 7 dias já foi utilizado nesta conta.');
+      return fail(409, 'O período gratuito já foi utilizado nesta conta.');
     }
     throw error;
   }
@@ -158,7 +183,7 @@ export const listTrialsForAdmin = async () => {
   const [result, summary] = await Promise.all([
     pool.query(
       `SELECT trial.id, trial.user_id, user.name AS user_name, user.username,
-              trial.plan_id, plan.name AS plan_name, trial.status,
+              trial.plan_id, plan.name AS plan_name, trial.status, trial.duration_days,
               trial.activated_at, trial.starts_at, trial.ends_at,
               CASE WHEN trial.ends_at <= NOW() THEN 'expired' ELSE trial.status END AS effective_status,
               EXISTS (
@@ -203,6 +228,8 @@ export const listTrialsForAdmin = async () => {
     },
     planId: String(row.plan_id),
     planName: row.plan_name,
+    durationDays: Number(row.duration_days),
+    isLaunchOffer: Number(row.duration_days) === 30,
     status: row.effective_status,
     activatedAt: row.activated_at,
     startsAt: row.starts_at,

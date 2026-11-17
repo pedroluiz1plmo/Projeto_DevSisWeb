@@ -15,7 +15,7 @@ export const getPlanAccess = async (userId) => {
        FROM subscriptions s
        JOIN plans p ON p.id = s.plan_id
       WHERE s.user_id = $1
-        AND s.status = 'active'
+        AND (s.status = 'active' OR (s.status = 'canceled' AND s.cancel_at_period_end = TRUE))
         AND (s.ends_at IS NULL OR s.ends_at > NOW())
       ORDER BY s.created_at DESC
       LIMIT 1`,

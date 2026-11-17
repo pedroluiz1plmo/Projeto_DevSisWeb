@@ -98,6 +98,7 @@ const subscriptionSnapshot = (row) => ({
   startsAt: row.starts_at,
   renewsAt: row.renews_at,
   endsAt: row.ends_at,
+  cancelAtPeriodEnd: row.cancel_at_period_end ?? false,
   createdAt: row.created_at,
 });
 
@@ -658,7 +659,8 @@ export const cancelSubscription = async (actorId, subscriptionId, isAdmin = true
     const before = result.rows[0];
     if (!['pending', 'active', 'past_due'].includes(before.status)) return fail(409, 'Esta assinatura não pode mais ser cancelada.');
     const changed = await client.query(
-      `UPDATE subscriptions SET status = 'canceled', ends_at = NOW(), updated_at = NOW()
+      `UPDATE subscriptions
+          SET status = 'canceled', ends_at = NOW(), cancel_at_period_end = FALSE, updated_at = NOW()
         WHERE id = $1 RETURNING *`,
       [subscriptionId],
     );
@@ -671,6 +673,47 @@ export const cancelSubscription = async (actorId, subscriptionId, isAdmin = true
     if (isAdmin) await audit(client, actorId, 'subscription.canceled', 'subscription', subscriptionId,
       subscriptionSnapshot(before), subscriptionSnapshot(after));
     return success(200, { subscription: subscriptionSnapshot(after) });
+  });
+};
+
+export const cancelMySubscription = async (userId, subscriptionId) => {
+  if (!validId(subscriptionId)) return fail(400, 'Identificador de assinatura inválido.');
+  return transaction(async (client) => {
+    const result = await client.query(
+      'SELECT * FROM subscriptions WHERE id = $1 AND user_id = $2 FOR UPDATE',
+      [subscriptionId, userId],
+    );
+    if (!result.rowCount) return fail(404, 'Assinatura não encontrada.');
+    const before = result.rows[0];
+    if (before.status !== 'active') return fail(409, 'Somente uma assinatura ativa pode ter a renovação cancelada.');
+    if (before.cancel_at_period_end) return fail(409, 'A renovação desta assinatura já foi cancelada.');
+
+    const changed = await client.query(
+      `UPDATE subscriptions
+          SET status = 'canceled',
+              ends_at = COALESCE(ends_at, renews_at),
+              cancel_at_period_end = TRUE,
+              updated_at = NOW()
+        WHERE id = $1 AND user_id = $2
+          AND COALESCE(ends_at, renews_at) > NOW()
+        RETURNING *`,
+      [subscriptionId, userId],
+    );
+    if (!changed.rowCount) {
+      return fail(409, 'Não foi possível determinar uma data futura para encerrar o período desta assinatura.');
+    }
+
+    const after = changed.rows[0];
+    await client.query(
+      `INSERT INTO subscription_history
+         (subscription_id, actor_user_id, action, before_data, after_data)
+       VALUES ($1, $2, 'cancel_at_period_end', $3::jsonb, $4::jsonb)`,
+      [subscriptionId, userId, JSON.stringify(subscriptionSnapshot(before)), JSON.stringify(subscriptionSnapshot(after))],
+    );
+    return success(200, {
+      subscription: subscriptionSnapshot(after),
+      message: 'A renovação foi cancelada. Seu acesso Premium continua até o fim do período atual.',
+    });
   });
 };
 
@@ -942,14 +985,17 @@ export const changePermission = async (actorId, userId, permission, granted) => 
 
 export const listMySubscriptions = async (userId) => {
   const result = await pool.query(
-    `SELECT s.*, p.slug AS plan_slug
+    `SELECT s.*,
+            CASE WHEN s.status = 'active' AND s.ends_at IS NOT NULL AND s.ends_at <= NOW()
+                 THEN 'expired' ELSE s.status END AS effective_status,
+            p.slug AS plan_slug
        FROM subscriptions s JOIN plans p ON p.id = s.plan_id
       WHERE s.user_id = $1
       ORDER BY s.created_at DESC, s.id DESC`,
     [userId],
   );
   return success(200, { subscriptions: result.rows.map((row) => ({
-    ...subscriptionSnapshot(row), planSlug: row.plan_slug,
+    ...subscriptionSnapshot(row), status: row.effective_status ?? row.status, planSlug: row.plan_slug,
   })) });
 };
 
