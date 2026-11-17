@@ -2209,31 +2209,269 @@ class AppController {
     const modal = document.createElement('div');
     modal.className = 'modal-backdrop';
     modal.setAttribute('role', 'presentation');
-    const fields = Object.entries(character.data || {});
-    const stringifyValue = (value: unknown): string => {
-      if (typeof value === 'string') return value;
-      if (value === null || value === undefined) return '—';
-      return JSON.stringify(value, null, 2) ?? String(value);
+    const data = character.data || {};
+    const usedKeys = new Set<string>();
+    type SheetField = { key: string; label: string; aliases?: string[] };
+    type SheetSection = { title: string; fields: SheetField[]; kind?: 'stats' | 'attributes' };
+    const dnd = character.system?.slug === 'dungeons-and-dragons'
+      || character.system?.name.toLocaleLowerCase().includes('d&d')
+      || character.system?.name.toLocaleLowerCase().includes('dungeons');
+    const coc = character.system?.slug === 'call-of-cthulhu'
+      || character.system?.name.toLocaleLowerCase().includes('cthulhu');
+    const vampire = character.system?.slug === 'vampiro-a-mascara'
+      || character.system?.name.toLocaleLowerCase().includes('vampiro')
+      || character.system?.name.toLocaleLowerCase().includes('vampire');
+    const systemClass = dnd ? 'dnd' : coc ? 'coc' : vampire ? 'vampire' : 'generic';
+    const valueFor = (field: SheetField): unknown => {
+      const candidates = [
+        field.key,
+        ...(field.aliases || []),
+        `inline-coc-${field.key}`,
+        `coc-${field.key}`,
+        `inline-vampire-${field.key}`,
+        `vampire-${field.key}`,
+        `inline-dnd-${field.key}`,
+        `guided-dnd-${field.key}`,
+      ];
+      const key = candidates.find(candidate =>
+        Object.hasOwn(data, candidate) && data[candidate] !== '' && data[candidate] !== null && data[candidate] !== undefined,
+      );
+      if (!key) return undefined;
+      usedKeys.add(key);
+      return data[key];
     };
+    const displayValue = (value: unknown): string => {
+      if (typeof value === 'string') return value.trim() || '—';
+      if (value === null || value === undefined) return '—';
+      if (Array.isArray(value)) return value.map(item => String(item)).join(' · ');
+      if (typeof value === 'object') return JSON.stringify(value, null, 2) ?? String(value);
+      return String(value);
+    };
+    const renderFields = (fields: SheetField[], kind: 'stats' | 'attributes' | 'text' = 'text'): string => {
+      const values = fields.flatMap(field => {
+        const value = valueFor(field);
+        return value === undefined ? [] : [{ field, value }];
+      });
+      if (!values.length) return '';
+      return `<div class="campaign-sheet-fields campaign-sheet-fields-${kind}">
+        ${values.map(({ field, value }) => `
+          <article class="campaign-sheet-field">
+            <span class="campaign-sheet-field-label">${this.escapeHtml(field.label)}</span>
+            <strong class="campaign-sheet-field-value">${this.escapeHtml(displayValue(value))}</strong>
+          </article>
+        `).join('')}
+      </div>`;
+    };
+    const renderSections = (sections: SheetSection[]): string => sections.map(section => {
+      const contents = renderFields(section.fields, section.kind || 'text');
+      return contents ? `
+        <section class="campaign-sheet-section">
+          <h3>${this.escapeHtml(section.title)}</h3>
+          ${contents}
+        </section>
+      ` : '';
+    }).join('');
+    const dndAttributes: SheetField[] = [
+      { key: 'strength', label: 'Força', aliases: ['dnd-str'] },
+      { key: 'dexterity', label: 'Destreza', aliases: ['dnd-dex'] },
+      { key: 'constitution', label: 'Constituição', aliases: ['dnd-con'] },
+      { key: 'intelligence', label: 'Inteligência', aliases: ['dnd-int'] },
+      { key: 'wisdom', label: 'Sabedoria', aliases: ['dnd-wis'] },
+      { key: 'charisma', label: 'Carisma', aliases: ['dnd-cha'] },
+    ];
+    const cocCharacteristics: SheetField[] = [
+      { key: 'str', label: 'Força (FOR)' },
+      { key: 'con', label: 'Constituição (CON)' },
+      { key: 'siz', label: 'Tamanho (TAM)' },
+      { key: 'dex', label: 'Destreza (DES)' },
+      { key: 'app', label: 'Aparência (APA)' },
+      { key: 'int', label: 'Inteligência (INT)' },
+      { key: 'pow', label: 'Poder (POD)' },
+      { key: 'edu', label: 'Educação (EDU)' },
+      { key: 'luck', label: 'Sorte' },
+    ];
+    const vampireAttributes: SheetField[] = [
+      { key: 'strength', label: 'Força', aliases: ['physical-strength'] },
+      { key: 'dexterity', label: 'Destreza', aliases: ['physical-dexterity'] },
+      { key: 'stamina', label: 'Vigor', aliases: ['physical-stamina'] },
+      { key: 'charisma', label: 'Carisma', aliases: ['social-charisma'] },
+      { key: 'manipulation', label: 'Manipulação', aliases: ['social-manipulation'] },
+      { key: 'composure', label: 'Compostura', aliases: ['social-composure'] },
+      { key: 'intelligence', label: 'Inteligência', aliases: ['mental-intelligence'] },
+      { key: 'wits', label: 'Raciocínio', aliases: ['mental-wits'] },
+      { key: 'resolve', label: 'Determinação', aliases: ['mental-resolve'] },
+    ];
+    const internalDataKeys = new Set([
+      'backendId',
+      'backendIdsByWorkspace',
+      'id',
+      'idPersonagem',
+      'syncStatus',
+      'localVersion',
+      'createdAt',
+      'updatedAt',
+      'dataCriacao',
+      'name',
+    ]);
+    const sections: SheetSection[] = dnd ? [
+      {
+        title: 'Identidade',
+        fields: [
+          { key: 'playerName', label: 'Jogador', aliases: ['dnd-player'] },
+          { key: 'class', label: 'Classe', aliases: ['dnd-class'] },
+          { key: 'level', label: 'Nível', aliases: ['dnd-level'] },
+          { key: 'race', label: 'Raça', aliases: ['dnd-race'] },
+          { key: 'background', label: 'Antecedente', aliases: ['dnd-background'] },
+          { key: 'alignment', label: 'Alinhamento', aliases: ['dnd-alignment'] },
+          { key: 'experiencePoints', label: 'Experiência', aliases: ['dnd-xp'] },
+        ],
+      },
+      { title: 'Atributos', fields: dndAttributes, kind: 'attributes' },
+      {
+        title: 'Combate e sobrevivência',
+        kind: 'stats',
+        fields: [
+          { key: 'armorClass', label: 'Classe de armadura', aliases: ['dnd-ac'] },
+          { key: 'initiative', label: 'Iniciativa', aliases: ['dnd-initiative'] },
+          { key: 'speed', label: 'Deslocamento', aliases: ['dnd-speed'] },
+          { key: 'maxHitPoints', label: 'PV máximos', aliases: ['dnd-hp'] },
+          { key: 'currentHitPoints', label: 'PV atuais', aliases: ['dnd-current-hp'] },
+          { key: 'temporaryHitPoints', label: 'PV temporários', aliases: ['dnd-temp-hp'] },
+          { key: 'hitDice', label: 'Dados de vida', aliases: ['dnd-hit-dice'] },
+          { key: 'proficiencyBonus', label: 'Bônus de proficiência', aliases: ['dnd-proficiency'] },
+        ],
+      },
+      {
+        title: 'Perícias e salvaguardas',
+        fields: [{ key: 'skillsAndSavingThrows', label: 'Perícias', aliases: ['dnd-skills'] }],
+      },
+      {
+        title: 'Ataques e conjuração',
+        fields: [
+          { key: 'attacksAndSpellcasting', label: 'Ataques', aliases: ['dnd-attacks'] },
+          { key: 'spellsAndSlots', label: 'Magias e espaços', aliases: ['dnd-spells'] },
+        ],
+      },
+      {
+        title: 'Equipamento e personalidade',
+        fields: [
+          { key: 'equipmentAndTreasure', label: 'Equipamentos', aliases: ['dnd-equipment'] },
+          { key: 'personalityIdealsBondsFlaws', label: 'Traços, ideais, vínculos e fraquezas', aliases: ['dnd-personality'] },
+          { key: 'historyAlliesOrganizations', label: 'História e aliados', aliases: ['dnd-backstory', 'guided-dnd-story'] },
+          { key: 'guidedGoal', label: 'Objetivo', aliases: ['dnd-goal'] },
+          { key: 'description', label: 'Descrição' },
+        ],
+      },
+    ] : coc ? [
+      {
+        title: 'Investigador',
+        fields: [
+          { key: 'player', label: 'Jogador' },
+          { key: 'occupation', label: 'Ocupação' },
+          { key: 'age', label: 'Idade' },
+          { key: 'sex', label: 'Sexo' },
+          { key: 'residence', label: 'Residência' },
+          { key: 'birthplace', label: 'Local de nascimento' },
+          { key: 'concept', label: 'Conceito' },
+          { key: 'description', label: 'Descrição' },
+        ],
+      },
+      { title: 'Características', fields: cocCharacteristics, kind: 'attributes' },
+      {
+        title: 'Recursos e combate',
+        kind: 'stats',
+        fields: [
+          { key: 'hp', label: 'Pontos de vida' },
+          { key: 'sanity', label: 'Sanidade (SAN)' },
+          { key: 'mp', label: 'Pontos de magia' },
+          { key: 'move', label: 'Movimento' },
+          { key: 'build', label: 'Construção' },
+          { key: 'damage', label: 'Bônus de dano' },
+        ],
+      },
+      { title: 'Perícias', fields: [{ key: 'skills', label: 'Perícias e valores' }] },
+      { title: 'Histórico', fields: [{ key: 'backstory', label: 'Antecedentes e anotações' }, { key: 'goal', label: 'Objetivo' }] },
+      { title: 'Posses', fields: [{ key: 'equipment', label: 'Equipamentos e objetos' }, { key: 'finances', label: 'Dinheiro e recursos' }] },
+    ] : vampire ? [
+      {
+        title: 'Identidade e crônica',
+        fields: [
+          { key: 'player', label: 'Jogador' },
+          { key: 'chronicle', label: 'Crônica' },
+          { key: 'concept', label: 'Conceito' },
+          { key: 'clan', label: 'Clã' },
+          { key: 'generation', label: 'Geração' },
+          { key: 'sire', label: 'Senhor' },
+          { key: 'predator', label: 'Tipo de predador' },
+          { key: 'ambition', label: 'Ambição' },
+          { key: 'desire', label: 'Desejo' },
+          { key: 'description', label: 'Descrição' },
+        ],
+      },
+      { title: 'Atributos', fields: vampireAttributes, kind: 'attributes' },
+      {
+        title: 'Recursos',
+        kind: 'stats',
+        fields: [
+          { key: 'health', label: 'Saúde' },
+          { key: 'willpower', label: 'Força de vontade' },
+          { key: 'humanity', label: 'Humanidade' },
+          { key: 'hunger', label: 'Fome' },
+          { key: 'stains', label: 'Manchas' },
+          { key: 'blood-potency', label: 'Potência de sangue', aliases: ['bloodPotency'] },
+          { key: 'resonance', label: 'Ressonância' },
+        ],
+      },
+      { title: 'Habilidades e disciplinas', fields: [{ key: 'abilities', label: 'Habilidades' }, { key: 'disciplines', label: 'Disciplinas' }, { key: 'advantages', label: 'Vantagens e defeitos' }] },
+      { title: 'História e âncoras', fields: [{ key: 'touchstones', label: 'Âncoras e convicções' }, { key: 'backstory', label: 'História da crônica' }] },
+    ] : [
+      {
+        title: 'Informações da ficha',
+        fields: Object.keys(data)
+          .filter(key => !internalDataKeys.has(key))
+          .map(key => ({
+            key,
+            label: key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' '),
+          })),
+      },
+    ];
+    const content = renderSections(sections);
+    const extraFields = Object.entries(data).filter(([key, value]) =>
+      !usedKeys.has(key)
+      && !internalDataKeys.has(key)
+      && value !== null
+      && value !== '',
+    );
+    const extras = extraFields.length ? `
+      <details class="campaign-sheet-extras">
+        <summary>Outros detalhes da ficha <span>${extraFields.length}</span></summary>
+        <div class="campaign-sheet-fields campaign-sheet-fields-text">
+          ${extraFields.map(([key, value]) => `
+            <article class="campaign-sheet-field">
+              <span class="campaign-sheet-field-label">${this.escapeHtml(key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' '))}</span>
+              <strong class="campaign-sheet-field-value">${this.escapeHtml(displayValue(value))}</strong>
+            </article>
+          `).join('')}
+        </div>
+      </details>
+    ` : '';
     modal.innerHTML = `
-      <section class="modal-content glass-card" role="dialog" aria-modal="true" aria-labelledby="campaign-character-sheet-title" style="max-width:900px;padding:24px;">
-        <div class="modal-header">
-          <div>
+      <section class="modal-content glass-card campaign-character-sheet-modal campaign-sheet-${systemClass}" role="dialog" aria-modal="true" aria-labelledby="campaign-character-sheet-title">
+        <header class="campaign-sheet-header">
+          <div class="campaign-sheet-brand">
+            <span class="campaign-sheet-eyebrow">Ficha do personagem</span>
             <h2 id="campaign-character-sheet-title">${this.escapeHtml(character.name)}</h2>
-            <p class="field-help">${this.escapeHtml(character.system?.name || 'Sistema não informado')} · Jogador: ${this.escapeHtml(character.ownerName || 'Não informado')}</p>
+            <div class="campaign-sheet-meta">
+              <span>${this.escapeHtml(character.system?.name || 'Sistema não informado')}</span>
+              <span>Jogador: ${this.escapeHtml(character.ownerName || 'Não informado')}</span>
+            </div>
           </div>
           <button type="button" class="btn-icon btn-close-campaign-character-sheet" aria-label="Fechar ficha">✕</button>
+        </header>
+        <div class="campaign-sheet-body">
+          ${content || '<p class="campaign-sheet-empty">Esta ficha ainda não possui informações preenchidas.</p>'}
+          ${extras}
         </div>
-        ${fields.length ? `
-          <dl style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:18px;">
-            ${fields.map(([key, value]) => `
-              <div class="glass-card" style="padding:12px;min-width:0;">
-                <dt class="field-help">${this.escapeHtml(key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' '))}</dt>
-                <dd style="margin-top:5px;white-space:pre-wrap;overflow-wrap:anywhere;">${this.escapeHtml(stringifyValue(value))}</dd>
-              </div>
-            `).join('')}
-          </dl>
-        ` : '<p class="field-help" style="margin-top:18px;">Esta ficha não possui informações adicionais.</p>'}
       </section>
     `;
     const close = () => {
