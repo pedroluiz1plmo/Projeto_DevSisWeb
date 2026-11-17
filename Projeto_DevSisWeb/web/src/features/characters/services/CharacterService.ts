@@ -74,8 +74,18 @@ export class CharacterService {
     return body.character;
   }
 
-  public static async atualizar(id: string, payload: CharacterPayload, token: string): Promise<ApiCharacter> {
-    const body = await this.request<{ character: ApiCharacter }>(`/characters/${id}`, token, { method: 'PUT', body: JSON.stringify(payload) });
+  public static async atualizar(
+    id: string,
+    payload: CharacterPayload,
+    token: string,
+    workspaceType?: 'player' | 'master',
+  ): Promise<ApiCharacter> {
+    const body = await this.request<{ character: ApiCharacter }>(
+      `/characters/${id}`,
+      token,
+      { method: 'PUT', body: JSON.stringify(payload) },
+      workspaceType,
+    );
     return body.character;
   }
 

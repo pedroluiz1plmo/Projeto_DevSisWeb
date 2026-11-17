@@ -1205,18 +1205,119 @@ class AppController {
       this.setStorageError(error);
       return;
     }
-    if (this.authToken && personagem && personagem.backendId) {
-      const sistema = this.obterSistemaBackend(personagem.sistema);
-      if (sistema) {
-        try {
-          const data = JSON.parse(JSON.stringify(personagem)) as Record<string, unknown>;
-          delete data.backendId;
-          delete data.backendIdsByWorkspace;
-          await CharacterService.atualizar(personagem.backendId, { name: personagem.nomePersonagem, systemId: sistema.id, data }, this.authToken);
-        } catch (error) {
-          console.warn('Falha ao sincronizar personagem:', error);
+    if (this.authToken && personagem) {
+      const currentWorkspace = StorageService.workspaceType();
+      const copies = new Map<'player' | 'master', string>();
+      for (const [workspace, characterId] of Object.entries(personagem.backendIdsByWorkspace || {})) {
+        if (
+          (workspace === 'player' || workspace === 'master') &&
+          typeof characterId === 'string' &&
+          characterId.length > 0
+        ) {
+          copies.set(workspace, characterId);
         }
       }
+      if (
+        !copies.has(currentWorkspace) &&
+        personagem.backendId &&
+        !Array.from(copies.values()).includes(personagem.backendId)
+      ) {
+        copies.set(currentWorkspace, personagem.backendId);
+      }
+
+      if (copies.size > 0) {
+        const sistema = this.obterSistemaBackend(personagem.sistema);
+        if (!sistema) {
+          console.error(`Sistema "${personagem.sistema}" não encontrado no catálogo remoto.`);
+          this.showToast(
+            'A ficha foi salva localmente, mas o sistema não está disponível para sincronização.',
+            'falha',
+          );
+          return;
+        }
+        const data = JSON.parse(JSON.stringify(personagem)) as Record<string, unknown>;
+        delete data.backendId;
+        delete data.backendIdsByWorkspace;
+        const payload = {
+          name: personagem.nomePersonagem,
+          systemId: sistema.id,
+          data,
+        };
+        const failedCopies: Array<'player' | 'master'> = [];
+        for (const [workspace, characterId] of copies) {
+          try {
+            await CharacterService.atualizar(
+              characterId,
+              payload,
+              this.authToken,
+              workspace,
+            );
+          } catch (error) {
+            console.error(
+              `Falha ao atualizar a cópia da ficha no workspace ${workspace}.`,
+              error,
+            );
+            failedCopies.push(workspace);
+          }
+        }
+        if (failedCopies.length) {
+          this.showToast(
+            'A ficha foi salva localmente, mas não foi sincronizada em todos os workspaces. Salve novamente para tentar.',
+            'falha',
+          );
+        }
+      }
+    }
+  }
+
+  private async sincronizarFichaDeCampanha(ficha: SistemaPasta): Promise<void> {
+    if (!this.authToken) return;
+    const copies = Object.entries(ficha.backendIdsByWorkspace || {})
+      .filter((entry): entry is ['player' | 'master', string] =>
+        typeof entry[1] === 'string' && entry[1].length > 0)
+      .map(([workspace, id]) => [workspace, id] as const);
+    if (!copies.length) return;
+
+    let system = this.obterSistemaBackend(ficha.sistema);
+    if (!system) {
+      await this.carregarSistemasBackend();
+      system = this.obterSistemaBackend(ficha.sistema);
+    }
+    if (!system) {
+      this.showToast(
+        `Não foi possível sincronizar "${ficha.nome}": o sistema não está disponível na API.`,
+        'falha',
+      );
+      return;
+    }
+
+    const payload = {
+      name: ficha.nome,
+      systemId: system.id,
+      data: { ...(ficha.dados || {}), description: ficha.descricao },
+    };
+    const failedCopies: string[] = [];
+    for (const [workspace, characterId] of copies) {
+      try {
+        await CharacterService.atualizar(
+          characterId,
+          payload,
+          this.authToken,
+          workspace,
+        );
+      } catch (error) {
+        console.error(
+          `Falha ao atualizar a cópia da ficha "${ficha.nome}" no workspace ${workspace}.`,
+          error,
+        );
+        failedCopies.push(workspace);
+      }
+    }
+    if (failedCopies.length) {
+      this.showToast(
+        `A ficha "${ficha.nome}" foi salva localmente, mas não foi sincronizada em todos os workspaces. Salve novamente para tentar.`,
+        'falha',
+      );
     }
   }
 
@@ -3147,6 +3248,7 @@ class AppController {
         this.fichaSistemaEmEdicaoId = fichaSalva.id;
         this.criandoFichaSistema = false;
         this.sistemaFichaEmCriacao = null;
+        void this.sincronizarFichaDeCampanha(fichaSalva);
         this.showToast('Ficha salva com sucesso.');
         this.renderCurrentView();
       });
