@@ -49,16 +49,24 @@ class PayloadTooLargeError extends Error {
 
 const readBody = (request) => new Promise((resolve, reject) => {
   let raw = '';
+  let rawSize = 0;
+  let tooLarge = false;
+  const supportTicketRequest = new URL(request.url, 'http://localhost').pathname === '/api/support/tickets';
+  const maxBodySize = supportTicketRequest ? 8 * 1024 * 1024 : 1e6;
 
   request.on('data', (chunk) => {
-    raw += chunk;
-
-    if (raw.length > 1e6) {
+    if (tooLarge) return;
+    rawSize += chunk.length;
+    if (rawSize > maxBodySize) {
+      tooLarge = true;
       reject(new PayloadTooLargeError());
+      return;
     }
+    raw += chunk;
   });
 
   request.on('end', () => {
+    if (tooLarge) return;
     try {
       resolve(raw ? JSON.parse(raw) : {});
     } catch {

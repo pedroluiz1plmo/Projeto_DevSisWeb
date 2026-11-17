@@ -519,6 +519,11 @@
           <label for="support-ticket-description">Descreva o problema</label>
           <textarea id="support-ticket-description" class="form-control" rows="5" maxlength="5000" required></textarea>
         </div>
+        <div class="form-group">
+          <label for="support-ticket-images">Imagens (opcional)</label>
+          <input id="support-ticket-images" class="form-control" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" multiple />
+          <small class="support-ticket-file-help">Até 3 imagens JPG ou PNG, com no máximo 2 MB cada (5 MB no total).</small>
+        </div>
         <p id="support-ticket-error" class="auth-error hidden" role="alert"></p>
         <p id="support-ticket-success" class="auth-success hidden" role="status"></p>
         <div class="account-settings-actions">

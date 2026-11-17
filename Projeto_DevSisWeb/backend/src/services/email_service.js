@@ -337,7 +337,7 @@ export const isSupportTicketEmailConfigured = () => {
   return Boolean(settings && recipient && !/[\r\n]/.test(recipient));
 };
 
-export const sendSupportTicketEmail = async ({ name, email, category, subject, description }) => {
+export const sendSupportTicketEmail = async ({ name, email, category, subject, description, attachments = [] }) => {
   const settings = smtpSettings();
   const recipient = process.env.SUPPORT_EMAIL?.trim() || settings?.auth.user?.trim();
   if (!settings || !recipient || /[\r\n]/.test(recipient)) {
@@ -352,6 +352,11 @@ export const sendSupportTicketEmail = async ({ name, email, category, subject, d
     to: recipient,
     replyTo: email,
     subject: `Chamado do site: ${subject}`,
+    attachments: attachments.map(({ filename, contentType, content }) => ({
+      filename,
+      contentType,
+      content,
+    })),
     text: [
       'Novo chamado recebido pelo RPG Manager',
       '',

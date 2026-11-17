@@ -1730,12 +1730,31 @@ class AppController {
     const errorElement = document.getElementById('support-ticket-error');
     const successElement = document.getElementById('support-ticket-success');
     const submit = document.getElementById('btn-submit-support-ticket') as HTMLButtonElement | null;
+    const imageInput = document.getElementById('support-ticket-images') as HTMLInputElement;
+    const files = Array.from(imageInput.files || []);
+    const maxImageBytes = 2 * 1024 * 1024;
+    const maxTotalImageBytes = 5 * 1024 * 1024;
+    const totalImageBytes = files.reduce((total, file) => total + file.size, 0);
+    const allowedImages = files.every(file => {
+      const extension = file.name.match(/\.(jpe?g|png)$/i)?.[1]?.toLowerCase();
+      return (file.type === 'image/jpeg' && (extension === 'jpg' || extension === 'jpeg'))
+        || (file.type === 'image/png' && extension === 'png');
+    });
+    if (files.length > 3 || files.some(file => file.size > maxImageBytes) || totalImageBytes > maxTotalImageBytes || !allowedImages) {
+      if (errorElement) {
+        errorElement.textContent = 'Anexe até 3 imagens JPG ou PNG, com no máximo 2 MB cada e 5 MB no total.';
+        errorElement.classList.remove('hidden');
+      }
+      return;
+    }
+
     const payload = {
       name: (document.getElementById('support-ticket-name') as HTMLInputElement).value.trim(),
       email: (document.getElementById('support-ticket-email') as HTMLInputElement).value.trim(),
       category: (document.getElementById('support-ticket-category') as HTMLSelectElement).value,
       subject: (document.getElementById('support-ticket-subject') as HTMLInputElement).value.trim(),
       description: (document.getElementById('support-ticket-description') as HTMLTextAreaElement).value.trim(),
+      attachments: [] as Array<{ name: string; mimeType: string; content: string }>,
     };
 
     errorElement?.classList.add('hidden');
@@ -1746,6 +1765,14 @@ class AppController {
     }
 
     try {
+      payload.attachments = await Promise.all(files.map(async file => {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = '';
+        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+        }
+        return { name: file.name, mimeType: file.type, content: btoa(binary) };
+      }));
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.authToken) headers.Authorization = `Bearer ${this.authToken}`;
       const response = await fetch('http://localhost:3000/api/support/tickets', {
