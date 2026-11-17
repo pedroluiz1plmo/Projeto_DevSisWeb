@@ -835,6 +835,7 @@ body {
 }
 .storage-status.is-offline { border-color: rgba(251, 191, 36, .45); color: #fde68a; }
 .storage-status.is-error { border-color: rgba(248, 113, 113, .55); color: #fecaca; }
+.storage-status.is-guest { border-color: rgba(165, 180, 252, .5); color: #c7d2fe; }
 
 /* Página pública */
 .public-header {
@@ -897,7 +898,7 @@ body {
 }
 
 /* Seleção de perfil */
-.role-selection-backdrop { z-index: 3000; padding: 20px; }
+.role-selection-backdrop { z-index: 5000; padding: 20px; }
 .role-selection-modal { max-width: 680px; padding: 32px; text-align: center; border: 1px solid var(--border-active); box-shadow: var(--shadow-card), 0 0 45px var(--primary-glow); }
 .role-selection-symbol { font-size: 2.2rem; margin-bottom: 8px; }
 .role-selection-modal h2 { font-family: var(--font-title); font-size: clamp(1.3rem, 4vw, 1.8rem); }

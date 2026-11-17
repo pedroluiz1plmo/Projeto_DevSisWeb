@@ -83,6 +83,7 @@ const formHasChanges = (form: HTMLFormElement): boolean =>
 class AppController {
   private authToken: string | null = null;
   private authenticatedUser: AuthenticatedUser | null = null;
+  private isGuestSession = false;
   private isOfflineSession = false;
   private networkOnline = navigator.onLine;
   private pendingOnlineSession: { user: AuthenticatedUser; token: string } | null = null;
@@ -249,10 +250,13 @@ class AppController {
     status.classList.toggle('is-offline', !this.networkOnline || this.isOfflineSession);
     status.classList.toggle('is-error', Boolean(message));
     label.textContent = message || (
-      this.authToken && this.networkOnline
+      this.isGuestSession
+        ? 'Modo visitante · dados salvos somente neste dispositivo · recursos sociais indisponíveis'
+        : this.authToken && this.networkOnline
         ? 'Conectado · armazenamento local criptografado'
         : 'Acesso local · os dados ficam neste dispositivo; sincronização completa ainda não está disponível'
     );
+    status.classList.toggle('is-guest', this.isGuestSession);
   }
 
   private setStorageError(error: unknown): void {
@@ -284,6 +288,7 @@ class AppController {
       });
       if (response.status === 401 || response.status === 403) {
         sessionStorage.removeItem('rpgHubAuthToken');
+        sessionStorage.removeItem('rpgGuestModeActive');
         if (this.authToken === token) this.authToken = null;
         this.isOfflineSession = StorageService.isUnlocked;
         this.updateStorageStatus();
@@ -836,6 +841,7 @@ class AppController {
     document.getElementById('btn-public-register')?.addEventListener('click', () => showScreen('auth-register-form'));
     document.getElementById('btn-public-hero-login')?.addEventListener('click', () => showScreen('auth-login-form'));
     document.getElementById('btn-public-hero-register')?.addEventListener('click', () => showScreen('auth-register-form'));
+    document.getElementById('btn-public-guest')?.addEventListener('click', () => this.openRoleSelection(true));
     document.getElementById('btn-public-support-ticket')?.addEventListener('click', () => this.openSupportTicket());
     document.getElementById('btn-login-register')?.addEventListener('click', () => showScreen('auth-register-form'));
     document.getElementById('btn-register-login')?.addEventListener('click', () => showScreen('auth-login-form'));
@@ -1009,6 +1015,8 @@ class AppController {
   }
 
   private async setAuthenticatedUser(user: AuthenticatedUser, token: string, password: string): Promise<void> {
+    this.isGuestSession = false;
+    sessionStorage.removeItem('rpgGuestModeActive');
     await StorageService.initializeOnline({
       userId: String(user.id),
       name: user.name,
@@ -1128,6 +1136,7 @@ class AppController {
       }
 
       this.authToken = pending && this.networkOnline ? pending.token : null;
+      this.isGuestSession = false;
       this.authenticatedUser = user;
       this.isOfflineSession = !this.authToken;
       this.userRole = StorageService.carregarPerfil() || 'jogador';
@@ -1358,7 +1367,13 @@ class AppController {
 
   private async restoreAuthenticatedSession(): Promise<void> {
     const token = sessionStorage.getItem('rpgHubAuthToken');
-    if (!token || !this.networkOnline) return;
+    if (!token) {
+      if (sessionStorage.getItem('rpgGuestModeActive') === 'true') {
+        await this.startGuestSession();
+      }
+      return;
+    }
+    if (!this.networkOnline) return;
 
     try {
       const response = await fetch('http://localhost:3000/api/auth/me', {
@@ -1381,6 +1396,50 @@ class AppController {
     }
   }
 
+  private async startGuestSession(role?: UserRole): Promise<void> {
+    const roleButtons = document.querySelectorAll<HTMLButtonElement>('#role-selection-modal [data-role]');
+    roleButtons.forEach(button => {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+    });
+
+    try {
+      const profile = await StorageService.initializeGuest(role);
+      this.authToken = null;
+      this.authenticatedUser = {
+        id: 0,
+        name: profile.name,
+        username: profile.username,
+      };
+      this.isGuestSession = true;
+      this.isOfflineSession = true;
+      this.userRole = StorageService.carregarPerfil() || 'jogador';
+      sessionStorage.setItem('rpgGuestModeActive', 'true');
+      await this.initializePrivateArea();
+      this.renderAuthenticatedUser();
+      document.getElementById('app')?.classList.remove('hidden');
+      document.getElementById('auth-gateway')?.classList.add('hidden');
+      document.getElementById('role-selection-modal')?.remove();
+      this.updateStorageStatus();
+    } catch (error) {
+      sessionStorage.removeItem('rpgGuestModeActive');
+      const message = error instanceof Error
+        ? error.message
+        : 'Não foi possível iniciar o modo visitante.';
+      this.setStorageError(error);
+      const explanation = document.querySelector<HTMLElement>('#role-selection-modal .role-selection-modal > p');
+      if (explanation) {
+        explanation.textContent = `${message} Verifique se o armazenamento do navegador está disponível e tente novamente.`;
+        explanation.setAttribute('role', 'alert');
+      }
+    } finally {
+      roleButtons.forEach(button => {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+      });
+    }
+  }
+
   private renderAuthenticatedUser(): void {
     const profile = document.getElementById('user-profile-menu');
     const user = this.authenticatedUser;
@@ -1395,8 +1454,15 @@ class AppController {
       avatar.classList.toggle('has-image', Boolean(user.avatarUrl));
     }
     if (name) name.textContent = user.name;
-    if (username) username.textContent = `@${user.username}`;
+    if (username) username.textContent = this.isGuestSession
+      ? 'Modo visitante · apenas neste dispositivo'
+      : `@${user.username}`;
+    const profileSettings = document.getElementById('btn-my-profile');
+    const logoutButton = document.getElementById('btn-user-logout');
+    profileSettings?.classList.toggle('hidden', this.isGuestSession);
+    if (logoutButton) logoutButton.textContent = this.isGuestSession ? '↪ Sair do modo visitante' : '↪ Sair / Logout';
     profile.classList.remove('hidden');
+    this.applyGuestRestrictions();
   }
 
   private getUserInitials(name: string): string {
@@ -1545,6 +1611,7 @@ class AppController {
     } finally {
       this.authToken = null;
       this.authenticatedUser = null;
+      this.isGuestSession = false;
       this.isOfflineSession = false;
       this.pendingOnlineSession = null;
       this.adminIdentity = null;
@@ -1558,7 +1625,7 @@ class AppController {
       document.getElementById('auth-gateway')?.classList.remove('hidden');
       document.getElementById('auth-form-card')?.classList.add('hidden');
       document.querySelectorAll<HTMLElement>('.auth-screen').forEach(screen => screen.classList.toggle('hidden', screen.id !== 'auth-welcome'));
-      this.showToast('Você saiu da sua conta.');
+      this.showToast('Você saiu da sua conta ou do modo visitante.');
     }
   }
 
@@ -1871,13 +1938,15 @@ class AppController {
     }
   }
 
-  private openRoleSelection(): void {
+  private openRoleSelection(guest = false): void {
     document.getElementById('role-selection-modal')?.remove();
-    document.body.insertAdjacentHTML('beforeend', RoleSelectionModal.render());
+    document.body.insertAdjacentHTML('beforeend', RoleSelectionModal.render(guest));
     document.querySelectorAll<HTMLButtonElement>('#role-selection-modal [data-role]').forEach(button => {
       button.addEventListener('click', () => {
         const role = button.dataset.role as UserRole;
-        if (role === 'jogador' || role === 'mestre') this.selectRole(role);
+        if (role !== 'jogador' && role !== 'mestre') return;
+        if (guest) void this.startGuestSession(role);
+        else void this.selectRole(role);
       });
     });
   }
@@ -1916,6 +1985,16 @@ class AppController {
       switchButton.setAttribute('aria-label', 'Alterar visão do sistema');
     }
     this.switchTab(this.currentTab);
+  }
+
+  private applyGuestRestrictions(): void {
+    const guestOnlyHidden = ['nav-my-plan', 'nav-campaign-access', 'nav-friendships'];
+    for (const id of guestOnlyHidden) {
+      document.getElementById(id)?.classList.toggle('hidden', this.isGuestSession);
+    }
+    document.querySelectorAll<HTMLElement>('[data-admin-permission]').forEach(element => {
+      if (this.isGuestSession) element.classList.add('hidden');
+    });
   }
 
   private applyAdminNavigation(): void {
@@ -2605,6 +2684,13 @@ class AppController {
   }
 
   private switchTab(tabName: string): void {
+    if (
+      this.isGuestSession
+      && ['my-plan', 'campaign-access', 'friendships'].includes(tabName)
+    ) {
+      this.showToast('Este recurso exige uma conta cadastrada.');
+      return;
+    }
     if (tabName !== 'campaign-access') void this.stopPlayerQrScanner();
     this.currentTab = tabName;
 

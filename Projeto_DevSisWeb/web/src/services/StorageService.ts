@@ -64,6 +64,8 @@ export type OfflineAccount = {
 
 export class StorageService {
   private static readonly KEY_USER_ROLE = 'rpg_user_role';
+  private static readonly KEY_GUEST_USER_ID = 'rpg_guest_user_id';
+  private static readonly KEY_GUEST_PASSWORD = 'rpg_guest_password';
   private static activeRole: UserRole = 'jogador';
   private static activeUserId: string | null = null;
   private static dataKey: Uint8Array | null = null;
@@ -115,6 +117,46 @@ export class StorageService {
     return workspace;
   }
 
+  public static async initializeGuest(role?: UserRole): Promise<OfflineVaultProfile> {
+    let userId = localStorage.getItem(this.KEY_GUEST_USER_ID);
+    let password = localStorage.getItem(this.KEY_GUEST_PASSWORD);
+    if (!userId || !password) {
+      userId = `guest-${crypto.randomUUID()}`;
+      const randomSecret = crypto.getRandomValues(new Uint8Array(32));
+      password = Array.from(randomSecret, byte => byte.toString(16).padStart(2, '0')).join('');
+      localStorage.setItem(this.KEY_GUEST_USER_ID, userId);
+      localStorage.setItem(this.KEY_GUEST_PASSWORD, password);
+    }
+
+    const activeRole = role
+      || validRole(localStorage.getItem(`${this.KEY_USER_ROLE}_${userId}`))
+      || 'jogador';
+    const workspace = roleToWorkspace(activeRole);
+    const profile: OfflineVaultProfile = {
+      userId,
+      name: 'Visitante',
+      username: 'visitante',
+      lastWorkspace: workspace,
+    };
+    const existing = await IndexedDbLocalStore.getVault(userId);
+    let envelope: OfflineVaultEnvelope;
+    let dataKey: Uint8Array;
+    if (existing) {
+      dataKey = await OfflineVaultCrypto.unlock(existing, password);
+      envelope = { ...existing, ...profile, updatedAt: new Date().toISOString() };
+      await IndexedDbLocalStore.saveVault(envelope);
+    } else {
+      const created = await OfflineVaultCrypto.create(profile, password);
+      envelope = created.envelope;
+      dataKey = created.dataKey;
+      await IndexedDbLocalStore.saveVault(envelope);
+    }
+
+    await this.activate(userId, dataKey, envelope, workspace);
+    localStorage.setItem(`${this.KEY_USER_ROLE}_${userId}`, activeRole);
+    return profile;
+  }
+
   public static async unlockOffline(userId: string, password: string): Promise<OfflineVaultProfile> {
     const envelope = await IndexedDbLocalStore.getVault(userId);
     if (!envelope) throw new Error('Não há cofre local para essa conta neste dispositivo.');
@@ -131,7 +173,9 @@ export class StorageService {
 
   public static async listOfflineAccounts(): Promise<OfflineAccount[]> {
     const vaults = await IndexedDbLocalStore.listVaults();
-    return vaults.map(({ userId, name, username, email }) => ({ userId, name, username, email }));
+    return vaults
+      .filter(({ userId }) => !userId.startsWith('guest-'))
+      .map(({ userId, name, username, email }) => ({ userId, name, username, email }));
   }
 
   private static async activate(
@@ -217,6 +261,10 @@ export class StorageService {
 
   public static get isUnlocked(): boolean {
     return Boolean(this.dataKey && this.activeUserId);
+  }
+
+  public static get isGuest(): boolean {
+    return Boolean(this.activeUserId?.startsWith('guest-'));
   }
 
   public static async preparePasswordRotation(newPassword: string): Promise<OfflineVaultEnvelope> {
