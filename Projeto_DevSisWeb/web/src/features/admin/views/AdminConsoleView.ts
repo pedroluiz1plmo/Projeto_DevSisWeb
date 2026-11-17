@@ -259,18 +259,20 @@ export class AdminConsoleView {
       <td>${escapeHtml(expense.description)}<small>${escapeHtml(expense.category)}</small></td>
       <td>${date(expense.occurredOn)}</td><td>${money(expense.amount, expense.currency)}</td><td>${escapeHtml(expense.status)}</td>
       <td>${canManage && expense.status !== 'void' ? `<button class="btn btn-secondary admin-small-button" data-void-expense="${escapeHtml(expense.id)}">Estornar</button>` : '—'}</td></tr>`);
-    const today = new Date().toISOString().slice(0, 10);
+    const localToday = new Date();
+    localToday.setMinutes(localToday.getMinutes() - localToday.getTimezoneOffset());
+    const today = localToday.toISOString().slice(0, 10);
     return `<div class="admin-view-heading"><div><p class="admin-eyebrow">FINANCEIRO</p><h2>Despesas</h2><p>Registros estornados permanecem no histórico de auditoria.</p></div><button class="btn btn-secondary" data-admin-refresh>Atualizar</button></div>
       ${canManage ? `<form class="admin-form admin-panel admin-expense-form" id="admin-expense-form"><h3>Registrar despesa</h3>
         <div class="admin-form-grid">
           <label>Descrição<input name="description" required maxlength="240"></label>
           <label>Categoria<input name="category" required maxlength="60"></label>
           <label>Valor<input name="amount" required type="number" min="0.01" step="0.01"></label>
-          <label>Moeda<input name="currency" required maxlength="3" pattern="[A-Z]{3}" placeholder="BRL"></label>
+          <label>Moeda<input name="currency" required maxlength="3" pattern="[A-Z]{3}" value="BRL" autocomplete="off" aria-describedby="admin-expense-currency-help"><small id="admin-expense-currency-help">Código ISO de 3 letras, por exemplo BRL ou USD.</small></label>
           <label>Data<input name="occurredOn" required type="date" value="${today}"></label>
           <label>Status<select name="status"><option value="paid">Pago</option><option value="pending">Pendente</option></select></label>
           <label class="admin-form-wide">Observações<textarea name="notes" rows="2" maxlength="4000"></textarea></label>
-        </div><button class="btn btn-primary" type="submit">Registrar</button></form>` : ''}
+        </div><p class="admin-expense-feedback" role="status" aria-live="polite"></p><button class="btn btn-primary" type="submit">Registrar despesa</button></form>` : ''}
       ${table(['Despesa', 'Data', 'Valor', 'Status', 'Ação'], rows)}`;
   }
 
@@ -429,14 +431,33 @@ export class AdminConsoleView {
         }
       });
     });
-    container.querySelector<HTMLFormElement>('#admin-expense-form')?.addEventListener('submit', async (event) => {
+    const expenseForm = container.querySelector<HTMLFormElement>('#admin-expense-form');
+    const currencyInput = expenseForm?.elements.namedItem('currency');
+    if (currencyInput instanceof HTMLInputElement) {
+      currencyInput.addEventListener('input', () => {
+        currencyInput.value = currencyInput.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
+      });
+    }
+    expenseForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const values = new FormData(event.currentTarget as HTMLFormElement);
+      const form = event.currentTarget as HTMLFormElement;
+      const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+      const feedback = form.querySelector<HTMLElement>('.admin-expense-feedback');
+      const values = new FormData(form);
+      if (submitButton) submitButton.disabled = true;
+      if (feedback) {
+        feedback.classList.remove('admin-expense-feedback-error');
+        feedback.textContent = 'Salvando despesa…';
+      }
       try {
         await AdminService.saveExpense(token, null, Object.fromEntries(values.entries()));
         await this.render(container, 'admin-expenses', token, identity);
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Não foi possível registrar a despesa.');
+        if (feedback) {
+          feedback.classList.add('admin-expense-feedback-error');
+          feedback.textContent = error instanceof Error ? error.message : 'Não foi possível registrar a despesa.';
+        }
+        if (submitButton) submitButton.disabled = false;
       }
     });
     container.querySelectorAll<HTMLButtonElement>('[data-void-expense]').forEach((button) => {

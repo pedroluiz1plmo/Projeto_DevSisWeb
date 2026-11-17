@@ -2448,6 +2448,9 @@ body {
 .admin-error p { color: #fecaca; }
 .admin-loading { padding: 30px; text-align: center; color: var(--text-muted); }
 .admin-table pre { max-width: 460px; max-height: 240px; overflow: auto; white-space: pre-wrap; color: var(--text-muted); }
+.admin-expense-feedback { min-height: 1.4em; color: var(--text-muted); }
+.admin-expense-feedback-error { color: #fecaca; }
+.admin-expense-form label small { color: var(--text-dim); font-size: .73rem; }
 
 @media (max-width: 640px) {
   .admin-view-heading, .admin-view-heading > div { flex-direction: column; }
