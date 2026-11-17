@@ -79,6 +79,98 @@ const card = (label: string, value: unknown, detail = ''): string => (
   `<article class="admin-metric-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</article>`
 );
 
+type ChartDatum = { label: string; value: number; color?: string; displayValue?: string };
+
+const chartColors = ['#818cf8', '#34d399', '#fbbf24', '#fb7185', '#38bdf8', '#c084fc'];
+
+const chartNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const chartPanel = (title: string, content: string, description = ''): string => (
+  `<section class="admin-chart-panel"><h3>${escapeHtml(title)}</h3>${description ? `<p>${escapeHtml(description)}</p>` : ''}${content}</section>`
+);
+
+const chartEmpty = '<p class="admin-chart-empty">Sem dados para exibir.</p>';
+
+const renderDonutChart = (title: string, input: ChartDatum[], description = ''): string => {
+  const items = input.map((item, index) => ({
+    ...item,
+    color: item.color || chartColors[index % chartColors.length],
+  }));
+  const total = items.reduce((sum, item) => sum + item.value, 0);
+  if (!total) return chartPanel(title, chartEmpty, description);
+  let accumulated = 0;
+  const gradient = items.map((item) => {
+    const start = accumulated / total * 100;
+    accumulated += item.value;
+    return `${item.color} ${start}% ${accumulated / total * 100}%`;
+  }).join(', ');
+  const legend = items.map((item) => `<li>
+    <span><i style="--chart-color:${item.color}"></i>${escapeHtml(item.label)}</span>
+    <strong>${escapeHtml(item.displayValue ?? decimal(item.value))}</strong>
+  </li>`).join('');
+  const content = `<div class="admin-donut-layout">
+    <div class="admin-donut" role="img" aria-label="${escapeHtml(`${title}: ${items.map((item) => `${item.label} ${item.displayValue ?? decimal(item.value)}`).join(', ')}`)}"
+      style="--donut-gradient:conic-gradient(${gradient})"><span><strong>${escapeHtml(decimal(total))}</strong><small>Total</small></span></div>
+    <ul class="admin-chart-legend">${legend}</ul>
+  </div>`;
+  return chartPanel(title, content, description);
+};
+
+const renderHorizontalChart = (
+  title: string,
+  input: ChartDatum[],
+  description = '',
+): string => {
+  const items = input.map((item) => ({ ...item, value: chartNumber(item.value) }));
+  const max = Math.max(...items.map((item) => item.value), 0);
+  if (!max) return chartPanel(title, chartEmpty, description);
+  const rows = items.map((item, index) => {
+    const color = item.color || chartColors[index % chartColors.length];
+    return `<div class="admin-horizontal-row">
+      <span class="admin-chart-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span>
+      <span class="admin-horizontal-track"><i style="--bar-width:${Math.max(2, item.value / max * 100)}%;--chart-color:${color}"></i></span>
+      <strong>${escapeHtml(item.displayValue ?? decimal(item.value))}</strong>
+    </div>`;
+  }).join('');
+  return chartPanel(title, `<div class="admin-horizontal-chart">${rows}</div>`, description);
+};
+
+const renderVerticalChart = (
+  title: string,
+  input: ChartDatum[],
+  description = '',
+): string => {
+  const items = input.map((item) => ({ ...item, value: chartNumber(item.value) }));
+  const max = Math.max(...items.map((item) => item.value), 0);
+  if (!max) return chartPanel(title, chartEmpty, description);
+  const columns = items.map((item, index) => {
+    const color = item.color || chartColors[index % chartColors.length];
+    const height = item.value ? Math.max(4, item.value / max * 100) : 0;
+    return `<div class="admin-vertical-column">
+      <strong>${escapeHtml(item.displayValue ?? decimal(item.value))}</strong>
+      <span class="admin-vertical-track"><i style="--bar-height:${height}%;--chart-color:${color}"></i></span>
+      <span class="admin-vertical-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span>
+    </div>`;
+  }).join('');
+  return chartPanel(title, `<div class="admin-vertical-chart">${columns}</div>`, description);
+};
+
+const renderFinanceCharts = (finance: Array<Record<string, unknown>>): string => {
+  const panels = finance.map((item) => {
+    const currency = String(item.currency || '');
+    const values: ChartDatum[] = [
+      { label: 'Bruto pago', value: chartNumber(item.gross), displayValue: money(item.gross, currency), color: '#34d399' },
+      { label: 'Despesas pagas', value: chartNumber(item.paidExpenses), displayValue: money(item.paidExpenses, currency), color: '#fb7185' },
+      { label: 'Líquido', value: Math.max(0, chartNumber(item.net)), displayValue: money(item.net, currency), color: '#818cf8' },
+    ];
+    return renderHorizontalChart(`Financeiro · ${currency}`, values, 'Comparação em uma única moeda.');
+  });
+  return panels.length ? panels.join('') : chartPanel('Financeiro', chartEmpty);
+};
+
 const planForm = (plan: AdminPlan | null): string => {
   const disabledPeriod = plan?.slug === 'freemium' ? 'disabled' : '';
   return `<form class="admin-form admin-plan-form" data-plan-id="${plan ? escapeHtml(plan.id) : ''}">
@@ -117,10 +209,32 @@ const renderDashboard = (data: Record<string, unknown>): string => {
   const resourceUsage = dashboard.resourceUsage as Record<string, unknown>;
   const finance = dashboard.financials as Array<Record<string, unknown>>;
   const subscriptionMetrics = dashboard.subscriptionMetrics as Record<string, unknown>;
+  const systemsUsage = dashboard.systemsUsage as Array<Record<string, unknown>>;
   const subscriptionRows = (dashboard.subscriptions as Array<Record<string, unknown>>).map((item) =>
     `<tr><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.count)}</td></tr>`);
   const financialRows = finance.map((item) =>
     `<tr><td>${escapeHtml(item.currency)}</td><td>${money(item.gross, item.currency)}</td><td>${money(item.averageTicket, item.currency)}</td><td>${escapeHtml(item.paidTransactions)}</td><td>${money(item.refunds, item.currency)}</td><td>${money(item.providerFees, item.currency)}</td><td>${money(item.paidExpenses, item.currency)}</td><td>${money(item.net, item.currency)}</td></tr>`);
+  const userStatusItems: ChartDatum[] = [
+    { label: 'Ativos', value: chartNumber(users.active), color: '#34d399' },
+    { label: 'Inativos', value: chartNumber(users.inactive), color: '#fbbf24' },
+    { label: 'Bloqueados', value: chartNumber(users.blocked), color: '#fb7185' },
+  ];
+  const workspaceItems: ChartDatum[] = [
+    { label: 'Jogador', value: chartNumber(spaces.players), color: '#38bdf8' },
+    { label: 'Mestre', value: chartNumber(spaces.masters), color: '#c084fc' },
+  ];
+  const resourceItems: ChartDatum[] = Object.entries(resources)
+    .filter(([key]) => key !== 'total')
+    .map(([key, value]) => ({ label: resourceLabels[key as keyof typeof resourceLabels] || key, value: chartNumber(value) }));
+  const subscriptionItems: ChartDatum[] = (dashboard.subscriptions as Array<Record<string, unknown>>)
+    .map((item) => ({
+      label: subscriptionStatusLabels[String(item.status)] || String(item.status),
+      value: chartNumber(item.count),
+    }));
+  const systemItems: ChartDatum[] = systemsUsage.map((item) => ({
+    label: String(item.name || 'Sistema'),
+    value: chartNumber(item.usage),
+  }));
   return `<div class="admin-view-heading"><div><p class="admin-eyebrow">ADMINISTRAÇÃO</p><h2>Painel geral</h2><p>Atividade recente: ${escapeHtml(dashboard.activityWindowDays)} dias. Jogador e Mestre não são papéis exclusivos.</p></div><button class="btn btn-secondary" data-admin-refresh>Atualizar</button></div>
     <div class="admin-metrics">
       ${card('Contas cadastradas', users.total)}${card('Ativos', users.active, `Janela de ${dashboard.activityWindowDays} dias`)}
@@ -132,6 +246,14 @@ const renderDashboard = (data: Record<string, unknown>): string => {
       ${card('Total de recursos', resourceUsage?.total ?? resources.total ?? 0)}
       ${card('Média de uso por usuário', decimal(resourceUsage?.averagePerUser ?? 0), 'recursos por conta')}
       ${card('Cancelamentos (30 dias)', subscriptionMetrics.canceled30d, `${subscriptionMetrics.cancellationRatePercent}% das novas assinaturas`)}
+    </div>
+    <div class="admin-chart-grid">
+      ${renderDonutChart('Situação das contas', userStatusItems, `Atividade calculada nos últimos ${dashboard.activityWindowDays} dias.`)}
+      ${renderDonutChart('Espaços por perfil', workspaceItems, 'Uma pessoa pode usar os dois espaços.')}
+      ${renderHorizontalChart('Conteúdo cadastrado', resourceItems)}
+      ${renderVerticalChart('Personagens e monstros por sistema', systemItems)}
+      ${renderDonutChart('Assinaturas por status', subscriptionItems)}
+      ${renderFinanceCharts(finance)}
     </div>
     <section class="admin-panel"><h3>Conteúdo cadastrado</h3><div class="admin-metrics admin-metrics-compact">
       ${Object.entries(resources).map(([key, value]) => card(key, value)).join('')}

@@ -2417,6 +2417,35 @@ body {
 .admin-metrics-compact { margin: 0; }
 .admin-panel { margin: 16px 0; }
 .admin-panel h3 { margin-bottom: 12px; }
+.admin-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+.admin-chart-panel { min-width: 0; padding: 18px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-card); }
+.admin-chart-panel h3 { margin-bottom: 4px; }
+.admin-chart-panel > p { color: var(--text-muted); font-size: .82rem; }
+.admin-donut-layout { display: flex; min-height: 220px; align-items: center; justify-content: center; gap: clamp(18px, 4vw, 42px); padding: 16px 0 4px; }
+.admin-donut { display: grid; width: 184px; aspect-ratio: 1; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--donut-gradient); }
+.admin-donut::before { grid-area: 1 / 1; width: 68%; aspect-ratio: 1; border-radius: 50%; background: #111827; content: ''; }
+.admin-donut > span { z-index: 1; grid-area: 1 / 1; display: grid; justify-items: center; }
+.admin-donut > span strong { font-size: 1.45rem; }
+.admin-donut > span small { color: var(--text-muted); }
+.admin-chart-legend { display: grid; min-width: 130px; gap: 11px; list-style: none; }
+.admin-chart-legend li, .admin-chart-legend li > span { display: flex; align-items: center; gap: 8px; }
+.admin-chart-legend li { justify-content: space-between; gap: 16px; font-size: .82rem; }
+.admin-chart-legend li > span { color: var(--text-muted); }
+.admin-chart-legend i { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; background: var(--chart-color); }
+.admin-chart-legend strong { white-space: nowrap; }
+.admin-horizontal-chart { display: grid; gap: 14px; padding: 18px 0 4px; }
+.admin-horizontal-row { display: grid; grid-template-columns: minmax(90px, .75fr) minmax(50px, 1.5fr) auto; align-items: center; gap: 12px; font-size: .82rem; }
+.admin-chart-label { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.admin-horizontal-track { height: 11px; overflow: hidden; border-radius: 99px; background: rgba(148, 163, 184, .14); }
+.admin-horizontal-track i { display: block; width: var(--bar-width); height: 100%; border-radius: inherit; background: var(--chart-color); }
+.admin-horizontal-row > strong { white-space: nowrap; font-size: .8rem; }
+.admin-vertical-chart { display: flex; min-height: 230px; align-items: stretch; justify-content: space-around; gap: 10px; padding: 18px 4px 0; }
+.admin-vertical-column { display: grid; min-width: 0; flex: 1; grid-template-rows: 22px minmax(100px, 1fr) 42px; justify-items: center; gap: 6px; text-align: center; }
+.admin-vertical-column > strong { font-size: .78rem; }
+.admin-vertical-track { display: flex; width: min(44px, 70%); height: 100%; align-items: flex-end; overflow: hidden; border-radius: 8px 8px 2px 2px; background: rgba(148, 163, 184, .1); }
+.admin-vertical-track i { width: 100%; height: var(--bar-height); border-radius: 7px 7px 2px 2px; background: var(--chart-color); }
+.admin-vertical-label { display: -webkit-box; max-width: 100%; overflow: hidden; color: var(--text-muted); font-size: .74rem; line-height: 1.3; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.admin-chart-empty { padding: 30px 8px; color: var(--text-muted); text-align: center; }
 .admin-table-scroll { width: 100%; overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; min-width: 640px; }
 .admin-table th, .admin-table td { border-bottom: 1px solid var(--border-color); padding: 10px 12px; text-align: left; vertical-align: top; }
@@ -2470,7 +2499,13 @@ body {
   .admin-view-heading, .admin-view-heading > div { flex-direction: column; }
   .admin-view-heading > button { width: 100%; }
   .admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-chart-grid { grid-template-columns: minmax(0, 1fr); }
   .admin-panel { padding: 12px; }
+  .admin-chart-panel { padding: 14px; }
+  .admin-donut-layout { min-height: 0; flex-wrap: wrap; gap: 18px; }
+  .admin-donut { width: 156px; }
+  .admin-chart-legend { flex: 1 1 150px; }
+  .admin-horizontal-row { grid-template-columns: minmax(76px, .75fr) minmax(35px, 1fr) auto; gap: 8px; font-size: .74rem; }
   .admin-plan-card summary { flex-direction: column; }
 }
 
