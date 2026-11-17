@@ -260,7 +260,7 @@ export class AdminConsoleView {
       const history = Array.isArray(item.history) ? item.history as Array<Record<string, unknown>> : [];
       return `<tr data-subscription-row data-status="${escapeHtml(status)}" data-search="${escapeHtml(searchable)}">
         <td>@${escapeHtml(user?.username || '—')}<small>${escapeHtml(user?.name || user?.email || 'Usuário')}</small></td>
-        <td>${escapeHtml(planName)}<small>${escapeHtml(periodLabel)}</small></td>
+        <td>${escapeHtml(planName)}<small>${escapeHtml(periodLabel)}${item.paymentProvider === 'simulator' ? ' · Simulador (teste)' : ''}</small></td>
         <td>${money(item.contractedPrice, item.currency)}</td>
         <td><span class="admin-subscription-status admin-subscription-status-${escapeHtml(status)}">${escapeHtml(statusLabel)}</span></td>
         <td>Início: ${date(item.startsAt)}<small>Renovação: ${date(item.renewsAt)}</small><small>Fim: ${date(item.endsAt)}</small></td>
@@ -324,7 +324,7 @@ export class AdminConsoleView {
       <td>${date(payment.occurredAt)}</td><td>${escapeHtml(payment.user && (payment.user as Record<string, unknown>).username)}</td>
       <td>${escapeHtml(payment.status)}</td><td>${money(payment.amount, payment.currency)}</td>
       <td>${money(payment.refundedAmount, payment.currency)}</td><td>${money(payment.providerFee, payment.currency)}</td>
-      <td>${escapeHtml(payment.provider || '—')}</td></tr>`);
+      <td>${payment.provider === 'simulator' ? 'Simulador (teste, sem cobrança)' : escapeHtml(payment.provider || '—')}</td></tr>`);
     return `<div class="admin-view-heading"><div><p class="admin-eyebrow">FINANCEIRO</p><h2>Pagamentos</h2><p>Somente eventos provenientes de provedor confirmado poderão gerar lançamentos.</p></div><button class="btn btn-secondary" data-admin-refresh>Atualizar</button></div>
       ${table(['Data', 'Conta', 'Status', 'Valor', 'Reembolsado', 'Tarifa', 'Provedor'], rows)}`;
   }

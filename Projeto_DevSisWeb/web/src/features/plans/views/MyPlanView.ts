@@ -3,6 +3,8 @@ import {
   type AvailablePlan,
   type CurrentPlanAccess,
   type FreeTrialStatus,
+  type PaymentSimulatorStatus,
+  type SimulatedCheckout,
   type UserSubscription,
 } from '../services/PlanService';
 
@@ -66,40 +68,52 @@ const benefitsHtml = (benefits: Record<string, boolean>, limits: Record<string, 
     : '<p class="my-plan-muted">Nenhum benefício ou limite adicional configurado.</p>';
 };
 
-const planCard = (plan: AvailablePlan, currentId: string): string => {
+const planCard = (plan: AvailablePlan, currentId: string, simulatorEnabled: boolean): string => {
   const isCurrent = plan.id === currentId;
   const isPaid = plan.billingPeriod !== 'free';
   return `<article class="my-plan-card ${isCurrent ? 'is-current' : ''}">
     <header><div><span class="my-plan-tier">${escapeHtml(planTier(plan))}</span><h3>${escapeHtml(plan.name)}</h3></div>
       <div class="my-plan-badges">
         ${isCurrent ? '<span class="my-plan-current-badge">Seu plano atual</span>' : ''}
-        ${isPaid ? '<span class="my-plan-coming-soon">Em breve</span>' : ''}
+        ${isPaid ? simulatorEnabled
+          ? '<span class="my-plan-current-badge">Simulador de teste</span>'
+          : '<span class="my-plan-coming-soon">Indisponível</span>' : ''}
       </div></header>
     ${plan.description ? `<p>${escapeHtml(plan.description)}</p>` : ''}
     <p class="my-plan-price">${escapeHtml(plan.billingPeriod === 'free' ? 'Gratuito' : money(plan.price, plan.currency))}<small>${escapeHtml(periodLabel(plan.billingPeriod))}</small></p>
     <h4>Benefícios configurados</h4>
     ${benefitsHtml(plan.benefits || {}, plan.limits || {})}
+    ${isPaid && simulatorEnabled && !isCurrent
+      ? `<button type="button" class="btn btn-primary" data-simulated-checkout="${escapeHtml(plan.id)}">Simular contratação</button>`
+      : ''}
   </article>`;
 };
 
 export class MyPlanView {
   private static countdownTimer: number | null = null;
 
-  static async render(container: HTMLElement, token: string): Promise<void> {
+  static async render(
+    container: HTMLElement,
+    token: string,
+    pendingCheckout: SimulatedCheckout | null = null,
+  ): Promise<void> {
     if (this.countdownTimer !== null) window.clearInterval(this.countdownTimer);
     this.countdownTimer = null;
     container.innerHTML = '<div class="my-plan-loading" role="status">Carregando seu plano…</div>';
     try {
-      const [access, plans, subscriptions, trial] = await Promise.all([
+      const [access, plans, subscriptions, trial, simulator] = await Promise.all([
         PlanService.currentAccess(token),
         PlanService.availablePlans(token),
         PlanService.subscriptions(token),
         PlanService.freeTrial(token),
+        PlanService.paymentSimulatorStatus(token),
       ]);
-      container.innerHTML = this.renderContent(access, plans, subscriptions, trial);
+      container.innerHTML = this.renderContent(access, plans, subscriptions, trial, simulator, pendingCheckout);
       container.querySelector<HTMLButtonElement>('[data-my-plan-retry]')?.addEventListener('click', () => void this.render(container, token));
       this.bindTrial(container, token, trial);
       this.bindCancellation(container, token, subscriptions);
+      this.bindTrialCancellation(container, token, trial);
+      this.bindSimulator(container, token, plans, simulator, pendingCheckout);
       if (trial.trial?.status === 'active') {
         this.countdownTimer = window.setInterval(() => {
           const output = container.querySelector<HTMLElement>('[data-trial-countdown]');
@@ -150,23 +164,95 @@ export class MyPlanView {
     token: string,
     subscriptions: UserSubscription[],
   ): void {
-    const button = container.querySelector<HTMLButtonElement>('[data-cancel-my-subscription]');
-    button?.addEventListener('click', async () => {
+    container.querySelectorAll<HTMLButtonElement>('[data-cancel-my-subscription]').forEach((button) => {
+      button.addEventListener('click', async () => {
       const subscription = subscriptions.find((item) => item.id === button.dataset.cancelMySubscription);
       if (!subscription) return;
       const endDate = displayDate(subscription.endsAt || subscription.renewsAt);
+      const preservesAccess = subscription.status === 'active' && endDate !== '—';
       if (!window.confirm(
-        `Cancelar a renovação desta assinatura? O Premium continua disponível até ${endDate}.`,
+        preservesAccess
+          ? `Cancelar este contrato e impedir novas renovações? O Premium continua disponível até ${endDate}.`
+          : `Cancelar este contrato? ${subscription.status === 'pending'
+            ? 'O pagamento pendente também será cancelado.'
+            : 'Não haverá novas cobranças.'}`,
       )) return;
       button.disabled = true;
       try {
-        await PlanService.cancelSubscription(token, subscription.id);
-        window.alert(`Renovação cancelada. Seu acesso Premium continua até ${endDate}.`);
+        const message = await PlanService.cancelSubscription(token, subscription.id);
+        window.alert(message);
         await this.render(container, token);
       } catch (error) {
         window.alert(error instanceof Error ? error.message : 'Não foi possível cancelar a renovação.');
-        button.disabled = false;
+        await this.render(container, token);
       }
+      });
+    });
+  }
+
+  private static bindTrialCancellation(
+    container: HTMLElement,
+    token: string,
+    trial: FreeTrialStatus,
+  ): void {
+    const button = container.querySelector<HTMLButtonElement>('[data-cancel-free-trial]');
+    if (!button || trial.trial?.status !== 'active') return;
+    button.addEventListener('click', async () => {
+      if (!window.confirm(
+        'Encerrar agora o período gratuito de Premium? O acesso Premium termina imediatamente e não será restaurado.',
+      )) return;
+      button.disabled = true;
+      try {
+        const message = await PlanService.cancelFreeTrial(token);
+        window.alert(message);
+        await this.render(container, token);
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Não foi possível cancelar o período gratuito.');
+        await this.render(container, token);
+      }
+    });
+  }
+
+  private static bindSimulator(
+    container: HTMLElement,
+    token: string,
+    plans: AvailablePlan[],
+    simulator: PaymentSimulatorStatus,
+    pendingCheckout: SimulatedCheckout | null,
+  ): void {
+    if (!simulator.enabled) return;
+    container.querySelectorAll<HTMLButtonElement>('[data-simulated-checkout]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const plan = plans.find((item) => item.id === button.dataset.simulatedCheckout);
+        if (!plan) return;
+        button.disabled = true;
+        try {
+          const checkout = await PlanService.createCheckout(token, plan.id);
+          await this.render(container, token, checkout);
+        } catch (error) {
+          window.alert(error instanceof Error ? error.message : 'Não foi possível iniciar o teste de pagamento.');
+          await this.render(container, token);
+        }
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-simulated-outcome]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        if (!pendingCheckout) return;
+        const outcome = button.dataset.simulatedOutcome;
+        if (outcome !== 'approved' && outcome !== 'declined') return;
+        button.disabled = true;
+        try {
+          await PlanService.completeSimulatedPayment(token, pendingCheckout.paymentId, outcome);
+          window.alert(outcome === 'approved'
+            ? 'Pagamento de teste aprovado. Nenhum dinheiro foi movimentado.'
+            : 'Pagamento de teste recusado. Nenhum dinheiro foi movimentado.');
+          await this.render(container, token);
+        } catch (error) {
+          window.alert(error instanceof Error ? error.message : 'Não foi possível concluir a simulação.');
+          await this.render(container, token, pendingCheckout);
+        }
+      });
     });
   }
 
@@ -175,6 +261,8 @@ export class MyPlanView {
     plans: AvailablePlan[],
     subscriptions: UserSubscription[],
     trial: FreeTrialStatus,
+    simulator: PaymentSimulatorStatus,
+    pendingCheckout: SimulatedCheckout | null,
   ): string {
     const selected = plans.find((plan) => plan.id === access.plan.id);
     const activeSubscription = subscriptions.find((subscription) =>
@@ -192,14 +280,16 @@ export class MyPlanView {
          <p>Início: ${escapeHtml(displayDate(activeSubscription.startsAt))} · Renovação: ${escapeHtml(displayDate(activeSubscription.renewsAt))}</p>
          ${activeSubscription.cancelAtPeriodEnd
             ? `<p class="my-plan-trial-warning">Renovação cancelada. Seu acesso Premium permanece até ${escapeHtml(displayDate(activeSubscription.endsAt || activeSubscription.renewsAt))}.</p>`
-            : `<button type="button" class="btn btn-secondary" data-cancel-my-subscription="${escapeHtml(activeSubscription.id)}">Cancelar renovação</button>`}`
+            : activeSubscription.paymentProvider === 'simulator'
+              ? `<p class="my-plan-muted">Assinatura de teste. Nenhuma cobrança real será feita.</p>
+                 <button type="button" class="btn btn-secondary" data-cancel-my-subscription="${escapeHtml(activeSubscription.id)}">Cancelar contrato de teste</button>`
+              : `<button type="button" class="btn btn-secondary" data-cancel-my-subscription="${escapeHtml(activeSubscription.id)}">Cancelar contrato</button>`}`
       : `<p>${escapeHtml(currentPrice)} · ${escapeHtml(periodLabel(currentPeriod))}</p>`;
     const planCards = plans.length
-      ? plans.map((plan) => planCard(plan, access.plan.id)).join('')
+      ? plans.map((plan) => planCard(plan, access.plan.id, simulator.enabled)).join('')
       : '<p class="my-plan-muted">Nenhum plano disponível para consulta.</p>';
     const hasPremium = plans.some((plan) => plan.billingPeriod !== 'free');
-    const historical = subscriptions.filter((subscription) =>
-      subscription.id !== activeSubscription?.id);
+    const historical = subscriptions.filter((subscription) => subscription.id !== activeSubscription?.id);
     const trialSection = trial.trial
       ? `<section class="my-plan-trial" aria-live="polite">
           <p class="my-plan-eyebrow">AVALIAÇÃO PREMIUM</p>
@@ -215,6 +305,9 @@ export class MyPlanView {
               ${trial.trial.remainingSeconds <= 172800 ? '<p class="my-plan-trial-warning">Seu teste está próximo do fim. Ao encerrar, o acesso volta ao Freemium, salvo se você contratar o Premium manualmente.</p>' : ''}
               <p>Nenhuma cobrança será feita ao terminar o teste. Sua conta voltará ao Freemium, a menos que você escolha contratar um plano.</p>`
             : '<p>O acesso temporário terminou. Sua conta usa as permissões do Freemium, salvo se houver uma assinatura Premium ativa. O teste não pode ser iniciado novamente.</p>'}
+          ${trial.trial.status === 'active'
+            ? '<button type="button" class="btn btn-secondary" data-cancel-free-trial>Cancelar período gratuito</button>'
+            : ''}
         </section>`
       : trial.eligible
         ? (() => {
@@ -237,6 +330,16 @@ export class MyPlanView {
         : trial.hasActiveSubscription
           ? '<section class="my-plan-trial"><h3>Seu plano Premium já está ativo</h3><p>O teste gratuito não está disponível para contas com assinatura ativa.</p></section>'
           : '';
+    const simulatorSection = pendingCheckout
+      ? `<section class="my-plan-trial" aria-live="polite">
+          <p class="my-plan-eyebrow">SIMULADOR DE PAGAMENTO · TESTE</p>
+          <h3>Escolha o resultado para “${escapeHtml(pendingCheckout.planName)}”</h3>
+          <p>Valor de teste: <strong>${escapeHtml(money(pendingCheckout.amount, pendingCheckout.currency))}</strong> · ${escapeHtml(periodLabel(pendingCheckout.billingPeriod))}</p>
+          <p>Nenhuma transação real será realizada. Esta simulação só altera os dados de teste da conta.</p>
+          <button type="button" class="btn btn-primary" data-simulated-outcome="approved">Simular aprovação</button>
+          <button type="button" class="btn btn-secondary" data-simulated-outcome="declined">Simular recusa</button>
+        </section>`
+      : '';
 
     return `<section class="my-plan-view">
       <div class="my-plan-heading"><div><p class="my-plan-eyebrow">CONTA</p><h2>Meu Plano</h2><p>Consulte seu plano e as opções disponíveis para sua conta.</p></div>
@@ -247,13 +350,20 @@ export class MyPlanView {
         ${benefitsHtml(access.benefits || {}, access.limits || {})}
       </section>
       ${trialSection}
+      ${simulator.enabled
+        ? `<p class="my-plan-unavailable">${escapeHtml(simulator.message)}</p>`
+        : ''}
+      ${simulatorSection}
       <div class="my-plan-list-heading"><h3>Planos disponíveis</h3><span>Preços e moedas conforme configurados.</span></div>
       <div class="my-plan-grid">${planCards}</div>
-      ${hasPremium ? '<p class="my-plan-unavailable">Você já pode consultar os detalhes e benefícios deste plano. A contratação estará disponível assim que a plataforma concluir a integração com o serviço de pagamentos.</p>' : ''}
+      ${hasPremium && !simulator.enabled ? `<p class="my-plan-unavailable">${escapeHtml(simulator.message)} O checkout real ainda não está integrado.</p>` : ''}
       ${historical.length ? `<section class="my-plan-history"><h3>Histórico de assinaturas</h3>${historical.map((subscription) => `<article>
         <strong>${escapeHtml(subscription.planName)}</strong><span>${escapeHtml(subscription.status)}</span>
         <span>${escapeHtml(money(subscription.contractedPrice, subscription.currency))} · ${escapeHtml(periodLabel(subscription.billingPeriod))}</span>
         <small>Data do contrato: ${escapeHtml(displayDate(subscription.createdAt))}</small>
+        ${['pending', 'active', 'past_due'].includes(subscription.status)
+          ? `<button type="button" class="btn btn-secondary" data-cancel-my-subscription="${escapeHtml(subscription.id)}">Cancelar contrato</button>`
+          : ''}
       </article>`).join('')}</section>` : ''}
     </section>`;
   }

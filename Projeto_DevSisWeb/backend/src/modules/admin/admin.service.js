@@ -1,5 +1,6 @@
 import { pool } from '../../config/database.js';
 import { createCheckoutSession, PaymentProviderNotConfiguredError } from '../billing/payment_provider.js';
+import { createSimulatedCheckout, isPaymentSimulatorEnabled } from '../billing/payment_simulator.service.js';
 
 const PERMISSIONS = new Set([
   'dashboard.read',
@@ -99,6 +100,7 @@ const subscriptionSnapshot = (row) => ({
   renewsAt: row.renews_at,
   endsAt: row.ends_at,
   cancelAtPeriodEnd: row.cancel_at_period_end ?? false,
+  paymentProvider: row.external_provider ?? null,
   createdAt: row.created_at,
 });
 
@@ -257,6 +259,7 @@ export const getDashboard = async () => {
               SUM(amount) FILTER (WHERE status = 'pending')::numeric AS pending,
               COUNT(*) FILTER (WHERE status = 'paid')::int AS transaction_count
          FROM payments
+        WHERE external_provider IS DISTINCT FROM 'simulator'
         GROUP BY currency
         ORDER BY currency`,
     ),
@@ -265,13 +268,15 @@ export const getDashboard = async () => {
                    THEN 'expired' ELSE status END AS status,
               COUNT(*)::int AS count
          FROM subscriptions
+        WHERE external_provider IS DISTINCT FROM 'simulator'
         GROUP BY 1
         ORDER BY 1`,
     ),
     pool.query(
       `SELECT COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::int AS started,
               COUNT(*) FILTER (WHERE status = 'canceled' AND created_at >= NOW() - INTERVAL '30 days')::int AS canceled
-         FROM subscriptions`,
+         FROM subscriptions
+        WHERE external_provider IS DISTINCT FROM 'simulator'`,
     ),
     pool.query(
       `SELECT name, SUM(count)::int AS usage
@@ -685,34 +690,70 @@ export const cancelMySubscription = async (userId, subscriptionId) => {
     );
     if (!result.rowCount) return fail(404, 'Assinatura não encontrada.');
     const before = result.rows[0];
-    if (before.status !== 'active') return fail(409, 'Somente uma assinatura ativa pode ter a renovação cancelada.');
-    if (before.cancel_at_period_end) return fail(409, 'A renovação desta assinatura já foi cancelada.');
+    if (!['pending', 'active', 'past_due'].includes(before.status)) {
+      return fail(409, 'Este contrato já foi encerrado ou não pode mais ser cancelado.');
+    }
 
     const changed = await client.query(
       `UPDATE subscriptions
-          SET status = 'canceled',
-              ends_at = COALESCE(ends_at, renews_at),
-              cancel_at_period_end = TRUE,
+          SET cancel_at_period_end = (
+                status = 'active'
+                AND COALESCE(
+                  ends_at,
+                  renews_at,
+                  starts_at + CASE billing_period
+                    WHEN 'annual' THEN INTERVAL '1 year'
+                    ELSE INTERVAL '1 month'
+                  END
+                ) > NOW()
+              ),
+              ends_at = CASE
+                WHEN status = 'active' AND COALESCE(
+                  ends_at,
+                  renews_at,
+                  starts_at + CASE billing_period
+                    WHEN 'annual' THEN INTERVAL '1 year'
+                    ELSE INTERVAL '1 month'
+                  END
+                ) > NOW()
+                  THEN COALESCE(
+                    ends_at,
+                    renews_at,
+                    starts_at + CASE billing_period
+                      WHEN 'annual' THEN INTERVAL '1 year'
+                      ELSE INTERVAL '1 month'
+                    END
+                  )
+                ELSE NOW()
+              END,
+              status = 'canceled',
               updated_at = NOW()
-        WHERE id = $1 AND user_id = $2
-          AND COALESCE(ends_at, renews_at) > NOW()
+        WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'active', 'past_due')
         RETURNING *`,
       [subscriptionId, userId],
     );
-    if (!changed.rowCount) {
-      return fail(409, 'Não foi possível determinar uma data futura para encerrar o período desta assinatura.');
-    }
-
     const after = changed.rows[0];
+    if (before.status === 'pending') {
+      await client.query(
+        `UPDATE payments
+            SET status = 'canceled', occurred_at = NOW()
+          WHERE subscription_id = $1 AND status = 'pending'`,
+        [subscriptionId],
+      );
+    }
+    const message = after.cancel_at_period_end
+      ? 'A renovação foi cancelada. Seu acesso Premium continua até o fim do período atual.'
+      : 'O contrato foi cancelado e não haverá novas cobranças.';
     await client.query(
       `INSERT INTO subscription_history
          (subscription_id, actor_user_id, action, before_data, after_data)
-       VALUES ($1, $2, 'cancel_at_period_end', $3::jsonb, $4::jsonb)`,
-      [subscriptionId, userId, JSON.stringify(subscriptionSnapshot(before)), JSON.stringify(subscriptionSnapshot(after))],
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
+      [subscriptionId, userId, after.cancel_at_period_end ? 'cancel_at_period_end' : 'canceled',
+        JSON.stringify(subscriptionSnapshot(before)), JSON.stringify(subscriptionSnapshot(after))],
     );
     return success(200, {
       subscription: subscriptionSnapshot(after),
-      message: 'A renovação foi cancelada. Seu acesso Premium continua até o fim do período atual.',
+      message,
     });
   });
 };
@@ -851,7 +892,8 @@ export const getReports = async (query = {}) => {
               SUM(amount)::numeric AS gross, SUM(refunded_amount)::numeric AS refunds,
               SUM(provider_fee)::numeric AS fees, COUNT(*)::int AS transactions
          FROM payments
-        WHERE status = 'paid' AND paid_at::date BETWEEN $1::date AND $2::date
+        WHERE external_provider IS DISTINCT FROM 'simulator'
+          AND status = 'paid' AND paid_at::date BETWEEN $1::date AND $2::date
         GROUP BY period, currency ORDER BY period, currency`,
       [range.from, range.to],
     ),
@@ -867,7 +909,8 @@ export const getReports = async (query = {}) => {
       `SELECT status, billing_period, currency, COUNT(*)::int AS count,
               SUM(contracted_price)::numeric AS contracted_total
          FROM subscriptions
-        WHERE created_at::date BETWEEN $1::date AND $2::date
+        WHERE external_provider IS DISTINCT FROM 'simulator'
+          AND created_at::date BETWEEN $1::date AND $2::date
         GROUP BY status, billing_period, currency ORDER BY status, billing_period, currency`,
       [range.from, range.to],
     ),
@@ -885,7 +928,7 @@ export const getReports = async (query = {}) => {
     financial: { payments: payments.rows, expenses: expenses.rows },
     subscriptions: subscriptions.rows,
     contentCreation: content.rows,
-    financialNote: 'Valores são agrupados por moeda; não há conversão cambial. Receita líquida usa pagamentos confirmados menos reembolsos, tarifas e despesas pagas.',
+    financialNote: 'Valores são agrupados por moeda; não há conversão cambial. Receita líquida usa pagamentos confirmados menos reembolsos, tarifas e despesas pagas. Registros do simulador de pagamentos são excluídos dos totais financeiros.',
   });
 };
 
@@ -1005,6 +1048,7 @@ export const requestCheckout = async (userId, planId) => {
   if (!plan.rowCount || plan.rows[0].status !== 'active' || plan.rows[0].billing_period === 'free') {
     return fail(404, 'Plano pago ativo não encontrado.');
   }
+  if (isPaymentSimulatorEnabled()) return createSimulatedCheckout(userId, planId);
   try {
     await createCheckoutSession({ userId, plan: plan.rows[0] });
   } catch (error) {
@@ -1015,3 +1059,11 @@ export const requestCheckout = async (userId, planId) => {
   }
   return fail(503, 'O provedor de pagamento não retornou uma sessão de contratação.');
 };
+
+export const getPaymentSimulatorStatus = () => success(200, {
+  enabled: isPaymentSimulatorEnabled(),
+  mode: isPaymentSimulatorEnabled() ? 'simulator' : 'unavailable',
+  message: isPaymentSimulatorEnabled()
+    ? 'Ambiente de teste ativo. Nenhum pagamento real será efetuado.'
+    : 'Checkout indisponível neste ambiente.',
+});

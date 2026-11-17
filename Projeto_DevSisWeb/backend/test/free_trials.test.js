@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { pool } from '../src/config/database.js';
 import { createToken } from '../src/services/token_service.js';
 import { getPlanAccess } from '../src/services/plan_access_service.js';
-import { activateMyTrial, getMyTrial } from '../src/modules/free-trials/free-trials.service.js';
+import { activateMyTrial, cancelMyTrial, getMyTrial } from '../src/modules/free-trials/free-trials.service.js';
 import { handleAdminRoute } from '../src/modules/admin/admin.routes.js';
 
 describe('avaliação gratuita Premium', () => {
@@ -58,6 +58,8 @@ describe('avaliação gratuita Premium', () => {
         if (query.includes('pg_advisory_xact_lock')) return { rowCount: 1, rows: [] };
         if (query.includes('COUNT(*)::int AS used')) return { rowCount: 1, rows: [{ used: 0 }] };
         if (query.includes('INSERT INTO free_trials')) {
+          assert.match(query, /\$3::smallint/);
+          assert.match(query, /make_interval\(days => \$3::integer\)/);
           return {
             rowCount: 1,
             rows: [{
@@ -104,6 +106,8 @@ describe('avaliação gratuita Premium', () => {
           if (query.includes('pg_advisory_xact_lock')) return { rowCount: 1, rows: [] };
           if (query.includes('COUNT(*)::int AS used')) return { rowCount: 1, rows: [{ used }] };
           if (query.includes('INSERT INTO free_trials')) {
+            assert.match(query, /\$3::smallint/);
+            assert.match(query, /make_interval\(days => \$3::integer\)/);
             insertedValues = values;
             return {
               rowCount: 1,
@@ -133,6 +137,57 @@ describe('avaliação gratuita Premium', () => {
     const sixth = await activate(5);
     assert.equal(sixth.result.status, 409);
     assert.equal(sixth.insertedValues, undefined);
+  });
+
+  it('cancela o trial próprio e encerra o acesso imediatamente', async () => {
+    let updated = false;
+    pool.connect = async () => ({
+      query: async (query, values = []) => {
+        if (query.includes('SELECT id, status, ends_at FROM free_trials')) {
+          assert.equal(values[0], '42');
+          return { rowCount: 1, rows: [{ id: '10', status: 'active', ends_at: '2099-01-01T10:00:00.000Z' }] };
+        }
+        if (query.includes('UPDATE free_trials')) {
+          assert.equal(values[0], '10');
+          assert.equal(values[1], '42');
+          updated = true;
+          return { rowCount: 1, rows: [{ id: '10', ends_at: '2026-11-16T22:00:00.000Z' }] };
+        }
+        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(query)) return { rowCount: 0, rows: [] };
+        throw new Error(`Consulta inesperada: ${query}`);
+      },
+      release: () => {},
+    });
+
+    const result = await cancelMyTrial('42');
+    assert.equal(result.status, 200);
+    assert.equal(result.body.trial.status, 'expired');
+    assert.equal(updated, true);
+  });
+
+  it('disponibiliza o cancelamento do trial pela rota autenticada', async () => {
+    pool.connect = async () => ({
+      query: async (query) => {
+        if (query.includes('SELECT id, status, ends_at FROM free_trials')) {
+          return { rowCount: 1, rows: [{ id: '10', status: 'active', ends_at: '2099-01-01T10:00:00.000Z' }] };
+        }
+        if (query.includes('UPDATE free_trials')) {
+          return { rowCount: 1, rows: [{ id: '10', ends_at: '2026-11-16T22:00:00.000Z' }] };
+        }
+        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(query)) return { rowCount: 0, rows: [] };
+        throw new Error(`Consulta inesperada: ${query}`);
+      },
+      release: () => {},
+    });
+
+    const token = createToken({ id: 42, username: 'jogador' });
+    const result = await handleAdminRoute({
+      method: 'POST',
+      url: '/api/free-trial/cancel',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.trial.status, 'expired');
   });
 
   it('impede ativação duplicada e rejeita identificador de plano inválido', async () => {

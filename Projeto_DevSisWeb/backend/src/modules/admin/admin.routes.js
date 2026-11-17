@@ -1,11 +1,12 @@
 import { requireAuth } from '../../middleware/auth.js';
 import { pool } from '../../config/database.js';
 import * as adminService from './admin.service.js';
-import { activateMyTrial, getMyTrial, listTrialsForAdmin } from '../free-trials/free-trials.service.js';
+import { activateMyTrial, cancelMyTrial, getMyTrial, listTrialsForAdmin } from '../free-trials/free-trials.service.js';
 import {
   deliverSubscriptionEmailNotification,
   listSubscriptionEmailNotifications,
 } from '../billing/subscription_notifications.service.js';
+import { completeSimulatedPayment } from '../billing/payment_simulator.service.js';
 
 const unauthorized = { status: 401, body: { success: false, message: 'Não autorizado.' } };
 const forbidden = { status: 403, body: { success: false, message: 'Você não possui permissão para esta operação.' } };
@@ -79,6 +80,17 @@ export const handleAdminRoute = async (request, body = {}) => {
     if (!token) return unauthorized;
     return adminService.requestCheckout(token.sub, body.planId);
   }
+  if (method === 'GET' && url === '/api/payment-simulator/status') {
+    const token = requireAuth(request);
+    if (!token) return unauthorized;
+    return adminService.getPaymentSimulatorStatus();
+  }
+  const simulatedPaymentMatch = url.match(/^\/api\/payment-simulator\/payments\/(\d+)\/complete$/);
+  if (method === 'POST' && simulatedPaymentMatch) {
+    const token = requireAuth(request);
+    if (!token) return unauthorized;
+    return completeSimulatedPayment(token.sub, simulatedPaymentMatch[1], body.outcome);
+  }
   if (method === 'GET' && url === '/api/subscriptions/me') {
     const token = requireAuth(request);
     if (!token) return unauthorized;
@@ -99,6 +111,11 @@ export const handleAdminRoute = async (request, body = {}) => {
     const token = requireAuth(request);
     if (!token) return unauthorized;
     return activateMyTrial(token.sub, body);
+  }
+  if (url === '/api/free-trial/cancel' && method === 'POST') {
+    const token = requireAuth(request);
+    if (!token) return unauthorized;
+    return cancelMyTrial(token.sub);
   }
 
   if (!url.startsWith('/api/admin/')) return null;

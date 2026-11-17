@@ -35,6 +35,7 @@ export type UserSubscription = {
   renewsAt: string | null;
   endsAt: string | null;
   cancelAtPeriodEnd: boolean;
+  paymentProvider: string | null;
   createdAt: string;
 };
 
@@ -58,6 +59,22 @@ export type FreeTrialStatus = {
   premiumPlans: AvailablePlan[];
   hasActiveSubscription: boolean;
   launchOffer: { spotsRemaining: number; durationDays: number };
+};
+
+export type PaymentSimulatorStatus = {
+  enabled: boolean;
+  mode: string;
+  message: string;
+};
+
+export type SimulatedCheckout = {
+  subscriptionId: string;
+  paymentId: string;
+  planName: string;
+  billingPeriod: 'monthly' | 'annual';
+  amount: string;
+  currency: string;
+  mode: 'simulator';
 };
 
 const API_BASE = 'http://localhost:3000/api';
@@ -90,6 +107,45 @@ export class PlanService {
     return data.subscriptions;
   }
 
+  static async paymentSimulatorStatus(token: string): Promise<PaymentSimulatorStatus> {
+    return request<PaymentSimulatorStatus>('/payment-simulator/status', token);
+  }
+
+  static async createCheckout(token: string, planId: string): Promise<SimulatedCheckout> {
+    const response = await fetch(`${API_BASE}/subscriptions/checkout`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer '.concat(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ planId }),
+    });
+    const data = await response.json() as { success?: boolean; message?: string; checkout?: SimulatedCheckout };
+    if (!response.ok || data.success === false || !data.checkout) {
+      throw new Error(data.message || `A API respondeu com status ${response.status}.`);
+    }
+    return data.checkout;
+  }
+
+  static async completeSimulatedPayment(
+    token: string,
+    paymentId: string,
+    outcome: 'approved' | 'declined',
+  ): Promise<void> {
+    const response = await fetch(`${API_BASE}/payment-simulator/payments/${encodeURIComponent(paymentId)}/complete`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer '.concat(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ outcome }),
+    });
+    const data = await response.json() as { success?: boolean; message?: string };
+    if (!response.ok || data.success === false) {
+      throw new Error(data.message || `A API respondeu com status ${response.status}.`);
+    }
+  }
+
   static async freeTrial(token: string): Promise<FreeTrialStatus> {
     return request<FreeTrialStatus>('/free-trial/me', token);
   }
@@ -109,7 +165,19 @@ export class PlanService {
     }
   }
 
-  static async cancelSubscription(token: string, subscriptionId: string): Promise<void> {
+  static async cancelFreeTrial(token: string): Promise<string> {
+    const response = await fetch(`${API_BASE}/free-trial/cancel`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer '.concat(token) },
+    });
+    const data = await response.json() as { success?: boolean; message?: string };
+    if (!response.ok || data.success === false) {
+      throw new Error(data.message || `A API respondeu com status ${response.status}.`);
+    }
+    return data.message || 'Período gratuito cancelado.';
+  }
+
+  static async cancelSubscription(token: string, subscriptionId: string): Promise<string> {
     const response = await fetch(`${API_BASE}/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
       method: 'POST',
       headers: { Authorization: 'Bearer '.concat(token) },
@@ -118,5 +186,6 @@ export class PlanService {
     if (!response.ok || data.success === false) {
       throw new Error(data.message || `A API respondeu com status ${response.status}.`);
     }
+    return data.message || 'Contrato cancelado.';
   }
 }

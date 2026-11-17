@@ -153,7 +153,7 @@ export const activateMyTrial = async (userId, body = {}) => {
 
       const created = await client.query(
         `INSERT INTO free_trials (user_id, plan_id, duration_days, ends_at)
-         VALUES ($1, $2, $3, NOW() + make_interval(days => $3))
+         VALUES ($1, $2, $3::smallint, NOW() + make_interval(days => $3::integer))
          RETURNING id, plan_id, duration_days, status, activated_at, starts_at, ends_at,
                    GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (ends_at - NOW()))))::bigint AS remaining_seconds`,
         [userId, body.planId, durationDays],
@@ -178,6 +178,33 @@ export const activateMyTrial = async (userId, body = {}) => {
     throw error;
   }
 };
+
+export const cancelMyTrial = async (userId) => transaction(async (client) => {
+  const current = await client.query(
+    `SELECT id, status, ends_at FROM free_trials
+      WHERE user_id = $1 AND status = 'active'
+      FOR UPDATE`,
+    [userId],
+  );
+  if (!current.rowCount) return fail(404, 'Não há um período Premium gratuito ativo para cancelar.');
+
+  const updated = await client.query(
+    `UPDATE free_trials
+        SET status = 'expired', ends_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND user_id = $2 AND status = 'active'
+      RETURNING id, ends_at`,
+    [current.rows[0].id, userId],
+  );
+  if (!updated.rowCount) return fail(409, 'O período gratuito já foi encerrado.');
+  return success(200, {
+    message: 'Período Premium gratuito cancelado. O acesso Premium foi encerrado.',
+    trial: {
+      id: String(updated.rows[0].id),
+      status: 'expired',
+      endsAt: updated.rows[0].ends_at,
+    },
+  });
+});
 
 export const listTrialsForAdmin = async () => {
   const [result, summary] = await Promise.all([
