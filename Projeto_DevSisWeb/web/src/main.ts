@@ -836,6 +836,7 @@ class AppController {
     document.getElementById('btn-public-register')?.addEventListener('click', () => showScreen('auth-register-form'));
     document.getElementById('btn-public-hero-login')?.addEventListener('click', () => showScreen('auth-login-form'));
     document.getElementById('btn-public-hero-register')?.addEventListener('click', () => showScreen('auth-register-form'));
+    document.getElementById('btn-public-support-ticket')?.addEventListener('click', () => this.openSupportTicket());
     document.getElementById('btn-login-register')?.addEventListener('click', () => showScreen('auth-register-form'));
     document.getElementById('btn-register-login')?.addEventListener('click', () => showScreen('auth-login-form'));
     document.getElementById('btn-login-offline')?.addEventListener('click', () => {
@@ -1000,6 +1001,10 @@ class AppController {
 
     document.getElementById('auth-offline-form')?.addEventListener('submit', (event) => {
       void this.unlockOfflineAccount(event);
+    });
+
+    document.getElementById('support-ticket-form')?.addEventListener('submit', event => {
+      void this.submitSupportTicket(event);
     });
   }
 
@@ -1415,6 +1420,7 @@ class AppController {
         this.setUserMenuOpen(false);
         this.closeDeleteAccountConfirmation();
         this.closeAccountSettings();
+        this.closeSupportTicket();
       }
     });
 
@@ -1447,6 +1453,12 @@ class AppController {
       if (event.target === event.currentTarget) this.closeAccountSettings();
     });
     document.getElementById('account-settings-form')?.addEventListener('submit', (event) => void this.saveAccountSettings(event));
+    document.getElementById('btn-account-support-ticket')?.addEventListener('click', () => this.openSupportTicket());
+    document.getElementById('btn-close-support-ticket')?.addEventListener('click', () => this.closeSupportTicket());
+    document.getElementById('btn-cancel-support-ticket')?.addEventListener('click', () => this.closeSupportTicket());
+    document.getElementById('support-ticket-modal')?.addEventListener('click', event => {
+      if (event.target === event.currentTarget) this.closeSupportTicket();
+    });
 
     // Navegação lateral por abas
     const navButtons = document.querySelectorAll<HTMLButtonElement>('.nav-item');
@@ -1689,6 +1701,81 @@ class AppController {
 
   private closeAccountSettings(): void {
     document.getElementById('account-settings-modal')?.classList.add('hidden');
+  }
+
+  private openSupportTicket(): void {
+    const user = this.authenticatedUser;
+    const form = document.getElementById('support-ticket-form') as HTMLFormElement | null;
+    const modal = document.getElementById('support-ticket-modal');
+    if (!form || !modal) return;
+
+    form.reset();
+    (document.getElementById('support-ticket-name') as HTMLInputElement).value = user?.name || '';
+    (document.getElementById('support-ticket-email') as HTMLInputElement).value = user?.email || '';
+    document.getElementById('support-ticket-error')?.classList.add('hidden');
+    document.getElementById('support-ticket-success')?.classList.add('hidden');
+    modal.classList.remove('hidden');
+    (document.getElementById('support-ticket-subject') as HTMLInputElement).focus();
+  }
+
+  private closeSupportTicket(): void {
+    document.getElementById('support-ticket-modal')?.classList.add('hidden');
+  }
+
+  private async submitSupportTicket(event: Event): Promise<void> {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    if (!form.reportValidity()) return;
+
+    const errorElement = document.getElementById('support-ticket-error');
+    const successElement = document.getElementById('support-ticket-success');
+    const submit = document.getElementById('btn-submit-support-ticket') as HTMLButtonElement | null;
+    const payload = {
+      name: (document.getElementById('support-ticket-name') as HTMLInputElement).value.trim(),
+      email: (document.getElementById('support-ticket-email') as HTMLInputElement).value.trim(),
+      category: (document.getElementById('support-ticket-category') as HTMLSelectElement).value,
+      subject: (document.getElementById('support-ticket-subject') as HTMLInputElement).value.trim(),
+      description: (document.getElementById('support-ticket-description') as HTMLTextAreaElement).value.trim(),
+    };
+
+    errorElement?.classList.add('hidden');
+    successElement?.classList.add('hidden');
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = 'Enviando...';
+    }
+
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (this.authToken) headers.Authorization = `Bearer ${this.authToken}`;
+      const response = await fetch('http://localhost:3000/api/support/tickets', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json() as { success?: boolean; message?: string };
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Não foi possível enviar o chamado.');
+      }
+
+      form.reset();
+      (document.getElementById('support-ticket-name') as HTMLInputElement).value = payload.name;
+      (document.getElementById('support-ticket-email') as HTMLInputElement).value = payload.email;
+      if (successElement) {
+        successElement.textContent = 'Chamado enviado com sucesso! Nossa equipe receberá seu relato por e-mail.';
+        successElement.classList.remove('hidden');
+      }
+    } catch (error) {
+      if (errorElement) {
+        errorElement.textContent = error instanceof Error ? error.message : 'Não foi possível enviar o chamado. Tente novamente.';
+        errorElement.classList.remove('hidden');
+      }
+    } finally {
+      if (submit) {
+        submit.disabled = false;
+        submit.textContent = 'Enviar chamado';
+      }
+    }
   }
 
   private async saveAccountSettings(event: Event): Promise<void> {

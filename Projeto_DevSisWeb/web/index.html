@@ -71,6 +71,11 @@
           <div><span class="public-eyebrow">COMO FUNCIONA</span><h2>Entre, escolha sua visão e comece a jogar.</h2></div>
           <ol><li><span>1</span> Crie sua conta</li><li><span>2</span> Organize sua mesa</li><li><span>3</span> Viva a aventura</li></ol>
         </section>
+
+        <section class="public-support glass-card">
+          <div><span class="public-eyebrow">PRECISA DE AJUDA?</span><h2>Encontrou um problema no site?</h2><p>Envie um chamado para nossa equipe analisar e ajudar você.</p></div>
+          <button id="btn-public-support-ticket" class="btn btn-primary" type="button">Abrir chamado</button>
+        </section>
       </main>
 
       <div id="auth-form-card" class="auth-gateway-card glass-card hidden">
@@ -350,6 +355,11 @@
             <p>A exclusão é permanente. Seus dados pessoais e conteúdos associados serão removidos. Registros financeiros ou outras relações restritivas podem impedir a operação.</p>
             <button id="btn-open-delete-account" type="button" class="btn btn-danger">Excluir minha conta</button>
           </section>
+          <section class="account-support-zone" aria-labelledby="account-support-title">
+            <h4 id="account-support-title">Precisa de ajuda?</h4>
+            <p>Relate um problema no site diretamente para nossa equipe de suporte.</p>
+            <button id="btn-account-support-ticket" type="button" class="btn btn-secondary">Abrir chamado</button>
+          </section>
         </div>
       </div>
 
@@ -472,6 +482,50 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <div id="support-ticket-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="support-ticket-title">
+      <form id="support-ticket-form" class="modal-content glass-card support-ticket-modal">
+        <div class="modal-header">
+          <div>
+            <h3 id="support-ticket-title">Abrir chamado</h3>
+            <p class="account-settings-subtitle">Conte para nós o que aconteceu. Sua mensagem será enviada à equipe de suporte.</p>
+          </div>
+          <button id="btn-close-support-ticket" type="button" class="btn-icon" aria-label="Fechar chamado">✕</button>
+        </div>
+        <div class="form-group">
+          <label for="support-ticket-name">Nome</label>
+          <input id="support-ticket-name" class="form-control" autocomplete="name" maxlength="120" required />
+        </div>
+        <div class="form-group">
+          <label for="support-ticket-email">E-mail para contato</label>
+          <input id="support-ticket-email" type="email" class="form-control" autocomplete="email" maxlength="254" required />
+        </div>
+        <div class="form-group">
+          <label for="support-ticket-category">Categoria</label>
+          <select id="support-ticket-category" class="form-control" required>
+            <option value="">Selecione</option>
+            <option>Problema técnico</option>
+            <option>Conta e acesso</option>
+            <option>Sugestão</option>
+            <option>Outro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="support-ticket-subject">Assunto</label>
+          <input id="support-ticket-subject" class="form-control" maxlength="160" required />
+        </div>
+        <div class="form-group">
+          <label for="support-ticket-description">Descreva o problema</label>
+          <textarea id="support-ticket-description" class="form-control" rows="5" maxlength="5000" required></textarea>
+        </div>
+        <p id="support-ticket-error" class="auth-error hidden" role="alert"></p>
+        <p id="support-ticket-success" class="auth-success hidden" role="status"></p>
+        <div class="account-settings-actions">
+          <button id="btn-cancel-support-ticket" type="button" class="btn btn-secondary">Cancelar</button>
+          <button id="btn-submit-support-ticket" type="submit" class="btn btn-primary">Enviar chamado</button>
+        </div>
+      </form>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

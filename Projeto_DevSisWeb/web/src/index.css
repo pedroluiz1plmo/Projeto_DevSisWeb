@@ -784,8 +784,17 @@ body {
 .account-danger-zone { margin-top: 24px; padding: 18px; border: 1px solid rgba(239, 68, 68, .42); border-radius: var(--radius-md); background: rgba(127, 29, 29, .12); }
 .account-danger-zone h4 { margin-bottom: 6px; color: #fca5a5; font-family: var(--font-title); font-size: .95rem; }
 .account-danger-zone p, .account-delete-modal > p { margin-bottom: 14px; color: var(--text-muted); font-size: .87rem; }
+.account-support-zone { margin-top: 20px; padding: 18px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(99, 102, 241, .08); }
+.account-support-zone h4 { margin-bottom: 6px; font-family: var(--font-title); font-size: .95rem; }
+.account-support-zone p { margin-bottom: 14px; color: var(--text-muted); font-size: .87rem; }
 .account-delete-modal { max-width: 500px; padding: 24px; }
 #account-delete-modal { z-index: 1001; }
+#support-ticket-modal { z-index: 5001; padding: 16px; }
+.support-ticket-modal { max-width: 560px; padding: 24px; }
+.support-ticket-modal .modal-header { align-items: flex-start; }
+.support-ticket-modal .modal-header > div { min-width: 0; }
+.support-ticket-modal .modal-header p { max-width: 430px; }
+.support-ticket-modal textarea { resize: vertical; }
 .auth-success { color: #a7f3d0 !important; }
 
 .auth-gateway {
@@ -871,6 +880,9 @@ body {
 .public-how ol { display: flex; flex-wrap: wrap; gap: 18px; list-style: none; }
 .public-how li { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: .9rem; }
 .public-how li span { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 50%; background: var(--primary); color: white; font-family: var(--font-mono); font-size: .76rem; }
+.public-support { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; padding: 26px 32px; }
+.public-support h2 { margin-top: 7px; font-family: var(--font-title); font-size: 1.3rem; }
+.public-support p { margin-top: 5px; color: var(--text-muted); }
 
 .menu-toggle {
   display: none;
@@ -1021,6 +1033,8 @@ body {
   .public-feature-card { min-height: 0; }
   .public-how { align-items: flex-start; flex-direction: column; margin-top: 48px; padding: 22px; }
   .public-how ol { flex-direction: column; gap: 10px; }
+  .public-support { align-items: flex-start; flex-direction: column; padding: 22px; }
+  .public-support .btn { width: 100%; }
   .sidebar {
     width: min(82vw, 320px);
     height: 100dvh;

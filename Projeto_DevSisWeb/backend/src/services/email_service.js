@@ -330,3 +330,38 @@ export const sendSubscriptionConfirmationEmail = async (notification) => {
     ...message,
   });
 };
+
+export const isSupportTicketEmailConfigured = () => {
+  const settings = smtpSettings();
+  const recipient = process.env.SUPPORT_EMAIL?.trim() || settings?.auth.user?.trim();
+  return Boolean(settings && recipient && !/[\r\n]/.test(recipient));
+};
+
+export const sendSupportTicketEmail = async ({ name, email, category, subject, description }) => {
+  const settings = smtpSettings();
+  const recipient = process.env.SUPPORT_EMAIL?.trim() || settings?.auth.user?.trim();
+  if (!settings || !recipient || /[\r\n]/.test(recipient)) {
+    const error = new Error('Configuração de e-mail de suporte ausente.');
+    error.code = 'SUPPORT_EMAIL_CONFIGURATION_MISSING';
+    throw error;
+  }
+
+  const transporter = createTransporter();
+  return transporter.sendMail({
+    from: settings.from,
+    to: recipient,
+    replyTo: email,
+    subject: `Chamado do site: ${subject}`,
+    text: [
+      'Novo chamado recebido pelo RPG Manager',
+      '',
+      `Nome: ${name}`,
+      `E-mail: ${email}`,
+      `Categoria: ${category}`,
+      `Assunto: ${subject}`,
+      '',
+      'Descrição do problema:',
+      description,
+    ].join('\n'),
+  });
+};

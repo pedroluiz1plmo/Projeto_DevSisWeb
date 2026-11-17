@@ -14,6 +14,7 @@ import { handleCharacterGenerationRoute } from './modules/character-generation/c
 import { handleAdminRoute } from './modules/admin/admin.routes.js';
 import { handleDashboardRoute } from './modules/dashboard/dashboard.routes.js';
 import { handleFriendshipRoute } from './modules/friendships/friendships.routes.js';
+import { handleSupportRoute } from './modules/support/support.routes.js';
 import { processPendingSubscriptionEmailNotifications } from './modules/billing/subscription_notifications.service.js';
 import { requireAuth } from './middleware/auth.js';
 import { pool } from './config/database.js';
@@ -113,6 +114,9 @@ http.createServer(async (request, response) => {
     }
     if (!result) {
       result = await handleFriendshipRoute(request, body);
+    }
+    if (!result) {
+      result = await handleSupportRoute(request, body);
     }
     if (!result) {
       result = await handleCampaignRoute(request, body);
