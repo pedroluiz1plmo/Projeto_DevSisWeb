@@ -85,6 +85,7 @@ class AppController {
   private authenticatedUser: AuthenticatedUser | null = null;
   private isGuestSession = false;
   private isOfflineSession = false;
+  private storageStatusTimeout: ReturnType<typeof setTimeout> | null = null;
   private networkOnline = navigator.onLine;
   private pendingOnlineSession: { user: AuthenticatedUser; token: string } | null = null;
   private revalidationInProgress = false;
@@ -245,7 +246,13 @@ class AppController {
   private updateStorageStatus(message?: string): void {
     const status = document.getElementById('storage-status');
     const label = document.getElementById('storage-status-message');
-    if (!status || !label || !StorageService.isUnlocked) return;
+    if (!status || !label) return;
+    if (this.storageStatusTimeout) clearTimeout(this.storageStatusTimeout);
+    this.storageStatusTimeout = null;
+    if (!StorageService.isUnlocked) {
+      status.classList.add('hidden');
+      return;
+    }
 
     status.classList.toggle('is-offline', !this.networkOnline || this.isOfflineSession);
     status.classList.toggle('is-error', Boolean(message));
@@ -257,6 +264,11 @@ class AppController {
         : 'Acesso local · os dados ficam neste dispositivo; sincronização completa ainda não está disponível'
     );
     status.classList.toggle('is-guest', this.isGuestSession);
+    status.classList.remove('hidden');
+    this.storageStatusTimeout = setTimeout(() => {
+      status.classList.add('hidden');
+      this.storageStatusTimeout = null;
+    }, 10_000);
   }
 
   private setStorageError(error: unknown): void {
