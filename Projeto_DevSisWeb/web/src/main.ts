@@ -166,6 +166,7 @@ class AppController {
   private userRole: UserRole | null = null;
   private wizardStep: number = 1;
   private privateAreaInitialized = false;
+  private incomingRefreshInProgress = false;
 
   constructor() {
     this.initEventListeners();
@@ -334,7 +335,10 @@ class AppController {
       this.jogador = new Jogador('user-jog-1', 'Jogador Aventureiro', 'jogador@unemat.br', this.personagens);
       this.mestre = new Mestre('user-mestre-1', 'Mestre dos Magos', 'mestre@unemat.br', this.campanhas, this.npcs);
       this.personagemAtivoId = this.personagens[0]?.idPersonagem || null;
-      if (this.userRole) this.currentTab = this.userRole === 'jogador' ? 'sistemas' : 'dashboard';
+      if (this.userRole) {
+        const defaultTab = this.userRole === 'jogador' ? 'sistemas' : 'dashboard';
+        this.currentTab = this.getRestoredTab(defaultTab);
+      }
       this.updateCharacterSelector();
       this.applyRoleView();
       this.privateAreaInitialized = true;
@@ -1571,14 +1575,17 @@ class AppController {
     try {
       this.adminIdentity = await AdminService.identity(token);
       this.applyAdminNavigation();
+      this.restoreAdminTabAfterIdentity();
     } catch (error) {
       if (error instanceof Error && error.name === 'AdminApiError' && 'status' in error && error.status === 403) {
         this.adminIdentity = null;
         this.applyAdminNavigation();
+        this.restoreAdminTabAfterIdentity();
         return;
       }
       this.adminIdentity = null;
       this.applyAdminNavigation();
+      this.restoreAdminTabAfterIdentity();
       console.error('Falha ao carregar as permissões administrativas.', error);
     }
   }
@@ -2148,6 +2155,39 @@ class AppController {
     return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'U';
   }
 
+  private getRestoredTab(defaultTab: string): string {
+    const savedTab = sessionStorage.getItem('rpgHubCurrentTab');
+    if (!savedTab) return defaultTab;
+
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.nav-item'))
+      .find(navItem => navItem.dataset.tab === savedTab);
+    if (!button) return defaultTab;
+
+    const allowedRoles = button.dataset.roleView?.split(' ') || [];
+    if (allowedRoles.length && (!this.userRole || !allowedRoles.includes(this.userRole))) {
+      return defaultTab;
+    }
+    if (this.isGuestSession && ['my-plan', 'campaign-access', 'friendships'].includes(savedTab)) {
+      return defaultTab;
+    }
+    return savedTab;
+  }
+
+  private restoreAdminTabAfterIdentity(): void {
+    if (!this.currentTab.startsWith('admin-')) return;
+
+    const tab = this.currentTab;
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.nav-item'))
+      .find(navItem => navItem.dataset.tab === tab);
+    const permission = button?.dataset.adminPermission;
+    if (permission && this.adminIdentity?.permissions.includes(permission)) {
+      this.switchTab(tab);
+      return;
+    }
+
+    this.switchTab(this.userRole === 'jogador' ? 'sistemas' : 'dashboard');
+  }
+
   private get personagemAtivo(): Personagem | null {
     if (!this.personagemAtivoId) return this.personagens[0] || null;
     return this.personagens.find(p => p.idPersonagem === this.personagemAtivoId) || this.personagens[0] || null;
@@ -2168,6 +2208,11 @@ class AppController {
         this.closeSupportTicket();
       }
     });
+    window.setInterval(() => void this.refreshIncomingContent(), 30_000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) void this.refreshIncomingContent();
+    });
+    window.addEventListener('focus', () => void this.refreshIncomingContent());
 
     document.getElementById('btn-user-profile')?.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -2297,6 +2342,7 @@ class AppController {
       this.adminIdentity = null;
       this.applyAdminNavigation();
       sessionStorage.removeItem('rpgHubAuthToken');
+      sessionStorage.removeItem('rpgHubCurrentTab');
       StorageService.lock();
       this.clearPrivateArea();
       document.getElementById('user-profile-dropdown')?.classList.add('hidden');
@@ -2403,6 +2449,7 @@ class AppController {
     this.privateAreaInitialized = false;
     this.applyAdminNavigation();
     sessionStorage.removeItem('rpgHubAuthToken');
+    sessionStorage.removeItem('rpgHubCurrentTab');
     StorageService.lock();
     this.clearPrivateArea();
     this.closeDeleteAccountConfirmation();
@@ -3375,6 +3422,7 @@ class AppController {
     }
     if (tabName !== 'campaign-access') void this.stopPlayerQrScanner();
     this.currentTab = tabName;
+    sessionStorage.setItem('rpgHubCurrentTab', tabName);
 
     // Atualizar classes ativas na navegação
     document.querySelectorAll('.nav-item').forEach(btn => {
@@ -5268,6 +5316,41 @@ class AppController {
     } finally {
       this.friendshipLoading = false;
       if (this.currentTab === 'friendships') this.renderCurrentView();
+    }
+  }
+
+  private async refreshIncomingContent(): Promise<void> {
+    if (
+      this.incomingRefreshInProgress
+      || !this.authToken
+      || !this.networkOnline
+      || this.isOfflineSession
+      || !this.privateAreaInitialized
+      || document.hidden
+    ) return;
+
+    const forms = document.querySelectorAll<HTMLFormElement>('#content-area form');
+    if (Array.from(forms).some(formHasChanges)) return;
+
+    this.incomingRefreshInProgress = true;
+    try {
+      if (this.currentTab === 'friendships' && !this.friendshipLoading) {
+        await this.loadFriendshipData();
+      } else if (this.currentTab === 'campaign-access' && !this.playerCampaignAccessLoading) {
+        await this.loadPlayerCampaignAccess();
+      } else if (
+        this.currentTab === 'dashboard'
+        && this.userRole === 'mestre'
+        && !this.masterDashboardLoading
+      ) {
+        await this.loadMasterDashboard(true);
+      } else if (this.currentTab === 'campanhas' && this.userRole === 'mestre') {
+        const campaignIds = [...this.openCampaignDetails]
+          .filter(campaignId => !this.campaignDetailsLoading.has(campaignId));
+        await Promise.all(campaignIds.map(campaignId => this.carregarDetalhesCampanha(campaignId)));
+      }
+    } finally {
+      this.incomingRefreshInProgress = false;
     }
   }
 
