@@ -40,6 +40,7 @@ class RpgApi {
   final LocalStorageService _localStorage;
 
   String? _cacheOwnerId;
+  bool isGuestMode = false;
   final Map<String, RpgDataSource> _readSources = {};
   RpgDataSource? lastReadSource;
   String? lastReadNotice;
@@ -56,6 +57,13 @@ class RpgApi {
       lastReadNotice = null;
     }
     _cacheOwnerId = normalizedOwner;
+  }
+
+  void setGuestMode(bool value) {
+    isGuestMode = value;
+    _readSources.clear();
+    lastReadSource = null;
+    lastReadNotice = null;
   }
 
   bool get isUsingLocalCache => lastReadSource == RpgDataSource.localCache;
@@ -332,6 +340,13 @@ class RpgApi {
   }
 
   Future<List<Campaign>> campaigns() async {
+    if (isGuestMode) {
+      return _guestList(
+        kind: 'campaigns',
+        key: 'campaigns',
+        parse: (response) => _items(response, 'campaigns', Campaign.fromJson),
+      );
+    }
     final campaigns = await _cachedList(
       kind: 'campaigns',
       key: 'campaigns',
@@ -345,16 +360,44 @@ class RpgApi {
     return campaigns;
   }
 
-  Future<Campaign> campaign(String id) => _cachedModel(
+  Future<Campaign> campaign(String id) {
+    if (isGuestMode) {
+      return _guestRecord(
         kind: 'campaign:$id',
         key: 'campaign',
-        request: () => client.get('/campaigns/$id'),
+        id: id,
         parse: (response) =>
             _modelField(response, 'campaign', Campaign.fromJson),
-        serialize: (campaign) => campaign.toJson(),
       );
+    }
+    return _cachedModel(
+      kind: 'campaign:$id',
+      key: 'campaign',
+      request: () => client.get('/campaigns/$id'),
+      parse: (response) => _modelField(response, 'campaign', Campaign.fromJson),
+      serialize: (campaign) => campaign.toJson(),
+    );
+  }
 
   Future<Campaign> createCampaign(String name, String description) async {
+    if (isGuestMode) {
+      final scope = _requireGuestScope();
+      final createdCampaign = Campaign(
+        id: _newGuestRecordId(),
+        ownerId: scope.ownerId,
+        name: name,
+        description: description,
+        isActive: true,
+        workspaceType: scope.workspaceType,
+      );
+      await _saveGuestRecord('campaigns', createdCampaign.toJson(), 'CREATE');
+      await _saveGuestRecord(
+        'campaign:${createdCampaign.id}',
+        createdCampaign.toJson(),
+        'CREATE',
+      );
+      return createdCampaign;
+    }
     final campaign = _modelField(
       await client.post('/campaigns', {
         'name': name,
@@ -373,6 +416,20 @@ class RpgApi {
     String name,
     String description,
   ) async {
+    if (isGuestMode) {
+      final current = await this.campaign(id);
+      final updated = Campaign(
+        id: current.id,
+        ownerId: current.ownerId,
+        name: name,
+        description: description,
+        isActive: current.isActive,
+        workspaceType: current.workspaceType,
+      );
+      await _saveGuestRecord('campaigns', updated.toJson(), 'UPDATE');
+      await _saveGuestRecord('campaign:$id', updated.toJson(), 'UPDATE');
+      return updated;
+    }
     final campaign = _modelField(
       await client.put('/campaigns/$id', {
         'name': name,
@@ -387,6 +444,20 @@ class RpgApi {
   }
 
   Future<void> deleteCampaign(String id) async {
+    if (isGuestMode) {
+      final combats = await campaignCombats(id);
+      for (final combat in combats) {
+        await _deleteGuestRecord(
+          'campaign_combat:${combat.id}',
+          combat.id,
+        );
+      }
+      await _deleteGuestRecord('campaigns', id);
+      await _deleteGuestRecord('campaign:$id', id);
+      await _deleteGuestKind('campaign_combats:$id');
+      await _deleteGuestKind('campaign_characters:$id');
+      return;
+    }
     await client.delete('/campaigns/$id');
     await _removeCached('campaigns', id);
     await _removeCached('campaign:$id', id);
@@ -394,6 +465,14 @@ class RpgApi {
   }
 
   Future<List<CampaignCombat>> campaignCombats(String campaignId) async {
+    if (isGuestMode) {
+      return _guestList(
+        kind: 'campaign_combats:$campaignId',
+        key: 'combats',
+        parse: (response) =>
+            _items(response, 'combats', CampaignCombat.fromJson),
+      );
+    }
     final combats = await _cachedList(
       kind: 'campaign_combats:$campaignId',
       key: 'combats',
@@ -410,19 +489,43 @@ class RpgApi {
     return combats;
   }
 
-  Future<CampaignCombat> campaignCombat(String combatId) => _cachedModel(
+  Future<CampaignCombat> campaignCombat(String combatId) {
+    if (isGuestMode) {
+      return _guestRecord(
         kind: 'campaign_combat:$combatId',
         key: 'combat',
-        request: () => client.get('/combats/$combatId'),
+        id: combatId,
         parse: (response) =>
             _modelField(response, 'combat', CampaignCombat.fromJson),
-        serialize: (combat) => combat.toJson(),
       );
+    }
+    return _cachedModel(
+      kind: 'campaign_combat:$combatId',
+      key: 'combat',
+      request: () => client.get('/combats/$combatId'),
+      parse: (response) =>
+          _modelField(response, 'combat', CampaignCombat.fromJson),
+      serialize: (combat) => combat.toJson(),
+    );
+  }
 
   Future<CampaignCombat> createCombat(
     String campaignId,
     String name,
   ) async {
+    if (isGuestMode) {
+      final combat = CampaignCombat(
+        id: _newGuestRecordId(),
+        campaignId: campaignId,
+        name: name,
+        status: 'preparing',
+        currentRound: 1,
+        currentParticipantId: null,
+        participants: const [],
+      );
+      await _saveGuestCombat(combat);
+      return combat;
+    }
     final combat = _modelField(
       await client.post('/campaigns/$campaignId/combats', {'name': name}),
       'combat',
@@ -436,6 +539,12 @@ class RpgApi {
     String combatId,
     String name,
   ) async {
+    if (isGuestMode) {
+      final current = await campaignCombat(combatId);
+      final updated = _copyCombat(current, name: name);
+      await _saveGuestCombat(updated);
+      return updated;
+    }
     final combat = _modelField(
       await client.put('/combats/$combatId', {'name': name}),
       'combat',
@@ -446,6 +555,11 @@ class RpgApi {
   }
 
   Future<void> deleteCombat(String campaignId, String combatId) async {
+    if (isGuestMode) {
+      await _deleteGuestRecord('campaign_combat:$combatId', combatId);
+      await _deleteGuestRecord('campaign_combats:$campaignId', combatId);
+      return;
+    }
     await client.delete('/combats/$combatId');
     try {
       await _removeCached('campaign_combat:$combatId', combatId);
@@ -463,6 +577,42 @@ class RpgApi {
     required int initiativeValue,
     String? characterId,
   }) async {
+    if (isGuestMode) {
+      final current = await campaignCombat(combatId);
+      if (type != 'character' && type != 'monster' && type != 'npc') {
+        throw ArgumentError.value(type, 'type');
+      }
+      final participant = CampaignCombatParticipant(
+        id: participantId ?? _newGuestRecordId(),
+        combatId: combatId,
+        campaignId: current.campaignId,
+        characterId: characterId,
+        type: type,
+        name: name,
+        initiativeValue: initiativeValue,
+        turnOrder: current.participants.length,
+      );
+      final participants = [...current.participants];
+      final index =
+          participants.indexWhere((item) => item.id == participant.id);
+      if (index == -1) {
+        participants.add(participant);
+      } else {
+        participants[index] = CampaignCombatParticipant(
+          id: participant.id,
+          combatId: participant.combatId,
+          campaignId: participant.campaignId,
+          characterId: participant.characterId,
+          type: participant.type,
+          name: participant.name,
+          initiativeValue: participant.initiativeValue,
+          turnOrder: participants[index].turnOrder,
+        );
+      }
+      final updated = _copyCombat(current, participants: participants);
+      await _saveGuestCombat(updated);
+      return updated;
+    }
     final payload = <String, dynamic>{
       'type': type,
       'name': name,
@@ -488,6 +638,23 @@ class RpgApi {
     required String combatId,
     required String participantId,
   }) async {
+    if (isGuestMode) {
+      final current = await campaignCombat(combatId);
+      final participants = current.participants
+          .where((participant) => participant.id != participantId)
+          .toList();
+      final updated = _copyCombat(
+        current,
+        participants: _withTurnOrder(participants),
+        currentParticipantId: current.currentParticipantId == participantId
+            ? null
+            : current.currentParticipantId,
+        clearCurrentParticipantId:
+            current.currentParticipantId == participantId,
+      );
+      await _saveGuestCombat(updated);
+      return updated;
+    }
     final combat = _modelField(
       await client.delete(
         '/combats/$combatId/participants/$participantId',
@@ -503,6 +670,27 @@ class RpgApi {
     String combatId,
     List<String> participantIds,
   ) async {
+    if (isGuestMode) {
+      final current = await campaignCombat(combatId);
+      if (participantIds.length != current.participants.length ||
+          participantIds.toSet().length != participantIds.length ||
+          !participantIds.toSet().containsAll(
+                current.participants.map((participant) => participant.id),
+              )) {
+        throw ArgumentError.value(participantIds, 'participantIds');
+      }
+      final byId = {
+        for (final participant in current.participants)
+          participant.id: participant,
+      };
+      final participants = [
+        for (var index = 0; index < participantIds.length; index++)
+          _withParticipantOrder(byId[participantIds[index]]!, index),
+      ];
+      final updated = _copyCombat(current, participants: participants);
+      await _saveGuestCombat(updated);
+      return updated;
+    }
     final combat = _modelField(
       await client.patch('/combats/$combatId/order', {
         'participantIds': participantIds,
@@ -519,6 +707,48 @@ class RpgApi {
     required String action,
     String? participantId,
   }) async {
+    if (isGuestMode) {
+      final current = await campaignCombat(combatId);
+      var round = current.currentRound;
+      var currentParticipantId = current.currentParticipantId;
+      final participants = current.participants;
+      if (action == 'select') {
+        if (participantId == null ||
+            !participants
+                .any((participant) => participant.id == participantId)) {
+          throw ArgumentError.value(participantId, 'participantId');
+        }
+        currentParticipantId = participantId;
+      } else if (action == 'next' || action == 'previous') {
+        if (participants.isEmpty) return current;
+        final index = participants.indexWhere(
+          (participant) => participant.id == currentParticipantId,
+        );
+        if (action == 'next') {
+          final next = index + 1;
+          if (next >= participants.length) {
+            currentParticipantId = participants.first.id;
+            round++;
+          } else {
+            currentParticipantId = participants[next].id;
+          }
+        } else if (index <= 0) {
+          currentParticipantId = participants.last.id;
+          round = round > 1 ? round - 1 : 1;
+        } else {
+          currentParticipantId = participants[index - 1].id;
+        }
+      } else {
+        throw ArgumentError.value(action, 'action');
+      }
+      final updated = _copyCombat(
+        current,
+        currentRound: round,
+        currentParticipantId: currentParticipantId,
+      );
+      await _saveGuestCombat(updated);
+      return updated;
+    }
     final combat = _modelField(
       await client.patch('/combats/$combatId/turn', {
         'action': action,
@@ -535,6 +765,15 @@ class RpgApi {
     String combatId,
     String status,
   ) async {
+    if (isGuestMode) {
+      if (status != 'preparing' && status != 'active' && status != 'finished') {
+        throw ArgumentError.value(status, 'status');
+      }
+      final current = await campaignCombat(combatId);
+      final updated = _copyCombat(current, status: status);
+      await _saveGuestCombat(updated);
+      return updated;
+    }
     final combat = _modelField(
       await client.patch('/combats/$combatId/status', {'status': status}),
       'combat',
@@ -544,19 +783,32 @@ class RpgApi {
     return combat;
   }
 
-  Future<List<CampaignMember>> campaignMembers(String id) => _cachedList(
-        kind: 'campaign_members:$id',
-        key: 'members',
-        request: () => client.get('/campaigns/$id/members'),
-        parse: (response) =>
-            _items(response, 'members', CampaignMember.fromJson),
-        serialize: (member) => {
-          ...member.toJson(),
-          'id': member.userId,
-        },
-      );
+  Future<List<CampaignMember>> campaignMembers(String id) {
+    if (isGuestMode) {
+      final scope = _requireGuestScope();
+      return Future.value([
+        CampaignMember(
+          userId: scope.ownerId,
+          name: 'Visitante',
+          username: 'visitante',
+          role: 'owner',
+        ),
+      ]);
+    }
+    return _cachedList(
+      kind: 'campaign_members:$id',
+      key: 'members',
+      request: () => client.get('/campaigns/$id/members'),
+      parse: (response) => _items(response, 'members', CampaignMember.fromJson),
+      serialize: (member) => {
+        ...member.toJson(),
+        'id': member.userId,
+      },
+    );
+  }
 
   Future<CampaignInviteInfo?> campaignInviteStatus(String campaignId) async {
+    if (isGuestMode) return null;
     final response = await client.get('/campaigns/$campaignId/invite-code');
     if (!response.containsKey('invite')) {
       throw ApiException('A API não informou o estado do convite.');
@@ -570,6 +822,7 @@ class RpgApi {
   }
 
   Future<CampaignInviteInfo> renewCampaignInvite(String campaignId) async {
+    _requireAccountForGuestFeature();
     final response = await client.post(
       '/campaigns/$campaignId/invite-code',
       {},
@@ -578,10 +831,12 @@ class RpgApi {
   }
 
   Future<void> revokeCampaignInvite(String campaignId) async {
+    _requireAccountForGuestFeature();
     await client.delete('/campaigns/$campaignId/invite-code');
   }
 
   Future<CampaignInvitePreview> previewCampaignInvite(String code) async {
+    _requireAccountForGuestFeature();
     final response = await client.post('/campaign-invites/preview', {
       'code': code.trim(),
     });
@@ -591,6 +846,7 @@ class RpgApi {
   }
 
   Future<CampaignJoinRequest> requestCampaignJoin(String code) async {
+    _requireAccountForGuestFeature();
     final response = await client.post('/campaign-invites/requests', {
       'code': code.trim(),
     });
@@ -600,6 +856,7 @@ class RpgApi {
   Future<List<CampaignJoinRequest>> campaignJoinRequests(
     String campaignId,
   ) async {
+    _requireAccountForGuestFeature();
     final response = await client.get('/campaigns/$campaignId/join-requests');
     return _items(response, 'requests', CampaignJoinRequest.fromJson);
   }
@@ -609,6 +866,7 @@ class RpgApi {
     required String requestId,
     required String action,
   }) async {
+    _requireAccountForGuestFeature();
     final response = await client.patch(
       '/campaigns/$campaignId/join-requests/$requestId',
       {'action': action},
@@ -618,11 +876,13 @@ class RpgApi {
   }
 
   Future<List<CampaignJoinRequest>> myCampaignJoinRequests() async {
+    _requireAccountForGuestFeature();
     final response = await client.get('/me/campaign-join-requests');
     return _items(response, 'requests', CampaignJoinRequest.fromJson);
   }
 
   Future<void> cancelCampaignJoinRequest(String requestId) async {
+    _requireAccountForGuestFeature();
     await client.delete('/campaign-join-requests/$requestId');
   }
 
@@ -630,6 +890,7 @@ class RpgApi {
     required String campaignId,
     required String username,
   }) async {
+    _requireAccountForGuestFeature();
     final query = Uri(queryParameters: {'username': username.trim()}).query;
     final response = await client.get(
       '/campaigns/$campaignId/users/search?$query',
@@ -638,27 +899,32 @@ class RpgApi {
   }
 
   Future<List<FriendshipUser>> searchUsers(String username) async {
+    _requireAccountForGuestFeature();
     final query = Uri(queryParameters: {'username': username.trim()}).query;
     final response = await client.get('/users/search?$query');
     return _items(response, 'users', FriendshipUser.fromJson);
   }
 
   Future<List<FriendshipUser>> friendships() async {
+    _requireAccountForGuestFeature();
     final response = await client.get('/friendships');
     return _items(response, 'friends', FriendshipUser.fromJson);
   }
 
   Future<List<FriendshipRequest>> receivedFriendshipRequests() async {
+    _requireAccountForGuestFeature();
     final response = await client.get('/friendships/requests/received');
     return _items(response, 'requests', FriendshipRequest.fromJson);
   }
 
   Future<List<FriendshipRequest>> sentFriendshipRequests() async {
+    _requireAccountForGuestFeature();
     final response = await client.get('/friendships/requests/sent');
     return _items(response, 'requests', FriendshipRequest.fromJson);
   }
 
   Future<void> sendFriendshipRequest(String recipientId) async {
+    _requireAccountForGuestFeature();
     await client.post('/friendships/requests', {'recipientId': recipientId});
   }
 
@@ -666,6 +932,7 @@ class RpgApi {
     required String requestId,
     required String action,
   }) async {
+    _requireAccountForGuestFeature();
     if (action != 'accept' && action != 'reject') {
       throw ArgumentError.value(action, 'action');
     }
@@ -673,6 +940,7 @@ class RpgApi {
   }
 
   Future<void> removeFriendship(String friendshipId) async {
+    _requireAccountForGuestFeature();
     await client.delete('/friendships/$friendshipId');
   }
 
@@ -680,6 +948,7 @@ class RpgApi {
     required String campaignId,
     required String username,
   }) async {
+    _requireAccountForGuestFeature();
     final response = await client.post(
       '/campaigns/$campaignId/user-invitations',
       {'username': username.trim()},
@@ -692,6 +961,7 @@ class RpgApi {
   Future<List<CampaignUserInvitation>> campaignUserInvitations(
     String campaignId,
   ) async {
+    if (isGuestMode) return [];
     final response = await client.get(
       '/campaigns/$campaignId/user-invitations',
     );
@@ -702,12 +972,14 @@ class RpgApi {
     required String campaignId,
     required String invitationId,
   }) async {
+    _requireAccountForGuestFeature();
     await client.delete(
       '/campaigns/$campaignId/user-invitations/$invitationId',
     );
   }
 
   Future<List<CampaignUserInvitation>> myCampaignInvitations() async {
+    _requireAccountForGuestFeature();
     final response = await client.get('/me/campaign-invitations');
     return _items(response, 'invitations', CampaignUserInvitation.fromJson);
   }
@@ -716,6 +988,7 @@ class RpgApi {
     required String invitationId,
     required String action,
   }) async {
+    _requireAccountForGuestFeature();
     final response = await client.post(
       '/campaign-user-invitations/$invitationId/respond',
       {'action': action},
@@ -735,27 +1008,42 @@ class RpgApi {
     String userId,
     String role,
   ) async {
+    _requireAccountForGuestFeature();
     await client.put('/campaigns/$id/members/$userId', {'role': role});
     await _invalidateCached('campaign_members:$id');
   }
 
   Future<void> removeCampaignMember(String id, String userId) async {
+    _requireAccountForGuestFeature();
     await client.delete('/campaigns/$id/members/$userId');
     await _invalidateCached('campaign_members:$id');
   }
 
-  Future<List<CampaignCharacter>> campaignCharacters(String id) => _cachedList(
+  Future<List<CampaignCharacter>> campaignCharacters(String id) {
+    if (isGuestMode) {
+      return _guestList(
         kind: 'campaign_characters:$id',
         key: 'characters',
-        request: () => client.get('/campaigns/$id/characters'),
         parse: (response) =>
             _items(response, 'characters', CampaignCharacter.fromJson),
-        serialize: (character) => character.toJson(),
       );
+    }
+    return _cachedList(
+      kind: 'campaign_characters:$id',
+      key: 'characters',
+      request: () => client.get('/campaigns/$id/characters'),
+      parse: (response) =>
+          _items(response, 'characters', CampaignCharacter.fromJson),
+      serialize: (character) => character.toJson(),
+    );
+  }
 
   Future<CampaignMyCharacterLinks> myCampaignCharacterLinks(
     String campaignId,
   ) async {
+    if (isGuestMode) {
+      return const CampaignMyCharacterLinks(requests: []);
+    }
     final response =
         await client.get('/campaigns/$campaignId/my-character-links');
     final links = CampaignMyCharacterLinks.fromJson(response);
@@ -767,6 +1055,7 @@ class RpgApi {
   Future<List<CampaignCharacterLinkRequest>> campaignCharacterLinkRequests(
     String campaignId,
   ) async {
+    if (isGuestMode) return [];
     final response =
         await client.get('/campaigns/$campaignId/character-link-requests');
     final requests = _items(
@@ -785,6 +1074,7 @@ class RpgApi {
     required String campaignId,
     required String characterId,
   }) async {
+    _requireAccountForGuestFeature();
     final response = await client.post(
       '/campaigns/$campaignId/character-link-requests',
       {'characterId': characterId},
@@ -800,6 +1090,7 @@ class RpgApi {
     required String campaignId,
     required String requestId,
   }) async {
+    _requireAccountForGuestFeature();
     final response = await client.delete(
       '/campaigns/$campaignId/character-link-requests/$requestId',
     );
@@ -813,6 +1104,7 @@ class RpgApi {
     required String requestId,
     required String action,
   }) async {
+    _requireAccountForGuestFeature();
     final response = await client.patch(
       '/campaigns/$campaignId/character-link-requests/$requestId',
       {'action': action},
@@ -827,6 +1119,16 @@ class RpgApi {
     required String campaignId,
     required String characterId,
   }) async {
+    if (isGuestMode) {
+      final character = await this.character(characterId);
+      return CampaignCharacterSheet(
+        name: character.name,
+        data: character.data,
+        ownerId: _cacheOwnerId,
+        ownerName: 'Visitante',
+        system: character.system,
+      );
+    }
     final response = await client.get(
       '/campaigns/$campaignId/characters/$characterId',
     );
@@ -837,6 +1139,21 @@ class RpgApi {
 
   Future<void> addCampaignCharacter(
       String campaignId, String characterId) async {
+    if (isGuestMode) {
+      final character = await this.character(characterId);
+      await _saveGuestRecord(
+        'campaign_characters:$campaignId',
+        CampaignCharacter(
+          id: character.id,
+          name: character.name,
+          systemName: character.system.name,
+          playerName: 'Visitante',
+          status: 'approved',
+        ).toJson(),
+        'CREATE',
+      );
+      return;
+    }
     await client.post('/campaigns/$campaignId/characters', {
       'characterId': characterId,
     });
@@ -847,11 +1164,23 @@ class RpgApi {
     String campaignId,
     String characterId,
   ) async {
+    if (isGuestMode) {
+      await _deleteGuestRecord('campaign_characters:$campaignId', characterId);
+      return;
+    }
     await client.delete('/campaigns/$campaignId/characters/$characterId');
     await _invalidateCached('campaign_characters:$campaignId');
   }
 
   Future<List<RpgCharacter>> characters() async {
+    if (isGuestMode) {
+      return _guestList(
+        kind: 'characters',
+        key: 'characters',
+        parse: (response) =>
+            _items(response, 'characters', RpgCharacter.fromJson),
+      );
+    }
     final characters = await _cachedList(
       kind: 'characters',
       key: 'characters',
@@ -869,14 +1198,25 @@ class RpgApi {
     return characters;
   }
 
-  Future<RpgCharacter> character(String id) => _cachedModel(
+  Future<RpgCharacter> character(String id) {
+    if (isGuestMode) {
+      return _guestRecord(
         kind: 'character:$id',
         key: 'character',
-        request: () => client.get('/characters/$id'),
+        id: id,
         parse: (response) =>
             _modelField(response, 'character', RpgCharacter.fromJson),
-        serialize: (character) => character.toJson(),
       );
+    }
+    return _cachedModel(
+      kind: 'character:$id',
+      key: 'character',
+      request: () => client.get('/characters/$id'),
+      parse: (response) =>
+          _modelField(response, 'character', RpgCharacter.fromJson),
+      serialize: (character) => character.toJson(),
+    );
+  }
 
   Future<Map<String, dynamic>> generateCharacterAttributes({
     required String systemSlug,
@@ -909,6 +1249,33 @@ class RpgApi {
     required Map<String, dynamic> data,
     String? workspaceType,
   }) async {
+    if (isGuestMode) {
+      final scope = _requireGuestScope(workspaceType: workspaceType);
+      final references = await _guestSystemReference(systemId, systemVersionId);
+      final character = RpgCharacter(
+        id: id ?? _newGuestRecordId(),
+        name: name,
+        data: data,
+        system: references.$1,
+        workspaceType: scope.workspaceType,
+        version: references.$2,
+        folderId: folderId,
+      );
+      final payload = character.toJson();
+      await _saveGuestRecord(
+        'characters',
+        payload,
+        id == null ? 'CREATE' : 'UPDATE',
+        workspaceType: scope.workspaceType,
+      );
+      await _saveGuestRecord(
+        'character:${character.id}',
+        payload,
+        id == null ? 'CREATE' : 'UPDATE',
+        workspaceType: scope.workspaceType,
+      );
+      return character;
+    }
     final payload = <String, dynamic>{
       'name': name,
       'systemId': systemId,
@@ -937,18 +1304,32 @@ class RpgApi {
   }
 
   Future<void> deleteCharacter(String id) async {
+    if (isGuestMode) {
+      await _deleteGuestRecord('characters', id);
+      await _deleteGuestRecord('character:$id', id);
+      return;
+    }
     await client.delete('/characters/$id');
     await _removeCached('characters', id);
     await _removeCached('character:$id', id);
   }
 
-  Future<List<RpgMonster>> campaignMonsters(String campaignId) => _cachedList(
+  Future<List<RpgMonster>> campaignMonsters(String campaignId) {
+    if (isGuestMode) {
+      return _guestList(
         kind: 'campaign_monsters:$campaignId',
         key: 'monsters',
-        request: () => client.get('/campaigns/$campaignId/monsters'),
         parse: (response) => _items(response, 'monsters', RpgMonster.fromJson),
-        serialize: (monster) => monster.toJson(),
       );
+    }
+    return _cachedList(
+      kind: 'campaign_monsters:$campaignId',
+      key: 'monsters',
+      request: () => client.get('/campaigns/$campaignId/monsters'),
+      parse: (response) => _items(response, 'monsters', RpgMonster.fromJson),
+      serialize: (monster) => monster.toJson(),
+    );
+  }
 
   Future<RpgMonster> saveMonster({
     String? id,
@@ -958,6 +1339,25 @@ class RpgApi {
     required String systemVersionId,
     required Map<String, dynamic> data,
   }) async {
+    if (isGuestMode) {
+      final scope = _requireGuestScope(workspaceType: 'master');
+      final references = await _guestSystemReference(systemId, systemVersionId);
+      final monster = RpgMonster(
+        id: id ?? _newGuestRecordId(),
+        campaignId: campaignId,
+        name: name,
+        data: data,
+        system: references.$1,
+        version: references.$2,
+      );
+      await _saveGuestRecord(
+        'campaign_monsters:$campaignId',
+        monster.toJson(),
+        id == null ? 'CREATE' : 'UPDATE',
+        workspaceType: scope.workspaceType,
+      );
+      return monster;
+    }
     final payload = {
       'name': name,
       'systemId': systemId,
@@ -977,22 +1377,45 @@ class RpgApi {
   }
 
   Future<void> deleteMonster(String campaignId, String id) async {
+    if (isGuestMode) {
+      await _deleteGuestRecord('campaign_monsters:$campaignId', id);
+      return;
+    }
     await client.delete('/campaigns/$campaignId/monsters/$id');
     await _removeCached('campaign_monsters:$campaignId', id);
     await _removeCached('monster:$id', id);
   }
 
-  Future<Map<String, dynamic>> dnd5eSheet(String characterId) => _cachedObject(
+  Future<Map<String, dynamic>> dnd5eSheet(String characterId) {
+    if (isGuestMode) {
+      return _guestRecord(
         kind: 'dnd5e_sheet:$characterId',
         key: 'sheet',
-        request: () => client.get('/characters/$characterId/dnd-5e'),
+        id: 'object',
+        parse: (response) => _objectField(response, 'sheet'),
       );
+    }
+    return _cachedObject(
+      kind: 'dnd5e_sheet:$characterId',
+      key: 'sheet',
+      request: () => client.get('/characters/$characterId/dnd-5e'),
+    );
+  }
 
   Future<Map<String, dynamic>> saveDnd5eSheet(
     String characterId,
     Map<String, dynamic> sheet, {
     bool isNew = false,
   }) async {
+    if (isGuestMode) {
+      final result = Map<String, dynamic>.from(sheet);
+      await _saveGuestRecord(
+        'dnd5e_sheet:$characterId',
+        {'id': 'object', 'sheet': result},
+        isNew ? 'CREATE' : 'UPDATE',
+      );
+      return result;
+    }
     final response = isNew
         ? await client.post('/characters/$characterId/dnd-5e', sheet)
         : await client.put('/characters/$characterId/dnd-5e', sheet);
@@ -1005,6 +1428,10 @@ class RpgApi {
   }
 
   Future<void> deleteDnd5eSheet(String characterId) async {
+    if (isGuestMode) {
+      await _deleteGuestRecord('dnd5e_sheet:$characterId', 'object');
+      return;
+    }
     await client.delete('/characters/$characterId/dnd-5e');
     await _removeCached('dnd5e_sheet:$characterId', 'object');
   }
@@ -1036,6 +1463,13 @@ class RpgApi {
       );
 
   Future<List<RpgFolder>> folders() async {
+    if (isGuestMode) {
+      return _guestList(
+        kind: 'folders',
+        key: 'folders',
+        parse: (response) => _items(response, 'folders', RpgFolder.fromJson),
+      );
+    }
     final folders = await _cachedList(
       kind: 'folders',
       key: 'folders',
@@ -1054,6 +1488,24 @@ class RpgApi {
     required String name,
     required String? parentId,
   }) async {
+    if (isGuestMode) {
+      final folder = RpgFolder(
+        id: id ?? _newGuestRecordId(),
+        parentId: parentId,
+        name: name,
+      );
+      await _saveGuestRecord(
+        'folders',
+        folder.toJson(),
+        id == null ? 'CREATE' : 'UPDATE',
+      );
+      await _saveGuestRecord(
+        'folder:${folder.id}',
+        folder.toJson(),
+        id == null ? 'CREATE' : 'UPDATE',
+      );
+      return folder;
+    }
     final payload = {'name': name, 'parentId': parentId};
     final response = id == null
         ? await client.post('/folders', payload)
@@ -1064,28 +1516,52 @@ class RpgApi {
     return folder;
   }
 
-  Future<RpgFolder> folder(String id) => _cachedModel(
+  Future<RpgFolder> folder(String id) {
+    if (isGuestMode) {
+      return _guestRecord(
         kind: 'folder:$id',
         key: 'folder',
-        request: () => client.get('/folders/$id'),
+        id: id,
         parse: (response) =>
             _modelField(response, 'folder', RpgFolder.fromJson),
-        serialize: (folder) => folder.toJson(),
       );
+    }
+    return _cachedModel(
+      kind: 'folder:$id',
+      key: 'folder',
+      request: () => client.get('/folders/$id'),
+      parse: (response) => _modelField(response, 'folder', RpgFolder.fromJson),
+      serialize: (folder) => folder.toJson(),
+    );
+  }
 
   Future<void> deleteFolder(String id) async {
+    if (isGuestMode) {
+      await _deleteGuestRecord('folders', id);
+      await _deleteGuestRecord('folder:$id', id);
+      return;
+    }
     await client.delete('/folders/$id');
     await _removeCached('folders', id);
     await _removeCached('folder:$id', id);
   }
 
-  Future<List<RpgNote>> notes() => _cachedList(
+  Future<List<RpgNote>> notes() {
+    if (isGuestMode) {
+      return _guestList(
         kind: 'notes',
         key: 'notes',
-        request: () => client.get('/notes'),
         parse: (response) => _items(response, 'notes', RpgNote.fromJson),
-        serialize: (note) => note.toJson(),
       );
+    }
+    return _cachedList(
+      kind: 'notes',
+      key: 'notes',
+      request: () => client.get('/notes'),
+      parse: (response) => _items(response, 'notes', RpgNote.fromJson),
+      serialize: (note) => note.toJson(),
+    );
+  }
 
   Future<RpgNote> saveNote({
     String? id,
@@ -1094,6 +1570,28 @@ class RpgApi {
     String? folderId,
     String? campaignId,
   }) async {
+    if (isGuestMode) {
+      final old = id == null ? null : await _guestRecordPayload('notes', id);
+      final note = RpgNote(
+        id: id ?? _newGuestRecordId(),
+        clientId: '',
+        title: title,
+        content: content,
+        createdAt: old?['createdAt'] is String
+            ? old!['createdAt'] as String
+            : DateTime.now().toUtc().toIso8601String(),
+        folderId: folderId,
+        campaignId: campaignId,
+      );
+      await _saveGuestRecord(
+          'notes', note.toJson(), id == null ? 'CREATE' : 'UPDATE');
+      await _saveGuestRecord(
+        'note:${note.id}',
+        note.toJson(),
+        id == null ? 'CREATE' : 'UPDATE',
+      );
+      return note;
+    }
     final payload = {
       'title': title,
       'content': content,
@@ -1110,18 +1608,32 @@ class RpgApi {
   }
 
   Future<void> deleteNote(String id) async {
+    if (isGuestMode) {
+      await _deleteGuestRecord('notes', id);
+      await _deleteGuestRecord('note:$id', id);
+      return;
+    }
     await client.delete('/notes/$id');
     await _removeCached('notes', id);
     await _removeCached('note:$id', id);
   }
 
-  Future<List<RpgMission>> missions() => _cachedList(
+  Future<List<RpgMission>> missions() {
+    if (isGuestMode) {
+      return _guestList(
         kind: 'missions',
         key: 'missions',
-        request: () => client.get('/missions'),
         parse: (response) => _items(response, 'missions', RpgMission.fromJson),
-        serialize: (mission) => mission.toJson(),
       );
+    }
+    return _cachedList(
+      kind: 'missions',
+      key: 'missions',
+      request: () => client.get('/missions'),
+      parse: (response) => _items(response, 'missions', RpgMission.fromJson),
+      serialize: (mission) => mission.toJson(),
+    );
+  }
 
   Future<RpgMission> saveMission({
     String? id,
@@ -1132,6 +1644,33 @@ class RpgApi {
     String? folderId,
     String? campaignId,
   }) async {
+    if (isGuestMode) {
+      final old = id == null ? null : await _guestRecordPayload('missions', id);
+      final mission = RpgMission(
+        id: id ?? _newGuestRecordId(),
+        clientId: '',
+        title: title,
+        description: description,
+        reward: reward,
+        status: status,
+        createdAt: old?['createdAt'] is String
+            ? old!['createdAt'] as String
+            : DateTime.now().toUtc().toIso8601String(),
+        folderId: folderId,
+        campaignId: campaignId,
+      );
+      await _saveGuestRecord(
+        'missions',
+        mission.toJson(),
+        id == null ? 'CREATE' : 'UPDATE',
+      );
+      await _saveGuestRecord(
+        'mission:${mission.id}',
+        mission.toJson(),
+        id == null ? 'CREATE' : 'UPDATE',
+      );
+      return mission;
+    }
     final payload = {
       'title': title,
       'description': description,
@@ -1150,9 +1689,209 @@ class RpgApi {
   }
 
   Future<void> deleteMission(String id) async {
+    if (isGuestMode) {
+      await _deleteGuestRecord('missions', id);
+      await _deleteGuestRecord('mission:$id', id);
+      return;
+    }
     await client.delete('/missions/$id');
     await _removeCached('missions', id);
     await _removeCached('mission:$id', id);
+  }
+
+  Future<List<T>> _guestList<T>({
+    required String kind,
+    required String key,
+    required List<T> Function(Map<String, dynamic>) parse,
+  }) async {
+    final scope = _requireGuestScope();
+    final rows = await _localStorage.loadMany(
+      kind,
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+    );
+    _setReadSource(kind, RpgDataSource.localCache);
+    return parse({key: rows});
+  }
+
+  Future<T> _guestRecord<T>({
+    required String kind,
+    required String key,
+    required String id,
+    required T Function(Map<String, dynamic>) parse,
+  }) async {
+    final payload = await _guestRecordPayload(kind, id);
+    if (payload == null) {
+      throw const ApiException('Registro local não encontrado.');
+    }
+    _setReadSource(kind, RpgDataSource.localCache);
+    return parse({key: payload});
+  }
+
+  Future<Map<String, dynamic>?> _guestRecordPayload(
+    String kind,
+    String id, {
+    String? workspaceType,
+  }) async {
+    final scope = _requireGuestScope(workspaceType: workspaceType);
+    final records = await _localStorage.loadMany(
+      kind,
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+    );
+    for (final record in records) {
+      if (record['id']?.toString() == id) return record;
+    }
+    return null;
+  }
+
+  Future<void> _saveGuestRecord(
+    String kind,
+    Map<String, dynamic> payload,
+    String operation, {
+    String? workspaceType,
+  }) async {
+    final scope = _requireGuestScope(workspaceType: workspaceType);
+    await _localStorage.saveRecord(
+      kind,
+      payload,
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      operation: operation,
+    );
+    _setReadSource(kind, RpgDataSource.localCache);
+  }
+
+  Future<void> _saveGuestCombat(CampaignCombat combat) async {
+    final listKind = 'campaign_combats:${combat.campaignId}';
+    final combats = await campaignCombats(combat.campaignId);
+    final existingIndex = combats.indexWhere((item) => item.id == combat.id);
+    await _saveGuestRecord(
+      listKind,
+      combat.toJson(),
+      existingIndex == -1 ? 'CREATE' : 'UPDATE',
+    );
+    await _saveGuestRecord(
+      'campaign_combat:${combat.id}',
+      combat.toJson(),
+      existingIndex == -1 ? 'CREATE' : 'UPDATE',
+    );
+  }
+
+  CampaignCombat _copyCombat(
+    CampaignCombat combat, {
+    String? name,
+    String? status,
+    int? currentRound,
+    String? currentParticipantId,
+    bool clearCurrentParticipantId = false,
+    List<CampaignCombatParticipant>? participants,
+  }) =>
+      CampaignCombat(
+        id: combat.id,
+        campaignId: combat.campaignId,
+        name: name ?? combat.name,
+        status: status ?? combat.status,
+        currentRound: currentRound ?? combat.currentRound,
+        currentParticipantId: clearCurrentParticipantId
+            ? null
+            : currentParticipantId ?? combat.currentParticipantId,
+        participants: participants ?? combat.participants,
+      );
+
+  List<CampaignCombatParticipant> _withTurnOrder(
+    List<CampaignCombatParticipant> participants,
+  ) =>
+      [
+        for (var index = 0; index < participants.length; index++)
+          _withParticipantOrder(participants[index], index),
+      ];
+
+  CampaignCombatParticipant _withParticipantOrder(
+    CampaignCombatParticipant participant,
+    int turnOrder,
+  ) =>
+      CampaignCombatParticipant(
+        id: participant.id,
+        combatId: participant.combatId,
+        campaignId: participant.campaignId,
+        characterId: participant.characterId,
+        type: participant.type,
+        name: participant.name,
+        initiativeValue: participant.initiativeValue,
+        turnOrder: turnOrder,
+      );
+
+  Future<void> _deleteGuestRecord(
+    String kind,
+    String id, {
+    String? workspaceType,
+  }) async {
+    final scope = _requireGuestScope(workspaceType: workspaceType);
+    await _localStorage.deleteRecord(
+      kind,
+      id,
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+    );
+  }
+
+  Future<void> _deleteGuestKind(
+    String kind, {
+    String? workspaceType,
+  }) async {
+    final scope = _requireGuestScope(workspaceType: workspaceType);
+    await _localStorage.removeCache(
+      kind,
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+    );
+  }
+
+  ({String ownerId, String workspaceType}) _requireGuestScope({
+    String? workspaceType,
+  }) {
+    final ownerId = _cacheOwnerId?.trim();
+    final workspace = workspaceType ?? client.workspaceType;
+    if (!isGuestMode ||
+        ownerId == null ||
+        !ownerId.startsWith('guest-') ||
+        workspace == null ||
+        (workspace != 'player' && workspace != 'master')) {
+      throw const ApiException(
+        'O armazenamento local do visitante não está inicializado.',
+      );
+    }
+    return (ownerId: ownerId, workspaceType: workspace);
+  }
+
+  String _newGuestRecordId() =>
+      'guest-record-${DateTime.now().microsecondsSinceEpoch}';
+
+  void _requireAccountForGuestFeature() {
+    if (isGuestMode) {
+      throw const ApiException('Este recurso exige uma conta cadastrada.');
+    }
+  }
+
+  Future<(RpgSystem, RpgSystemVersion)> _guestSystemReference(
+    String systemId,
+    String? versionId,
+  ) async {
+    final systems = await this.systems();
+    final matches = systems.where((system) => system.id == systemId);
+    if (matches.isEmpty) {
+      throw const ApiException('O sistema selecionado não foi encontrado.');
+    }
+    if (versionId == null) {
+      throw const ApiException('Selecione uma versão para esse sistema.');
+    }
+    final versions = await systemVersions(systemId);
+    final versionMatches = versions.where((version) => version.id == versionId);
+    if (versionMatches.isEmpty) {
+      throw const ApiException('A versão selecionada não foi encontrada.');
+    }
+    return (matches.first, versionMatches.first);
   }
 
   ({String ownerId, String workspaceType})? get _cacheScope {

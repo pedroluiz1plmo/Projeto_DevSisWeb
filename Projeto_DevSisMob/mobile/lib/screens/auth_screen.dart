@@ -11,12 +11,14 @@ class AuthScreen extends StatefulWidget {
     super.key,
     required this.api,
     required this.onAuthenticated,
+    required this.onStartGuest,
     this.initialMessage,
     this.initialNotice,
   });
 
   final RpgApi api;
   final Future<void> Function(AppUser) onAuthenticated;
+  final Future<void> Function() onStartGuest;
   final String? initialMessage;
   final String? initialNotice;
 
@@ -94,6 +96,20 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
       );
+
+  Future<void> _startGuest() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.onStartGuest();
+    } on Exception catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -215,6 +231,12 @@ class _AuthScreenState extends State<AuthScreen> {
                             ? 'Já tenho uma conta'
                             : 'Criar uma conta'),
                       ),
+                      if (!_register)
+                        OutlinedButton.icon(
+                          onPressed: _busy ? null : _startGuest,
+                          icon: const Icon(Icons.explore_outlined),
+                          label: const Text('Experimentar como visitante'),
+                        ),
                       TextButton.icon(
                         onPressed: _busy ? null : _openSupportTicket,
                         icon: const Icon(Icons.support_agent_outlined),

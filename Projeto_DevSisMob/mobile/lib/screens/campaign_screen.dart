@@ -18,11 +18,13 @@ class CampaignScreen extends StatefulWidget {
     required this.api,
     required this.user,
     this.isMaster = false,
+    this.isGuest = false,
   });
 
   final RpgApi api;
   final AppUser user;
   final bool isMaster;
+  final bool isGuest;
 
   @override
   State<CampaignScreen> createState() => _CampaignScreenState();
@@ -80,6 +82,7 @@ class _CampaignScreenState extends State<CampaignScreen> {
         campaign: campaign,
         user: widget.user,
         isMaster: widget.isMaster,
+        isGuest: widget.isGuest,
       ),
     ));
     if (mounted) _load();
@@ -91,7 +94,7 @@ class _CampaignScreenState extends State<CampaignScreen> {
           Column(
             children: [
               LocalCacheIndicator(api: widget.api, kinds: const ['campaigns']),
-              if (!widget.isMaster)
+              if (!widget.isMaster && !widget.isGuest)
                 ListTile(
                   leading: const Icon(Icons.group_add_outlined),
                   title: const Text('Entrar em campanha'),
@@ -183,12 +186,14 @@ class CampaignDetailScreen extends StatefulWidget {
     required this.campaign,
     required this.user,
     required this.isMaster,
+    this.isGuest = false,
   });
 
   final RpgApi api;
   final Campaign campaign;
   final AppUser user;
   final bool isMaster;
+  final bool isGuest;
 
   @override
   State<CampaignDetailScreen> createState() => _CampaignDetailScreenState();
@@ -232,7 +237,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       _availableCharacters = results[2] as List<RpgCharacter>;
       _campaign = await widget.api.campaign(_campaign.id);
       _hasLoaded = true;
-      if (_isOwner) {
+      if (_isOwner && !widget.isGuest) {
         try {
           _invitations = await widget.api.campaignUserInvitations(_campaign.id);
         } catch (error) {
@@ -966,13 +971,16 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                   _members.any((member) =>
                                       member.userId == widget.user.id))
                                 ..._buildPlayerCharacterSection(),
-                              if (widget.isMaster && _isOwner)
+                              if (widget.isMaster &&
+                                  _isOwner &&
+                                  !widget.isGuest)
                                 _SectionHeading(
                                   title: 'Adicionar amigos',
                                   action: _inviteFriends,
                                 ),
                               if (widget.isMaster &&
                                   _isOwner &&
+                                  !widget.isGuest &&
                                   _invitations.isNotEmpty)
                                 ..._invitations.map((invitation) => ListTile(
                                       leading: const Icon(Icons.mail_outline),
@@ -989,11 +997,15 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                         }}',
                                       ),
                                     )),
-                              if (widget.isMaster && _isOwner)
+                              if (widget.isMaster &&
+                                  _isOwner &&
+                                  !widget.isGuest)
                                 _SectionHeading(
                                   title: 'Convites e solicitações',
                                 ),
-                              if (widget.isMaster && _isOwner)
+                              if (widget.isMaster &&
+                                  _isOwner &&
+                                  !widget.isGuest)
                                 ListTile(
                                   leading: const Icon(Icons.mark_email_unread),
                                   title: const Text('Gerenciar acesso'),
@@ -1003,7 +1015,9 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                   trailing: const Icon(Icons.chevron_right),
                                   onTap: _openInvitations,
                                 ),
-                              if (widget.isMaster && _isOwner)
+                              if (widget.isMaster &&
+                                  _isOwner &&
+                                  !widget.isGuest)
                                 ..._buildMasterCharacterRequests(),
                               _SectionHeading(
                                 title: 'Personagens da campanha',

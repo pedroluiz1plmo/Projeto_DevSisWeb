@@ -26,6 +26,7 @@ class HomeScreen extends StatefulWidget {
     required this.onPersonaChanged,
     required this.onUserUpdated,
     required this.onAccountDeleted,
+    this.isGuest = false,
   });
 
   final RpgApi api;
@@ -35,6 +36,7 @@ class HomeScreen extends StatefulWidget {
   final Future<void> Function(UserPersona) onPersonaChanged;
   final ValueChanged<AppUser> onUserUpdated;
   final Future<void> Function() onAccountDeleted;
+  final bool isGuest;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -52,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadAdminAccess() async {
+    if (widget.isGuest) return;
     try {
       final result = await widget.api.adminIdentity();
       if (!mounted) return;
@@ -91,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
       'Pastas',
       if (isMaster) 'Monstros',
       'Notas e missões',
-      'Amizades',
+      if (!widget.isGuest) 'Amizades',
     ];
     final notesIndex = isMaster ? 5 : 4;
     return Scaffold(
@@ -101,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
           PopupMenuButton<String>(
             tooltip: 'Conta',
             onSelected: (value) async {
-              if (value == 'profile') await _openProfile();
+              if (value == 'profile' && !widget.isGuest) await _openProfile();
               if (value == 'logout') await widget.onLogout();
               if (value == 'persona') await _changePersona();
             },
@@ -110,8 +113,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 value: 'persona',
                 child: Text('Trocar visão (${widget.persona.label})'),
               ),
-              const PopupMenuItem(value: 'profile', child: Text('Meu perfil')),
-              const PopupMenuItem(value: 'logout', child: Text('Sair')),
+              if (!widget.isGuest)
+                const PopupMenuItem(
+                  value: 'profile',
+                  child: Text('Meu perfil'),
+                ),
+              PopupMenuItem(
+                value: 'logout',
+                child: Text(
+                  widget.isGuest ? 'Sair do modo visitante' : 'Sair',
+                ),
+              ),
             ],
             icon: const Icon(Icons.account_circle_outlined),
           ),
@@ -138,18 +150,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            isGuest: widget.isGuest,
           ),
         1 => CampaignScreen(
             api: widget.api,
             user: widget.user,
             isMaster: isMaster,
+            isGuest: widget.isGuest,
           ),
         2 => CharacterScreen(api: widget.api),
         3 => FolderScreen(api: widget.api),
         4 when isMaster => MonsterScreen(api: widget.api, user: widget.user),
         4 when !isMaster => NotesMissionsScreen(api: widget.api),
         5 when isMaster => NotesMissionsScreen(api: widget.api),
-        _ => FriendshipsScreen(api: widget.api),
+        _ when !widget.isGuest => FriendshipsScreen(api: widget.api),
+        _ => const Center(child: Text('Selecione uma seção.')),
       },
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
@@ -186,11 +201,12 @@ class _HomeScreenState extends State<HomeScreen> {
             selectedIcon: Icon(Icons.note_alt),
             label: 'Notas',
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.people_outline),
-            selectedIcon: Icon(Icons.people),
-            label: 'Amizades',
-          ),
+          if (!widget.isGuest)
+            const NavigationDestination(
+              icon: Icon(Icons.people_outline),
+              selectedIcon: Icon(Icons.people),
+              label: 'Amizades',
+            ),
         ],
       ),
     );
@@ -236,6 +252,7 @@ class _DashboardView extends StatelessWidget {
     required this.onRetryAdmin,
     required this.onOpenMyPlan,
     required this.onOpenAdmin,
+    required this.isGuest,
   });
 
   final AppUser user;
@@ -246,6 +263,7 @@ class _DashboardView extends StatelessWidget {
   final Future<void> Function() onRetryAdmin;
   final VoidCallback onOpenMyPlan;
   final VoidCallback onOpenAdmin;
+  final bool isGuest;
 
   @override
   Widget build(BuildContext context) => ListView(
@@ -255,6 +273,12 @@ class _DashboardView extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           const Text('Continue sua jornada.'),
+          if (isGuest) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Modo visitante · seus dados ficam somente neste dispositivo.',
+            ),
+          ],
           const SizedBox(height: 24),
           ListTile(
             leading: const Icon(Icons.auto_stories_outlined),
@@ -292,13 +316,14 @@ class _DashboardView extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: onOpenAdmin,
             ),
-          ListTile(
-            leading: const Icon(Icons.workspace_premium_outlined),
-            title: const Text('Meu Plano'),
-            subtitle: const Text('Plano atual e opções disponíveis'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: onOpenMyPlan,
-          ),
+          if (!isGuest)
+            ListTile(
+              leading: const Icon(Icons.workspace_premium_outlined),
+              title: const Text('Meu Plano'),
+              subtitle: const Text('Plano atual e opções disponíveis'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: onOpenMyPlan,
+            ),
           if (adminAccessError != null)
             Card(
               child: ListTile(

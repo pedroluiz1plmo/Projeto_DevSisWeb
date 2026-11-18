@@ -8,11 +8,13 @@ class PersonaSelectionScreen extends StatelessWidget {
     required this.onSelected,
     this.currentPersona,
     this.onLogout,
+    this.isGuest = false,
   });
 
   final Future<void> Function(UserPersona) onSelected;
   final UserPersona? currentPersona;
   final Future<void> Function()? onLogout;
+  final bool isGuest;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -37,7 +39,9 @@ class PersonaSelectionScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Essa preferência organiza a navegação; as permissões continuam vinculadas à sua conta.',
+                      isGuest
+                          ? 'No modo visitante, seus dados ficam somente neste dispositivo. Amizades, Meu Plano e campanhas de outras pessoas exigem uma conta.'
+                          : 'Essa preferência organiza a navegação; as permissões continuam vinculadas à sua conta.',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
@@ -63,7 +67,9 @@ class PersonaSelectionScreen extends StatelessWidget {
                       TextButton.icon(
                         onPressed: onLogout,
                         icon: const Icon(Icons.logout),
-                        label: const Text('Sair da conta'),
+                        label: Text(
+                          isGuest ? 'Sair do modo visitante' : 'Sair da conta',
+                        ),
                       ),
                     ],
                   ],

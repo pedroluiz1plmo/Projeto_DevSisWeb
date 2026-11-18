@@ -9,6 +9,7 @@ import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/persona_selection_screen.dart';
 import 'services/connection_service.dart';
+import 'services/guest_session_service.dart';
 import 'services/persona_service.dart';
 import 'services/rpg_api.dart';
 import 'widgets/connection_status_widget.dart';
@@ -21,11 +22,13 @@ class RpgManagerApp extends StatefulWidget {
     this.api,
     this.personaService,
     this.connectionService,
+    this.guestSessionService,
   });
 
   final RpgApi? api;
   final PersonaService? personaService;
   final ConnectionService? connectionService;
+  final GuestSessionService? guestSessionService;
 
   @override
   State<RpgManagerApp> createState() => _RpgManagerAppState();
@@ -37,8 +40,11 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
       widget.personaService ?? PersonaService();
   late final ConnectionService _connectionService =
       widget.connectionService ?? ConnectionService(apiClient: _api.client);
+  late final GuestSessionService _guestSessionService =
+      widget.guestSessionService ?? GuestSessionService();
   AppUser? _user;
   UserPersona? _persona;
+  bool _isGuest = false;
   bool _loading = true;
   String? _startupError;
   String? _startupNotice;
@@ -59,6 +65,19 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
 
   Future<void> _restoreSession() async {
     try {
+      if (await _guestSessionService.isActive()) {
+        final guestId = await _guestSessionService.getOrCreateGuestId();
+        final persona = await _personaService.loadForUser(guestId);
+        _api.setGuestMode(true);
+        _api.setCacheOwner(guestId);
+        _api.client.setWorkspaceType(persona?.workspaceType);
+        if (!mounted) return;
+        _user = _guestUser(guestId);
+        _persona = persona;
+        _isGuest = true;
+        return;
+      }
+
       await _api.client.restoreToken();
       if (_api.client.token != null) {
         final user = await _api.currentUser();
@@ -88,6 +107,8 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
   }
 
   Future<void> _onAuthenticated(AppUser user) async {
+    await _guestSessionService.setActive(false);
+    _api.setGuestMode(false);
     final persona = await _personaService.loadForUser(user.id);
     _api.setCacheOwner(user.id);
     _api.client.setWorkspaceType(persona?.workspaceType);
@@ -95,6 +116,7 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
     setState(() {
       _user = user;
       _persona = persona;
+      _isGuest = false;
       _startupError = null;
       _startupNotice = null;
     });
@@ -150,7 +172,54 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
     if (mounted) setState(() => _persona = persona);
   }
 
+  Future<void> _startGuestSession() async {
+    try {
+      await _api.client.setToken(null);
+      final guestId = await _guestSessionService.getOrCreateGuestId();
+      await _guestSessionService.setActive(true);
+      _api.setGuestMode(true);
+      _api.setCacheOwner(guestId);
+      _api.client.setWorkspaceType(null);
+      final persona = await _personaService.loadForUser(guestId);
+      if (!mounted) return;
+      setState(() {
+        _user = _guestUser(guestId);
+        _persona = persona;
+        _isGuest = true;
+        _startupError = null;
+        _startupNotice = null;
+      });
+    } on Exception catch (error) {
+      if (mounted) {
+        setState(() => _startupError =
+            'Não foi possível iniciar o modo visitante: $error');
+      }
+    }
+  }
+
+  AppUser _guestUser(String guestId) => AppUser(
+        id: guestId,
+        name: 'Visitante',
+        username: 'visitante',
+        email: '',
+      );
+
   Future<void> _logout() async {
+    if (_isGuest) {
+      await _guestSessionService.setActive(false);
+      _api.setGuestMode(false);
+      _api.setCacheOwner(null);
+      _api.client.setWorkspaceType(null);
+      if (mounted) {
+        setState(() {
+          _user = null;
+          _persona = null;
+          _isGuest = false;
+        });
+      }
+      return;
+    }
+
     try {
       await _api.logout();
     } catch (_) {
@@ -162,6 +231,8 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
         setState(() {
           _user = null;
           _persona = null;
+          _isGuest = false;
+          _api.setGuestMode(false);
         });
       }
     }
@@ -220,11 +291,13 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
                     initialMessage: _startupError,
                     initialNotice: _startupNotice,
                     onAuthenticated: _onAuthenticated,
+                    onStartGuest: _startGuestSession,
                   )
                 : _persona == null
                     ? PersonaSelectionScreen(
                         onSelected: _savePersona,
                         onLogout: _logout,
+                        isGuest: _isGuest,
                       )
                     : HomeScreen(
                         key: ValueKey(_persona),
@@ -235,6 +308,7 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
                         onPersonaChanged: _savePersona,
                         onUserUpdated: _onUserUpdated,
                         onAccountDeleted: _onAccountDeleted,
+                        isGuest: _isGuest,
                       ),
       );
 }
