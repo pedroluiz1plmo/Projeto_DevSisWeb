@@ -358,10 +358,10 @@ export class MestreView {
             <textarea id="camp-lore" rows="4" class="form-control" placeholder="Descreva a sinopse da história, ganchos narrativos e objetivos do grupo..."></textarea>
           </div>
 
-          <div class="form-group">
+          <div id="campaign-existing-character-group" class="form-group">
             <label>Vincular Personagens Existentes:</label>
             <p id="campaign-character-link-note" class="field-help hidden">Para campanhas sincronizadas, gerencie os vínculos no painel “Membros e personagens”.</p>
-            <div style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto; padding: 6px; background: rgba(0,0,0,0.3); border-radius: var(--radius-sm);">
+            <div id="campaign-existing-character-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto; padding: 6px; background: rgba(0,0,0,0.3); border-radius: var(--radius-sm);">
               ${(remoteAvailable ? personagens.filter(personagem => personagem.backendId) : personagens).map(p => `
                 <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
                   <input type="checkbox" class="chk-camp-personagem" value="${p.idPersonagem}" checked />

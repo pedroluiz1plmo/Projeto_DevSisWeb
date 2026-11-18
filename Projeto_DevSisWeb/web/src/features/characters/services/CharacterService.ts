@@ -89,8 +89,12 @@ export class CharacterService {
     return body.character;
   }
 
-  public static async excluir(id: string, token: string): Promise<void> {
-    await this.request(`/characters/${id}`, token, { method: 'DELETE' });
+  public static async excluir(
+    id: string,
+    token: string,
+    workspaceType?: 'player' | 'master',
+  ): Promise<void> {
+    await this.request(`/characters/${id}`, token, { method: 'DELETE' }, workspaceType);
   }
 
   public static async gerarAtributos(

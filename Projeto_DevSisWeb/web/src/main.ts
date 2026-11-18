@@ -177,23 +177,79 @@ class AppController {
       this.userRole = StorageService.carregarPerfil() || 'jogador';
       StorageService.definirPerfilAtivo(this.userRole);
 
-      this.personagens = StorageService.carregarPersonagens();
+      this.sistemaItens = StorageService.carregarSistemaPastas();
+      const workspaceType = StorageService.workspaceType();
+      for (const ficha of this.sistemaItens) {
+        if (ficha.backendId) {
+          ficha.backendIdsByWorkspace = {
+            ...ficha.backendIdsByWorkspace,
+            [workspaceType]: ficha.backendId,
+          };
+        }
+      }
+      const systemSheetCharacterIds = new Set(this.sistemaItens
+        .filter(ficha => ficha.tipo === 'ficha')
+        .flatMap(ficha => [
+          ficha.backendId,
+          ...Object.values(ficha.backendIdsByWorkspace || {}),
+        ])
+        .filter((id): id is string => Boolean(id)));
+
+      this.personagens = this.consolidateCharacters(StorageService.carregarPersonagens());
       for (const personagem of this.personagens) {
         if (personagem.backendId) {
           personagem.backendIdsByWorkspace = {
             ...personagem.backendIdsByWorkspace,
-            [StorageService.workspaceType()]: personagem.backendId,
+            [workspaceType]: personagem.backendId,
           };
         }
       }
       if (this.authToken && this.networkOnline) {
         try {
           const apiChars = await CharacterService.listar(this.authToken);
-          const merged = [...this.personagens];
+          const apiCharacterIds = new Set(apiChars.map(character => character.id));
+          const isSystemSheet = (character: { data: Record<string, unknown> }): boolean => {
+            const data = character.data;
+            return data._rpgHubSheet === true
+              || (typeof data.idPersonagem !== 'string' && (
+                Object.keys(data).some(key => /^(inline|guided|dnd|coc|vampire)-/i.test(key))
+                || typeof data.class === 'string'
+                || typeof data.playerName === 'string'
+                || typeof data.guidedConcept === 'string'
+                || ['strength', 'dexterity', 'constitution', 'armorClass', 'maxHitPoints']
+                  .some(key => key in data)
+              ));
+          };
+          const apiSystemSheetIds = new Set(apiChars
+            .filter(isSystemSheet)
+            .map(character => character.id));
+          const merged = this.personagens.filter(character => {
+            const linkedId = character.backendIdsByWorkspace?.[workspaceType]
+              || character.backendId;
+            return (!linkedId || apiCharacterIds.has(linkedId))
+              && !systemSheetCharacterIds.has(linkedId || '')
+              && !apiSystemSheetIds.has(linkedId || '');
+          });
           for (const apiCharacter of apiChars) {
-            const existing = merged.find((character) => character.backendId === apiCharacter.id);
-            if (existing) continue;
+            if (
+              systemSheetCharacterIds.has(apiCharacter.id)
+              || isSystemSheet(apiCharacter)
+            ) continue;
             const data = apiCharacter.data as any;
+            const existing = merged.find(character =>
+              character.backendId === apiCharacter.id
+              || character.backendIdsByWorkspace?.[workspaceType] === apiCharacter.id
+              || (typeof data.idPersonagem === 'string'
+                && character.idPersonagem === data.idPersonagem)
+            );
+            if (existing) {
+              existing.backendId = apiCharacter.id;
+              existing.backendIdsByWorkspace = {
+                ...existing.backendIdsByWorkspace,
+                [workspaceType]: apiCharacter.id,
+              };
+              continue;
+            }
             const character = new Personagem(
               apiCharacter.name,
               data.classe || '',
@@ -211,7 +267,7 @@ class AppController {
             };
             merged.push(character);
           }
-          this.personagens = merged;
+          this.personagens = this.consolidateCharacters(merged);
           await StorageService.salvarPersonagens(this.personagens);
         } catch (error) {
           console.warn('Falha ao listar personagens; os dados locais foram mantidos.', error);
@@ -224,17 +280,11 @@ class AppController {
       this.historicoDados = StorageService.carregarHistoricoDados();
       this.notas = StorageService.carregarNotas();
       this.missoes = StorageService.carregarMissoes();
-      this.sistemaItens = StorageService.carregarSistemaPastas();
-      for (const ficha of this.sistemaItens) {
-        if (ficha.backendId) {
-          ficha.backendIdsByWorkspace = {
-            ...ficha.backendIdsByWorkspace,
-            [StorageService.workspaceType()]: ficha.backendId,
-          };
-        }
-      }
       await this.carregarPastasBackend();
       this.monstroItens = StorageService.carregarMonstroPastas();
+      if (this.removeDeletedCampaignSheetReferences()) {
+        await StorageService.salvarCampanhas(this.campanhas);
+      }
       await this.sincronizarNotasMissoes();
       this.jogador = new Jogador('user-jog-1', 'Jogador Aventureiro', 'jogador@unemat.br', this.personagens);
       this.mestre = new Mestre('user-mestre-1', 'Mestre dos Magos', 'mestre@unemat.br', this.campanhas, this.npcs);
@@ -372,6 +422,65 @@ class AppController {
       this.campaignApiAvailable = false;
       console.warn('Falha ao listar campanhas do backend; os dados locais serão usados.', error);
     }
+  }
+
+  private removeDeletedCampaignSheetReferences(): boolean {
+    const characterIds = new Set(this.personagens.map(character => character.idPersonagem));
+    const npcIds = new Set(this.npcs.map(npc => npc.idNpc));
+    const sheetIds = new Set(this.sistemaItens.filter(item => item.tipo === 'ficha').map(item => item.id));
+    const monsterIds = new Set(this.monstroItens.filter(item => item.tipo === 'ficha').map(item => item.id));
+    let changed = false;
+    for (const campaign of this.campanhas) {
+      const characters = campaign.personagens.filter(character => characterIds.has(character.idPersonagem));
+      const npcs = campaign.npcs.filter(npc => npcIds.has(npc.idNpc));
+      const sheets = campaign.fichas.filter(sheet => sheetIds.has(sheet.id));
+      const monsters = campaign.monstros.filter(monster => monsterIds.has(monster.id));
+      if (
+        characters.length !== campaign.personagens.length
+        || npcs.length !== campaign.npcs.length
+        || sheets.length !== campaign.fichas.length
+        || monsters.length !== campaign.monstros.length
+      ) {
+        campaign.personagens = characters;
+        campaign.npcs = npcs;
+        campaign.fichas = sheets;
+        campaign.monstros = monsters;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private consolidateCharacters(characters: Personagem[]): Personagem[] {
+    const consolidated: Personagem[] = [];
+    for (const character of characters) {
+      const identityIds = new Set([
+        character.idPersonagem,
+        character.backendId,
+        ...Object.values(character.backendIdsByWorkspace || {}),
+      ].filter((id): id is string => Boolean(id)));
+      const existing = consolidated.find(item => {
+        const existingIds = new Set([
+          item.idPersonagem,
+          item.backendId,
+          ...Object.values(item.backendIdsByWorkspace || {}),
+        ].filter((id): id is string => Boolean(id)));
+        return Array.from(identityIds).some(id => existingIds.has(id));
+      });
+      if (!existing) {
+        consolidated.push(character);
+        continue;
+      }
+
+      existing.backendIdsByWorkspace = {
+        ...existing.backendIdsByWorkspace,
+        ...character.backendIdsByWorkspace,
+      };
+      if (!existing.backendId && character.backendId) {
+        existing.backendId = character.backendId;
+      }
+    }
+    return consolidated;
   }
 
   private converterCampanha(campaign: ApiCampaign, local?: Campanha): Campanha {
@@ -1328,7 +1437,7 @@ class AppController {
     const payload = {
       name: ficha.nome,
       systemId: system.id,
-      data: { ...(ficha.dados || {}), description: ficha.descricao },
+      data: { ...(ficha.dados || {}), description: ficha.descricao, _rpgHubSheet: true },
     };
     const failedCopies: string[] = [];
     for (const [workspace, characterId] of copies) {
@@ -1355,6 +1464,58 @@ class AppController {
     }
   }
 
+  private async excluirCopiasRemotasDeFichas(fichas: SistemaPasta[]): Promise<Set<string> | null> {
+    const copies = new Map<string, { workspace: 'player' | 'master'; fichas: SistemaPasta[] }>();
+    for (const ficha of fichas) {
+      const workspaceIds = { ...(ficha.backendIdsByWorkspace || {}) };
+      if (ficha.backendId && !workspaceIds[StorageService.workspaceType()]) {
+        workspaceIds[StorageService.workspaceType()] = ficha.backendId;
+      }
+      for (const [workspace, id] of Object.entries(workspaceIds)) {
+        if ((workspace !== 'player' && workspace !== 'master') || !id) continue;
+        const copy = copies.get(id) || { workspace, fichas: [] };
+        copy.fichas.push(ficha);
+        copies.set(id, copy);
+      }
+    }
+    if (!copies.size) return new Set();
+    if (!this.authToken || !this.networkOnline) {
+      this.showToast('Conecte-se à internet para excluir as cópias remotas da ficha antes de removê-la.', 'falha');
+      return null;
+    }
+
+    const deletedIds = new Set<string>();
+    const failures: string[] = [];
+    for (const [id, copy] of copies) {
+      try {
+        await CharacterService.excluir(id, this.authToken, copy.workspace);
+        deletedIds.add(id);
+        for (const ficha of copy.fichas) {
+          const workspaceIds = { ...(ficha.backendIdsByWorkspace || {}) };
+          delete workspaceIds[copy.workspace];
+          ficha.backendIdsByWorkspace = workspaceIds;
+          if (ficha.backendId === id) ficha.backendId = undefined;
+        }
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : `Ficha remota ${id}`);
+      }
+    }
+
+    if (deletedIds.size) {
+      try {
+        await StorageService.salvarSistemaPastas(this.sistemaItens);
+      } catch (error) {
+        this.setStorageError(error);
+        return null;
+      }
+    }
+    if (failures.length) {
+      this.showToast(`Não foi possível excluir todas as cópias remotas: ${failures.join('; ')}`, 'falha');
+      return null;
+    }
+    return deletedIds;
+  }
+
   /** Replica a criação local no backend quando o catálogo e a sessão estiverem disponíveis. */
   private async criarPersonagemNoBackend(personagem: Personagem): Promise<void> {
     if (!this.authToken) return;
@@ -1376,12 +1537,38 @@ class AppController {
     }
   }
 
-  private async excluirPersonagemNoBackend(backendId?: string): Promise<void> {
-    if (!this.authToken || !backendId) return;
-    try {
-      await CharacterService.excluir(backendId, this.authToken);
-    } catch (error) {
-      console.warn('Não foi possível excluir a cópia remota; a cópia local já foi removida.', error);
+  private async excluirPersonagemNoBackend(personagem: Personagem): Promise<void> {
+    const workspaceIds = { ...(personagem.backendIdsByWorkspace || {}) };
+    if (personagem.backendId && !workspaceIds[StorageService.workspaceType()]) {
+      workspaceIds[StorageService.workspaceType()] = personagem.backendId;
+    }
+    const copies = Object.entries(workspaceIds).filter(
+      (entry): entry is ['player' | 'master', string] =>
+        (entry[0] === 'player' || entry[0] === 'master')
+        && typeof entry[1] === 'string'
+        && entry[1].length > 0
+    );
+    if (!copies.length) return;
+    if (!this.authToken || !this.networkOnline) {
+      throw new Error('Conecte-se à internet para excluir as cópias remotas da ficha.');
+    }
+
+    const failures: string[] = [];
+    for (const [workspace, id] of copies) {
+      try {
+        await CharacterService.excluir(id, this.authToken, workspace);
+        delete workspaceIds[workspace];
+        if (personagem.backendId === id) personagem.backendId = undefined;
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : `Ficha remota ${id}`);
+      }
+    }
+    personagem.backendIdsByWorkspace = workspaceIds;
+    if (copies.length !== failures.length) {
+      await StorageService.salvarPersonagens(this.personagens);
+    }
+    if (failures.length) {
+      throw new Error(`Não foi possível excluir todas as cópias remotas: ${failures.join('; ')}`);
     }
   }
 
@@ -1571,6 +1758,7 @@ class AppController {
           this.personagemAtivoId = selected;
           this.fichaRolagemSelecionadaId = null;
         }
+        this.updateCharacterSelector();
         this.renderCurrentView();
         const ficha = this.sistemaItens.find(item => item.id === this.fichaRolagemSelecionadaId);
         this.showToast(ficha ? `Ficha ativa: ${ficha.nome} (${ficha.sistema})` : `Personagem ativo: ${this.personagemAtivo?.nomePersonagem}`);
@@ -2519,6 +2707,7 @@ class AppController {
       'backendIdsByWorkspace',
       'id',
       'idPersonagem',
+      '_rpgHubSheet',
       'syncStatus',
       'localVersion',
       'createdAt',
@@ -2849,11 +3038,20 @@ class AppController {
     const select = document.getElementById('active-character-select') as HTMLSelectElement;
     if (!select) return;
 
+    this.personagens = this.consolidateCharacters(this.personagens);
+    if (!this.personagens.some(character => character.idPersonagem === this.personagemAtivoId)) {
+      this.personagemAtivoId = this.personagens[0]?.idPersonagem || null;
+    }
+    if (this.jogador) this.jogador.personagens = this.personagens;
     const fichas = this.sistemaItens.filter(item => item.tipo === 'ficha');
+    if (!fichas.some(ficha => ficha.id === this.fichaRolagemSelecionadaId)) {
+      this.fichaRolagemSelecionadaId = null;
+    }
+    const activeSheetId = this.fichaRolagemSelecionadaId;
     select.innerHTML = this.personagens.map(p =>
-      `<option value="${p.idPersonagem}" ${p.idPersonagem === this.personagemAtivoId ? 'selected' : ''}>${p.nomePersonagem} (${p.classe})</option>`
+      `<option value="${p.idPersonagem}" ${!activeSheetId && p.idPersonagem === this.personagemAtivoId ? 'selected' : ''}>${p.nomePersonagem} (${p.classe})</option>`
     ).join('') + fichas.map(ficha =>
-      `<option value="ficha:${ficha.id}" ${ficha.id === this.fichaRolagemSelecionadaId ? 'selected' : ''}>${ficha.nome} (${ficha.sistema})</option>`
+      `<option value="ficha:${ficha.id}" ${ficha.id === activeSheetId ? 'selected' : ''}>${ficha.nome} (${ficha.sistema})</option>`
     ).join('');
 
     if (this.personagens.length === 0 && fichas.length === 0) {
@@ -3870,19 +4068,6 @@ class AppController {
         const item = this.sistemaItens.find(entry => entry.id === button.dataset.id);
         if (!item || !confirm(`Excluir ${item.tipo} "${item.nome}"?`)) return;
 
-        if (item.tipo === 'pasta' && item.id.match(/^\d+$/) && this.authToken && this.folderApiAvailable) {
-          try {
-            await FolderService.excluir(item.id, this.authToken);
-          } catch (error) {
-            if (!(error instanceof TypeError)) {
-              this.showToast(error instanceof Error ? error.message : 'Não foi possível excluir a pasta.');
-              return;
-            }
-            this.folderApiAvailable = false;
-            console.warn('API de pastas indisponível; a pasta será removida somente do armazenamento local.', error);
-          }
-        }
-
         const idsParaExcluir = new Set([item.id]);
         let encontrouFilho = true;
         while (encontrouFilho) {
@@ -3895,8 +4080,44 @@ class AppController {
           });
         }
 
+        const fichasRemovidas = this.sistemaItens.filter(entry =>
+          entry.tipo === 'ficha' && idsParaExcluir.has(entry.id)
+        );
+        const deletedRemoteIds = await this.excluirCopiasRemotasDeFichas(fichasRemovidas);
+        if (deletedRemoteIds === null) return;
+        if (item.tipo === 'pasta' && item.id.match(/^\d+$/) && this.authToken && this.folderApiAvailable) {
+          try {
+            await FolderService.excluir(item.id, this.authToken);
+          } catch (error) {
+            if (!(error instanceof TypeError)) {
+              this.showToast(error instanceof Error ? error.message : 'Não foi possível excluir a pasta.');
+              return;
+            }
+            this.folderApiAvailable = false;
+            console.warn('API de pastas indisponível; a pasta será removida somente do armazenamento local.', error);
+          }
+        }
         this.sistemaItens = this.sistemaItens.filter(entry => !idsParaExcluir.has(entry.id));
+        if (deletedRemoteIds.size) {
+          this.personagens = this.personagens.filter(character =>
+            !deletedRemoteIds.has(character.backendId || '')
+            && !Object.values(character.backendIdsByWorkspace || {}).some(id => deletedRemoteIds.has(id))
+          );
+          this.jogador.personagens = this.personagens;
+          this.persistStorage(StorageService.salvarPersonagens(this.personagens));
+        }
+        if (idsParaExcluir.has(this.fichaRolagemSelecionadaId || '')) {
+          this.fichaRolagemSelecionadaId = null;
+        }
+        if (idsParaExcluir.has(this.fichaInventarioSelecionadaId || '')) {
+          this.fichaInventarioSelecionadaId = null;
+        }
+        const campaignReferencesChanged = this.removeDeletedCampaignSheetReferences();
         this.persistStorage(StorageService.salvarSistemaPastas(this.sistemaItens));
+        if (campaignReferencesChanged) {
+          this.persistStorage(StorageService.salvarCampanhas(this.campanhas));
+        }
+        this.updateCharacterSelector();
         this.showToast(`${item.tipo === 'pasta' ? 'Pasta' : 'Ficha'} excluída.`);
         this.renderCurrentView();
       });
@@ -3990,13 +4211,24 @@ class AppController {
     });
 
     // Excluir Personagem
-    document.getElementById('btn-excluir-personagem')?.addEventListener('click', () => {
+    document.getElementById('btn-excluir-personagem')?.addEventListener('click', async () => {
       if (confirm(`Deseja realmente excluir a ficha de ${p.nomePersonagem}?`)) {
+        try {
+          await this.excluirPersonagemNoBackend(p);
+        } catch (error) {
+          this.showToast(
+            error instanceof Error ? error.message : 'Não foi possível excluir as cópias remotas da ficha.',
+            'falha'
+          );
+          return;
+        }
         this.personagens = this.personagens.filter(item => item.idPersonagem !== p.idPersonagem);
         this.jogador.removerPersonagem(p.idPersonagem);
         void this.persistirPersonagens();
-        void this.excluirPersonagemNoBackend(p.backendId);
         this.personagemAtivoId = this.personagens[0]?.idPersonagem || null;
+        if (this.removeDeletedCampaignSheetReferences()) {
+          this.persistStorage(StorageService.salvarCampanhas(this.campanhas));
+        }
         this.updateCharacterSelector();
         this.showToast(`Personagem excluído com sucesso.`);
         this.renderCurrentView();
@@ -4493,7 +4725,7 @@ class AppController {
       const remote = await CharacterService.criar({
         name: ficha.nome,
         systemId: system.id,
-        data: { ...(ficha.dados || {}), description: ficha.descricao },
+        data: { ...(ficha.dados || {}), description: ficha.descricao, _rpgHubSheet: true },
       }, this.authToken, workspaceType);
       ficha.backendIdsByWorkspace = {
         ...ficha.backendIdsByWorkspace,
@@ -4880,14 +5112,19 @@ class AppController {
       if (loreInput) loreInput.value = campanha?.lore || '';
       if (modalTitle) modalTitle.textContent = campanha ? '📜 Editar Campanha' : '📜 Criar Nova Campanha';
       if (saveButton) saveButton.textContent = campanha ? 'Salvar alterações' : 'Salvar Campanha';
-      document.querySelectorAll<HTMLInputElement>('.chk-camp-personagem').forEach(check => {
-        check.checked = campanha?.personagens.some(personagem => personagem.idPersonagem === check.value) || false;
-        check.disabled = Boolean(campanha?.backendId && this.campaignApiAvailable);
-      });
-      document.getElementById('campaign-character-link-note')?.classList.toggle(
-        'hidden',
-        !campanha?.backendId || !this.campaignApiAvailable
-      );
+    const isSynchronizedCampaign = Boolean(campanha?.backendId && this.campaignApiAvailable);
+    document.getElementById('campaign-existing-character-list')?.classList.toggle(
+      'hidden',
+      isSynchronizedCampaign
+    );
+    document.querySelectorAll<HTMLInputElement>('.chk-camp-personagem').forEach(check => {
+      check.checked = campanha?.personagens.some(personagem => personagem.idPersonagem === check.value) || false;
+      check.disabled = isSynchronizedCampaign;
+    });
+    document.getElementById('campaign-character-link-note')?.classList.toggle(
+      'hidden',
+      !isSynchronizedCampaign
+    );
       document.querySelectorAll<HTMLInputElement>('.chk-camp-ficha').forEach(check => {
         check.checked = campanha?.fichas.some(ficha => ficha.id === check.value) || false;
       });
@@ -5507,6 +5744,9 @@ class AppController {
       while (changed) { changed = false; this.monstroItens.forEach(entry => { if (entry.parentId && ids.has(entry.parentId) && !ids.has(entry.id)) { ids.add(entry.id); changed = true; } }); }
       this.monstroItens = this.monstroItens.filter(entry => !ids.has(entry.id));
       this.persistStorage(StorageService.salvarMonstroPastas(this.monstroItens));
+      if (this.removeDeletedCampaignSheetReferences()) {
+        this.persistStorage(StorageService.salvarCampanhas(this.campanhas));
+      }
       this.renderCurrentView();
     }));
     const modal = document.getElementById('modal-monstro-folder');

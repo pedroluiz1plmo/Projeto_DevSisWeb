@@ -696,6 +696,7 @@ export class JogadorView {
 
   public static renderRoladorDados(personagem: Personagem | null, fichas: SistemaPasta[], fichaSelecionadaId: string | null, historico: ResultadoRolagem[]): string {
     const fichaSistema = fichaSelecionadaId ? fichas.find(ficha => ficha.id === fichaSelecionadaId) || null : null;
+    const legacySelected = !fichaSistema && Boolean(personagem);
     const nomeFicha = fichaSistema?.nome || personagem?.nomePersonagem || '';
     const sistema = fichaSistema?.sistema || (personagem ? 'D&D' : '');
     const dados = fichaSistema?.dados || {};
@@ -744,8 +745,9 @@ export class JogadorView {
           <div>
             <h4 style="margin-bottom: 12px; color: #a5b4fc;">Escolha a ficha</h4>
             <select id="dice-sheet-select" class="custom-select" style="margin-bottom: 14px;">
-              ${personagem ? `<option value="legacy">${personagem.nomePersonagem} (D&D)</option>` : ''}
-              ${fichas.map(ficha => `<option value="${ficha.id}" ${ficha.id === fichaSelecionadaId ? 'selected' : ''}>${ficha.nome} (${ficha.sistema})</option>`).join('')}
+              ${personagem ? `<option value="legacy" ${legacySelected ? 'selected' : ''}>${personagem.nomePersonagem} (D&D)</option>` : ''}
+              ${!personagem && !fichaSistema ? '<option value="" selected disabled>Selecione uma ficha</option>' : ''}
+              ${fichas.map(ficha => `<option value="${ficha.id}" ${ficha.id === fichaSistema?.id ? 'selected' : ''}>${ficha.nome} (${ficha.sistema})</option>`).join('')}
             </select>
             ${nomeFicha ? `
               <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px;">
