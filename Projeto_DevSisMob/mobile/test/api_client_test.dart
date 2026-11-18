@@ -141,6 +141,90 @@ void main() {
     expect(store.token, 'registration-token');
   });
 
+  test('chamado de suporte envia os campos e anexos e mostra erros da API',
+      () async {
+    final requests = <http.BaseRequest>[];
+    final api = RpgApi(
+      ApiClient(
+        httpClient: _FakeHttpClient((request) {
+          requests.add(request);
+          return http.Response(
+            jsonEncode({'success': true, 'message': 'Chamado enviado.'}),
+            200,
+          );
+        }),
+        tokenStore: _MemoryTokenStore(),
+        baseUrl: 'https://example.test/api',
+      ),
+    );
+
+    await api.submitSupportTicket(
+      name: 'Dora',
+      email: 'dora@example.test',
+      category: 'Problema técnico',
+      subject: 'Erro ao abrir campanha',
+      description: 'Ocorre ao abrir a campanha.',
+      attachments: const [
+        SupportTicketAttachment(
+          name: 'erro.png',
+          mimeType: 'image/png',
+          content: 'aGVsbG8=',
+        ),
+      ],
+    );
+
+    final request = requests.single as http.Request;
+    expect(request.url.path, '/api/support/tickets');
+    expect(request.method, 'POST');
+    expect(request.headers['Content-Type'], 'application/json');
+    expect(jsonDecode(request.body), {
+      'name': 'Dora',
+      'email': 'dora@example.test',
+      'category': 'Problema técnico',
+      'subject': 'Erro ao abrir campanha',
+      'description': 'Ocorre ao abrir a campanha.',
+      'attachments': [
+        {
+          'name': 'erro.png',
+          'mimeType': 'image/png',
+          'content': 'aGVsbG8=',
+        },
+      ],
+    });
+
+    final failingApi = RpgApi(
+      ApiClient(
+        httpClient: _FakeHttpClient(
+          (_) => http.Response(
+            jsonEncode({
+              'success': false,
+              'message': 'Muitos chamados enviados. Aguarde alguns minutos.',
+            }),
+            429,
+          ),
+        ),
+        tokenStore: _MemoryTokenStore(),
+        baseUrl: 'https://example.test/api',
+      ),
+    );
+    await expectLater(
+      failingApi.submitSupportTicket(
+        name: 'Dora',
+        email: 'dora@example.test',
+        category: 'Outro',
+        subject: 'Ajuda',
+        description: 'Preciso de ajuda.',
+      ),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.message,
+          'message',
+          'Muitos chamados enviados. Aguarde alguns minutos.',
+        ),
+      ),
+    );
+  });
+
   test('remove o token local e notifica quando a API responde 401', () async {
     final store = _MemoryTokenStore();
     final client = ApiClient(

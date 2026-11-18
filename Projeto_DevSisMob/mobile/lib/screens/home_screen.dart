@@ -14,6 +14,7 @@ import 'persona_selection_screen.dart';
 import 'admin_console_screen.dart';
 import 'my_plan_screen.dart';
 import 'friendships_screen.dart';
+import 'support_ticket_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -434,6 +435,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _openSupportTicket() => Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => SupportTicketScreen(
+            api: widget.api,
+            initialName: _user?.name ?? widget.user.name,
+            initialEmail: _user?.email ?? widget.user.email,
+          ),
+        ),
+      );
+
   Future<void> _deleteAccount() async {
     if (_deletingAccount) return;
     _deletePasswordController.clear();
@@ -562,6 +573,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             onPressed: _changePassword,
                             icon: const Icon(Icons.key_outlined),
                             label: const Text('Alterar senha'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _openSupportTicket,
+                            icon: const Icon(Icons.support_agent_outlined),
+                            label: const Text('Abrir chamado para o suporte'),
                           ),
                           OutlinedButton.icon(
                             onPressed: _deletingAccount ? null : _deleteAccount,

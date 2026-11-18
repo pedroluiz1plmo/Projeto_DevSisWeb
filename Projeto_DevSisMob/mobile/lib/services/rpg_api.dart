@@ -4,6 +4,24 @@ import 'local_storage.dart';
 
 enum RpgDataSource { server, localCache }
 
+class SupportTicketAttachment {
+  const SupportTicketAttachment({
+    required this.name,
+    required this.mimeType,
+    required this.content,
+  });
+
+  final String name;
+  final String mimeType;
+  final String content;
+
+  Map<String, String> toJson() => {
+        'name': name,
+        'mimeType': mimeType,
+        'content': content,
+      };
+}
+
 class CombatDeletionCacheException extends ApiException {
   const CombatDeletionCacheException(super.message);
 }
@@ -81,6 +99,25 @@ class RpgApi {
   Future<AppUser> currentUser() async {
     final data = await client.get('/auth/me');
     return _modelField(data, 'user', AppUser.fromJson);
+  }
+
+  Future<void> submitSupportTicket({
+    required String name,
+    required String email,
+    required String category,
+    required String subject,
+    required String description,
+    List<SupportTicketAttachment> attachments = const [],
+  }) async {
+    await client.post('/support/tickets', {
+      'name': name,
+      'email': email,
+      'category': category,
+      'subject': subject,
+      'description': description,
+      'attachments':
+          attachments.map((attachment) => attachment.toJson()).toList(),
+    });
   }
 
   Future<Map<String, dynamic>> currentPlanAccess() async {

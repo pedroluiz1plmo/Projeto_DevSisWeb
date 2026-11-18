@@ -4,6 +4,7 @@ import '../core/api_client.dart';
 import '../models/models.dart';
 import '../services/rpg_api.dart';
 import 'forgot_password_screen.dart';
+import 'support_ticket_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({
@@ -83,6 +84,16 @@ class _AuthScreenState extends State<AuthScreen> {
       });
     }
   }
+
+  Future<void> _openSupportTicket() => Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => SupportTicketScreen(
+            api: widget.api,
+            initialName: _register ? _name.text.trim() : '',
+            initialEmail: _register ? _email.text.trim() : '',
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -203,6 +214,11 @@ class _AuthScreenState extends State<AuthScreen> {
                         child: Text(_register
                             ? 'Já tenho uma conta'
                             : 'Criar uma conta'),
+                      ),
+                      TextButton.icon(
+                        onPressed: _busy ? null : _openSupportTicket,
+                        icon: const Icon(Icons.support_agent_outlined),
+                        label: const Text('Precisa de ajuda? Abrir chamado'),
                       ),
                     ],
                   ),

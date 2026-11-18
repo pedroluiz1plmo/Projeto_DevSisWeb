@@ -92,6 +92,30 @@
       "languageVersion": "3.0"
     },
     {
+      "name": "file_selector_linux",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/file_selector_linux-0.9.3+2",
+      "packageUri": "lib/",
+      "languageVersion": "3.3"
+    },
+    {
+      "name": "file_selector_macos",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/file_selector_macos-0.9.4+3",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "file_selector_platform_interface",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/file_selector_platform_interface-2.6.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
+      "name": "file_selector_windows",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/file_selector_windows-0.9.3+4",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
       "name": "fixnum",
       "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/fixnum-1.1.1",
       "packageUri": "lib/",
@@ -108,6 +132,12 @@
       "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/flutter_lints-5.0.0",
       "packageUri": "lib/",
       "languageVersion": "3.5"
+    },
+    {
+      "name": "flutter_plugin_android_lifecycle",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/flutter_plugin_android_lifecycle-2.0.29",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
     },
     {
       "name": "flutter_secure_storage",
@@ -168,6 +198,54 @@
       "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/http_parser-4.1.2",
       "packageUri": "lib/",
       "languageVersion": "3.4"
+    },
+    {
+      "name": "image_picker",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/image_picker-1.2.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "image_picker_android",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/image_picker_android-0.8.13",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "image_picker_for_web",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/image_picker_for_web-3.1.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "image_picker_ios",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/image_picker_ios-0.8.13",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "image_picker_linux",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/image_picker_linux-0.2.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "image_picker_macos",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/image_picker_macos-0.2.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "image_picker_platform_interface",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/image_picker_platform_interface-2.11.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "image_picker_windows",
+      "rootUri": "file:///home/danny/.pub-cache/hosted/pub.dev/image_picker_windows-0.2.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
     },
     {
       "name": "js",
@@ -482,7 +560,7 @@
       "languageVersion": "3.6"
     }
   ],
-  "generated": "2026-11-13T01:02:42.319660Z",
+  "generated": "2026-11-18T00:44:04.250880Z",
   "generator": "pub",
   "generatorVersion": "3.6.2",
   "flutterRoot": "file:///mnt/0D8F154B0D8F154B/Usuario/Projeto/flutter",

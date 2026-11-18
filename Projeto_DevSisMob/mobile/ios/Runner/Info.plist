@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>A câmera é usada para ler QR Codes de convite para campanhas.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A galeria é usada para anexar imagens ao chamado de suporte.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

@@ -68,7 +68,7 @@ if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
      NOT IS_SYMLINK "$ENV{DESTDIR}/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/bundle/mobile")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/bundle/mobile"
-         OLD_RPATH "/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/flutter_secure_storage_linux:/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/url_launcher_linux:/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/linux/flutter/ephemeral:"
+         OLD_RPATH "/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/file_selector_linux:/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/flutter_secure_storage_linux:/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/url_launcher_linux:/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/linux/flutter/ephemeral:"
          NEW_RPATH "$ORIGIN/lib")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/bundle/mobile")
@@ -98,6 +98,18 @@ if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
     message(FATAL_ERROR "ABSOLUTE path INSTALL DESTINATION forbidden (by caller): ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
   endif()
   file(INSTALL DESTINATION "/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/bundle/lib" TYPE FILE FILES "/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/linux/flutter/ephemeral/libflutter_linux_gtk.so")
+endif()
+
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
+  list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES
+   "/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/bundle/lib/libfile_selector_linux_plugin.so")
+  if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)
+    message(WARNING "ABSOLUTE path INSTALL DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
+  endif()
+  if(CMAKE_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION)
+    message(FATAL_ERROR "ABSOLUTE path INSTALL DESTINATION forbidden (by caller): ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
+  endif()
+  file(INSTALL DESTINATION "/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/bundle/lib" TYPE FILE FILES "/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/file_selector_linux/libfile_selector_linux_plugin.so")
 endif()
 
 if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
@@ -158,6 +170,7 @@ if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
   include("/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/flutter/cmake_install.cmake")
   include("/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/runner/cmake_install.cmake")
+  include("/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/file_selector_linux/cmake_install.cmake")
   include("/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/flutter_secure_storage_linux/cmake_install.cmake")
   include("/mnt/0D8F154B0D8F154B/Usuario/ProjetoFinal/Projeto_DevSisWeb/Projeto_DevSisMob/mobile/build/linux/x64/debug/plugins/url_launcher_linux/cmake_install.cmake")
 
