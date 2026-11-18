@@ -16,6 +16,6 @@ export interface SistemaPasta {
   descricao: string;
   parentId: string | null;
   dataCriacao: string;
-  dados?: Record<string, string | number>;
+  dados?: Record<string, unknown>;
   inventario?: SistemaInventarioItem[];
 }

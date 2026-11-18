@@ -16,8 +16,8 @@ export class MonstroView {
       }
       return partes.join(' / ');
     };
-    const field = (id: string, label: string, type = 'text') => `<div class="form-group"><label for="${id}">${label}</label><input id="${id}" class="form-control" type="${type}" value="${this.escapeHtml(fichaEmEdicao?.dados?.[id]?.toString() || '')}" /></div>`;
-    const area = (id: string, label: string) => `<div class="form-group"><label for="${id}">${label}</label><textarea id="${id}" class="form-control" rows="3">${this.escapeHtml(fichaEmEdicao?.dados?.[id]?.toString() || '')}</textarea></div>`;
+    const field = (id: string, label: string, type = 'text') => `<div class="form-group"><label for="${id}">${label}</label><input id="${id}" class="form-control" type="${type}" value="${this.escapeHtml(String(fichaEmEdicao?.dados?.[id] ?? ''))}" /></div>`;
+    const area = (id: string, label: string) => `<div class="form-group"><label for="${id}">${label}</label><textarea id="${id}" class="form-control" rows="3">${this.escapeHtml(String(fichaEmEdicao?.dados?.[id] ?? ''))}</textarea></div>`;
     const editor = fichaEmEdicao || (criandoFicha ? { id: '', nome: '', tipo: 'ficha' as const, sistema: 'D&D' as const, descricao: '', parentId: pastaAtualId, dataCriacao: '', dados: {} } : null);
     const visiveis = itens.filter(item => item.parentId === pastaAtualId);
     const folderOptions = editor ? [

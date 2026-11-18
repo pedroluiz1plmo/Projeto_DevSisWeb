@@ -13,8 +13,12 @@ import type { SistemaPasta } from './models/SistemaPasta';
 import type { MonstroPasta } from './models/MonstroPasta';
 import { StorageService } from './services/StorageService';
 import { DiceService, type ResultadoRolagem } from './services/DiceService';
-import { CharacterService } from './features/characters/services/CharacterService';
-import { CampaignService } from './features/campaigns/services/CampaignService';
+import { CharacterService, type ApiCharacter } from './features/characters/services/CharacterService';
+import {
+  CampaignService,
+  type ApiCampaignMonster,
+  type CampaignMonsterPayload
+} from './features/campaigns/services/CampaignService';
 import { FolderService, type ApiFolder } from './features/folders/services/FolderService';
 import {
   NotesMissionService,
@@ -207,6 +211,7 @@ class AppController {
       if (this.authToken && this.networkOnline) {
         try {
           const apiChars = await CharacterService.listar(this.authToken);
+          await this.sincronizarDadosLocaisPendentes(apiChars, workspaceType);
           const apiCharacterIds = new Set(apiChars.map(character => character.id));
           const isSystemSheet = (character: { data: Record<string, unknown> }): boolean => {
             const data = character.data;
@@ -243,6 +248,9 @@ class AppController {
                 && character.idPersonagem === data.idPersonagem)
             );
             if (existing) {
+              Object.assign(existing, data);
+              existing.nomePersonagem = apiCharacter.name;
+              existing.sistema = apiCharacter.system.name;
               existing.backendId = apiCharacter.id;
               existing.backendIdsByWorkspace = {
                 ...existing.backendIdsByWorkspace,
@@ -267,8 +275,44 @@ class AppController {
             };
             merged.push(character);
           }
+          for (const apiCharacter of apiChars.filter(isSystemSheet)) {
+            const data = apiCharacter.data;
+            let sheet = this.sistemaItens.find(item =>
+              item.tipo === 'ficha' &&
+              (item.backendId === apiCharacter.id ||
+                item.backendIdsByWorkspace?.[workspaceType] === apiCharacter.id ||
+                data._rpgHubLocalId === item.id)
+            );
+            if (!sheet) {
+              sheet = {
+                id: apiCharacter.id,
+                nome: apiCharacter.name,
+                tipo: 'ficha',
+                sistema: apiCharacter.system.name,
+                descricao: typeof data.description === 'string'
+                  ? data.description
+                  : '',
+                parentId: null,
+                dataCriacao: new Date().toLocaleDateString('pt-BR'),
+                dados: {},
+              };
+              this.sistemaItens.push(sheet);
+            }
+            sheet.nome = apiCharacter.name;
+            sheet.sistema = apiCharacter.system.name;
+            sheet.descricao = typeof data.description === 'string'
+              ? data.description
+              : sheet.descricao;
+            sheet.dados = { ...data };
+            sheet.backendId = apiCharacter.id;
+            sheet.backendIdsByWorkspace = {
+              ...sheet.backendIdsByWorkspace,
+              [workspaceType]: apiCharacter.id,
+            };
+          }
           this.personagens = this.consolidateCharacters(merged);
           await StorageService.salvarPersonagens(this.personagens);
+          await StorageService.salvarSistemaPastas(this.sistemaItens);
         } catch (error) {
           console.warn('Falha ao listar personagens; os dados locais foram mantidos.', error);
         }
@@ -276,12 +320,13 @@ class AppController {
 
       this.npcs = StorageService.carregarNPCs();
       this.campanhas = StorageService.carregarCampanhas(this.personagens, this.npcs);
+      this.monstroItens = StorageService.carregarMonstroPastas();
       await this.carregarCampanhasBackend();
       this.historicoDados = StorageService.carregarHistoricoDados();
       this.notas = StorageService.carregarNotas();
       this.missoes = StorageService.carregarMissoes();
       await this.carregarPastasBackend();
-      this.monstroItens = StorageService.carregarMonstroPastas();
+      await this.carregarMonstrosBackend();
       if (this.removeDeletedCampaignSheetReferences()) {
         await StorageService.salvarCampanhas(this.campanhas);
       }
@@ -404,6 +449,43 @@ class AppController {
   private async carregarCampanhasBackend(): Promise<void> {
     if (!this.authToken) return;
     try {
+      for (const local of this.campanhas.filter(campaign =>
+        !campaign.backendId && !/^\d+$/.test(campaign.idCampanha)
+      )) {
+        try {
+          const created = await CampaignService.criar(
+            { name: local.nomeCampanha, description: local.lore },
+            this.authToken,
+          );
+          local.backendId = created.id;
+          local.ownerId = created.ownerId;
+          const workspaceType =
+            created.workspaceType || StorageService.workspaceType();
+          local.workspaceType = workspaceType;
+          for (const character of local.personagens) {
+            const characterId = await this.ensureBackendCampaignCharacter(
+              character.idPersonagem,
+              workspaceType,
+            );
+            await CampaignService.adicionarPersonagem(
+              created.id,
+              characterId,
+              this.authToken,
+            );
+          }
+          if (workspaceType === 'master') {
+            await this.sincronizarMonstrosDaCampanha(
+              created.id,
+              local.monstros,
+            );
+          }
+        } catch (error) {
+          console.warn(
+            `Campanha local "${local.nomeCampanha}" ainda não foi sincronizada.`,
+            error,
+          );
+        }
+      }
       const apiCampaigns = await CampaignService.listar(this.authToken);
       this.campaignApiAvailable = true;
       const remoteIds = new Set(apiCampaigns.map(campaign => campaign.id));
@@ -485,8 +567,8 @@ class AppController {
 
   private converterCampanha(campaign: ApiCampaign, local?: Campanha): Campanha {
     const result = new Campanha(
-      local?.nomeCampanha || campaign.name,
-      local?.lore || campaign.description || '',
+      campaign.name,
+      campaign.description || '',
       campaign.createdAt,
       local?.personagens || [],
       local?.npcs || [],
@@ -498,6 +580,173 @@ class AppController {
     result.ownerId = campaign.ownerId;
     result.workspaceType = campaign.workspaceType;
     return result;
+  }
+
+  private aplicarMonstroDaApi(
+    monster: ApiCampaignMonster,
+    preferredLocal?: MonstroPasta,
+  ): MonstroPasta {
+    let local = preferredLocal?.tipo === 'ficha'
+      ? preferredLocal
+      : this.monstroItens.find(item =>
+      item.tipo === 'ficha' &&
+      item.backendIdsByCampaign?.[monster.campaignId]?.id === monster.id
+    );
+    if (!local) {
+      local = {
+        id: monster.id,
+        nome: monster.name,
+        tipo: 'ficha',
+        sistema: monster.system.name,
+        descricao: typeof monster.data.description === 'string'
+          ? monster.data.description
+          : '',
+        parentId: null,
+        dataCriacao: new Date(monster.createdAt).toLocaleDateString('pt-BR'),
+        dados: {},
+      };
+      this.monstroItens.push(local);
+    }
+    local.nome = monster.name;
+    local.sistema = monster.system.name;
+    local.descricao = typeof monster.data.description === 'string'
+      ? monster.data.description
+      : typeof monster.data['monstro-description'] === 'string'
+        ? monster.data['monstro-description']
+      : local.descricao;
+    local.dados = {
+      ...monster.data,
+      'monstro-description': local.descricao,
+    };
+    local.backendIdsByCampaign = {
+      ...local.backendIdsByCampaign,
+      [monster.campaignId]: {
+        id: monster.id,
+        systemId: monster.system.id,
+        systemVersionId: monster.version.id,
+      },
+    };
+    return local;
+  }
+
+  private async carregarMonstrosBackend(): Promise<void> {
+    if (!this.authToken || !this.networkOnline) return;
+    const userId = String(this.authenticatedUser?.id || '');
+    const campaigns = this.campanhas.filter(campaign =>
+      campaign.backendId &&
+      campaign.workspaceType === 'master' &&
+      campaign.ownerId === userId
+    );
+    if (!campaigns.length) return;
+
+    try {
+      for (const campaign of campaigns) {
+        const unlinkedLocalMonsters = campaign.monstros.filter(monster =>
+          monster.tipo === 'ficha' &&
+          !monster.backendIdsByCampaign?.[campaign.backendId!]
+        );
+        if (unlinkedLocalMonsters.length) {
+          await this.sincronizarMonstrosDaCampanha(
+            campaign.backendId!,
+            unlinkedLocalMonsters,
+          );
+        }
+        const monsters = await CampaignService.listarMonstros(
+          campaign.backendId!,
+          this.authToken,
+        );
+        campaign.monstros = monsters.map(monster =>
+          this.aplicarMonstroDaApi(monster)
+        );
+      }
+      await StorageService.salvarMonstroPastas(this.monstroItens);
+      await StorageService.salvarCampanhas(this.campanhas);
+    } catch (error) {
+      console.warn('Falha ao carregar monstros das campanhas; os dados locais foram mantidos.', error);
+    }
+  }
+
+  private async payloadMonstro(monster: MonstroPasta): Promise<CampaignMonsterPayload> {
+    let systemId = '';
+    let systemVersionId = '';
+    const linked = Object.values(monster.backendIdsByCampaign || {})[0];
+    if (linked) {
+      systemId = linked.systemId;
+      systemVersionId = linked.systemVersionId;
+    } else {
+      if (!this.backendSystems.length) {
+        this.backendSystems = await SystemService.listar();
+      }
+      const system = this.obterSistemaBackend(monster.sistema);
+      if (!system) {
+        throw new Error(`O sistema "${monster.sistema}" não está disponível na API.`);
+      }
+      const versions = await SystemService.listarVersoes(system.id);
+      const version = versions.find(item =>
+        item.slug.toLowerCase() === '5e' ||
+        item.name.toLowerCase().includes('5e')
+      ) || versions[0];
+      if (!version) throw new Error(`Nenhuma versão está disponível para ${system.name}.`);
+      systemId = system.id;
+      systemVersionId = version.id;
+    }
+    return {
+      name: monster.nome,
+      systemId,
+      systemVersionId,
+      data: { ...(monster.dados || {}), description: monster.descricao },
+    };
+  }
+
+  private async sincronizarMonstrosDaCampanha(
+    campaignId: string,
+    monsters: MonstroPasta[],
+    previous: MonstroPasta[] = [],
+  ): Promise<void> {
+    if (!this.authToken) return;
+    const selectedIds = new Set(monsters.map(monster => monster.id));
+    for (const monster of previous) {
+      if (selectedIds.has(monster.id)) continue;
+      const linked = monster.backendIdsByCampaign?.[campaignId];
+      if (!linked) continue;
+      await CampaignService.excluirMonstro(campaignId, linked.id, this.authToken);
+      const links = { ...monster.backendIdsByCampaign };
+      delete links[campaignId];
+      monster.backendIdsByCampaign = links;
+    }
+
+    for (const monster of monsters) {
+      const linked = monster.backendIdsByCampaign?.[campaignId];
+      const payload = await this.payloadMonstro(monster);
+      const saved = linked
+        ? await CampaignService.atualizarMonstro(
+            campaignId,
+            linked.id,
+            payload,
+            this.authToken,
+          )
+        : await CampaignService.criarMonstro(
+            campaignId,
+            payload,
+            this.authToken,
+          );
+      this.aplicarMonstroDaApi(saved, monster);
+    }
+    await StorageService.salvarMonstroPastas(this.monstroItens);
+  }
+
+  private async sincronizarMonstroEditado(monster: MonstroPasta): Promise<void> {
+    if (!this.authToken || !monster.backendIdsByCampaign) return;
+    const payload = await this.payloadMonstro(monster);
+    for (const [campaignId, linked] of Object.entries(monster.backendIdsByCampaign)) {
+      const saved = await CampaignService.atualizarMonstro(
+        campaignId,
+        linked.id,
+        payload,
+        this.authToken,
+      );
+      this.aplicarMonstroDaApi(saved);
+    }
   }
 
   private async carregarDetalhesCampanha(campaignId: string): Promise<void> {
@@ -516,6 +765,16 @@ class AppController {
       const currentUserId = String(this.authenticatedUser?.id || '');
       const isParticipant = members.some(member => String(member.userId) === currentUserId);
       if (campaign?.ownerId === currentUserId) {
+        if (campaign.workspaceType === 'master') {
+          const remoteMonsters = await CampaignService.listarMonstros(
+            campaignId,
+            this.authToken,
+          );
+          campaign.monstros = remoteMonsters.map(monster =>
+            this.aplicarMonstroDaApi(monster)
+          );
+          await StorageService.salvarMonstroPastas(this.monstroItens);
+        }
         const [inviteStatus, joinRequests, userInvitations, characterRequests] = await Promise.all([
           CampaignService.statusConvite(campaignId, this.authToken),
           CampaignService.listarSolicitacoes(campaignId, this.authToken),
@@ -1334,11 +1593,178 @@ class AppController {
   }
 
   private obterSistemaBackend(nomeSistema: string): RpgSystem | undefined {
-    const normalizado = nomeSistema.toLocaleLowerCase();
+    const normalizado = nomeSistema
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase()
+      .trim();
     return this.backendSystems.find(sistema =>
-      sistema.name.toLocaleLowerCase() === normalizado ||
-      (normalizado.includes('d&d') && sistema.slug === 'dungeons-and-dragons')
+      sistema.name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase()
+        .trim() === normalizado
+      || (/(d&d|dungeons|dragon)/.test(normalizado) && sistema.slug === 'dungeons-and-dragons')
+      || (normalizado.includes('cthulhu') && sistema.slug === 'call-of-cthulhu')
+      || (/(vampir|vampire)/.test(normalizado) && sistema.slug === 'vampiro-a-mascara')
     );
+  }
+
+  private async sincronizarDadosLocaisPendentes(
+    apiChars: ApiCharacter[],
+    workspaceType: 'player' | 'master',
+  ): Promise<void> {
+    if (!this.authToken || !this.networkOnline) return;
+    const hasPendingCharacter = this.personagens.some(personagem =>
+      !(personagem.backendIdsByWorkspace?.[workspaceType] || personagem.backendId)
+      && !apiChars.some(character => character.data.idPersonagem === personagem.idPersonagem));
+    const hasPendingSheet = this.sistemaItens.some(ficha =>
+      ficha.tipo === 'ficha'
+      && !(ficha.backendIdsByWorkspace?.[workspaceType] || ficha.backendId)
+      && !apiChars.some(character => character.data._rpgHubLocalId === ficha.id));
+    if (!this.backendSystems.length && (hasPendingCharacter || hasPendingSheet)) {
+      await this.carregarSistemasBackend();
+    }
+
+    let personagensAlterados = false;
+    let fichasAlteradas = false;
+    let falhouCatalogo = false;
+
+    for (const personagem of this.personagens) {
+      const linkedId = personagem.backendIdsByWorkspace?.[workspaceType] || personagem.backendId;
+      if (linkedId) {
+        const remote = apiChars.find(character => character.id === linkedId);
+        if (remote) {
+          personagensAlterados = true;
+          personagem.backendId = remote.id;
+          personagem.backendIdsByWorkspace = {
+            ...personagem.backendIdsByWorkspace,
+            [workspaceType]: remote.id,
+          };
+        }
+        continue;
+      }
+
+      const existing = apiChars.find(character =>
+        character.data.idPersonagem === personagem.idPersonagem);
+      if (existing) {
+        personagem.backendId = existing.id;
+        personagem.backendIdsByWorkspace = {
+          ...personagem.backendIdsByWorkspace,
+          [workspaceType]: existing.id,
+        };
+        personagensAlterados = true;
+        continue;
+      }
+
+      const system = this.obterSistemaBackend(personagem.sistema);
+      if (!system) {
+        falhouCatalogo = true;
+        continue;
+      }
+      const data = JSON.parse(JSON.stringify(personagem)) as Record<string, unknown>;
+      delete data.backendId;
+      delete data.backendIdsByWorkspace;
+      try {
+        const remote = await CharacterService.criar({
+          name: personagem.nomePersonagem,
+          systemId: system.id,
+          data,
+        }, this.authToken, workspaceType);
+        personagem.backendId = remote.id;
+        personagem.backendIdsByWorkspace = {
+          ...personagem.backendIdsByWorkspace,
+          [workspaceType]: remote.id,
+        };
+        apiChars.push(remote);
+        personagensAlterados = true;
+      } catch (error) {
+        console.error(`Falha ao sincronizar o personagem "${personagem.nomePersonagem}".`, error);
+        this.showToast(
+          `O personagem "${personagem.nomePersonagem}" foi mantido localmente, mas não sincronizou com o servidor.`,
+          'falha',
+        );
+      }
+    }
+
+    for (const ficha of this.sistemaItens.filter(item => item.tipo === 'ficha')) {
+      const linkedId = ficha.backendIdsByWorkspace?.[workspaceType] || ficha.backendId;
+      if (linkedId) {
+        const remote = apiChars.find(character => character.id === linkedId);
+        if (remote) {
+          fichasAlteradas = true;
+          ficha.backendId = remote.id;
+          ficha.backendIdsByWorkspace = {
+            ...ficha.backendIdsByWorkspace,
+            [workspaceType]: remote.id,
+          };
+        }
+        continue;
+      }
+
+      const existing = apiChars.find(character => character.data._rpgHubLocalId === ficha.id);
+      if (existing) {
+        ficha.backendId = existing.id;
+        ficha.backendIdsByWorkspace = {
+          ...ficha.backendIdsByWorkspace,
+          [workspaceType]: existing.id,
+        };
+        fichasAlteradas = true;
+        continue;
+      }
+
+      const system = this.obterSistemaBackend(ficha.sistema);
+      if (!system) {
+        falhouCatalogo = true;
+        continue;
+      }
+      try {
+        const remote = await CharacterService.criar({
+          name: ficha.nome,
+          systemId: system.id,
+          data: {
+            ...(ficha.dados || {}),
+            description: ficha.descricao,
+            _rpgHubSheet: true,
+            _rpgHubLocalId: ficha.id,
+          },
+        }, this.authToken, workspaceType);
+        ficha.backendId = remote.id;
+        ficha.backendIdsByWorkspace = {
+          ...ficha.backendIdsByWorkspace,
+          [workspaceType]: remote.id,
+        };
+        apiChars.push(remote);
+        fichasAlteradas = true;
+      } catch (error) {
+        console.error(`Falha ao sincronizar a ficha "${ficha.nome}".`, error);
+        this.showToast(
+          `A ficha "${ficha.nome}" foi mantida localmente, mas não sincronizou com o servidor.`,
+          'falha',
+        );
+      }
+    }
+
+    if (falhouCatalogo) {
+      this.showToast(
+        'Há fichas locais que ainda não sincronizaram: não foi possível identificar o sistema no servidor.',
+        'falha',
+      );
+    }
+    if (personagensAlterados) {
+      try {
+        await StorageService.salvarPersonagens(this.personagens);
+      } catch (error) {
+        this.setStorageError(error);
+      }
+    }
+    if (fichasAlteradas) {
+      try {
+        await StorageService.salvarSistemaPastas(this.sistemaItens);
+      } catch (error) {
+        this.setStorageError(error);
+      }
+    }
   }
 
   private async persistirPersonagens(personagem?: Personagem): Promise<void> {
@@ -1415,11 +1841,17 @@ class AppController {
 
   private async sincronizarFichaDeCampanha(ficha: SistemaPasta): Promise<void> {
     if (!this.authToken) return;
+    const workspaceType = StorageService.workspaceType();
     const copies = Object.entries(ficha.backendIdsByWorkspace || {})
       .filter((entry): entry is ['player' | 'master', string] =>
         typeof entry[1] === 'string' && entry[1].length > 0)
       .map(([workspace, id]) => [workspace, id] as const);
-    if (!copies.length) return;
+    if (
+      ficha.backendId &&
+      !copies.some(([, id]) => id === ficha.backendId)
+    ) {
+      copies.push([workspaceType, ficha.backendId]);
+    }
 
     let system = this.obterSistemaBackend(ficha.sistema);
     if (!system) {
@@ -1437,8 +1869,31 @@ class AppController {
     const payload = {
       name: ficha.nome,
       systemId: system.id,
-      data: { ...(ficha.dados || {}), description: ficha.descricao, _rpgHubSheet: true },
+      data: {
+        ...(ficha.dados || {}),
+        description: ficha.descricao,
+        _rpgHubSheet: true,
+        _rpgHubLocalId: ficha.id,
+      },
     };
+    if (!copies.length) {
+      try {
+        const remote = await CharacterService.criar(payload, this.authToken, workspaceType);
+        ficha.backendId = remote.id;
+        ficha.backendIdsByWorkspace = {
+          ...ficha.backendIdsByWorkspace,
+          [workspaceType]: remote.id,
+        };
+        await StorageService.salvarSistemaPastas(this.sistemaItens);
+      } catch (error) {
+        console.error(`Falha ao publicar a ficha "${ficha.nome}" no servidor.`, error);
+        this.showToast(
+          `A ficha "${ficha.nome}" foi salva localmente, mas não sincronizou com o servidor.`,
+          'falha',
+        );
+      }
+      return;
+    }
     const failedCopies: string[] = [];
     for (const [workspace, characterId] of copies) {
       try {
@@ -1518,22 +1973,39 @@ class AppController {
 
   /** Replica a criação local no backend quando o catálogo e a sessão estiverem disponíveis. */
   private async criarPersonagemNoBackend(personagem: Personagem): Promise<void> {
-    if (!this.authToken) return;
+    if (!this.authToken || !this.networkOnline) return;
+    if (!this.backendSystems.length) await this.carregarSistemasBackend();
     const sistema = this.obterSistemaBackend(personagem.sistema);
-    if (!sistema) return;
+    if (!sistema) {
+      this.showToast(
+        `O personagem "${personagem.nomePersonagem}" foi salvo localmente, mas o sistema não está disponível para sincronização.`,
+        'falha',
+      );
+      return;
+    }
     try {
       const data = JSON.parse(JSON.stringify(personagem)) as Record<string, unknown>;
       delete data.backendId;
       delete data.backendIdsByWorkspace;
-      const remoto = await CharacterService.criar({ name: personagem.nomePersonagem, systemId: sistema.id, data }, this.authToken);
+      const workspaceType = StorageService.workspaceType();
+      const remoto = await CharacterService.criar(
+        { name: personagem.nomePersonagem, systemId: sistema.id, data },
+        this.authToken,
+        workspaceType,
+      );
       personagem.backendId = remoto.id;
       personagem.backendIdsByWorkspace = {
         ...personagem.backendIdsByWorkspace,
-        [StorageService.workspaceType()]: remoto.id,
+        [workspaceType]: remoto.id,
       };
       await StorageService.salvarPersonagens(this.personagens);
+      this.showToast(`Personagem "${personagem.nomePersonagem}" sincronizado com o mobile.`);
     } catch (error) {
-      console.warn('Não foi possível sincronizar o personagem recém-criado; a cópia local foi preservada.', error);
+      console.error('Não foi possível sincronizar o personagem recém-criado.', error);
+      this.showToast(
+        `O personagem "${personagem.nomePersonagem}" foi salvo localmente, mas não sincronizou com o servidor.`,
+        'falha',
+      );
     }
   }
 
@@ -2705,6 +3177,7 @@ class AppController {
     const internalDataKeys = new Set([
       'backendId',
       'backendIdsByWorkspace',
+      '_rpgHubLocalId',
       'id',
       'idPersonagem',
       '_rpgHubSheet',
@@ -3739,6 +4212,7 @@ class AppController {
         this.criandoFichaSistema = false;
         this.fichaSistemaEmEdicaoId = novaFicha.id;
         this.sistemaFichaEmCriacao = null;
+        void this.sincronizarFichaDeCampanha(novaFicha);
         this.showToast('Ficha criada. Continue preenchendo os detalhes na mesma ficha.');
         this.renderCurrentView();
       });
@@ -3794,7 +4268,7 @@ class AppController {
         this.renderCurrentView();
       });
 
-      inlineForm.addEventListener('submit', event => {
+      inlineForm.addEventListener('submit', async event => {
         event.preventDefault();
         const isNewCharacter = this.criandoFichaSistema && !this.fichaSistemaEmEdicaoId;
         if (
@@ -3824,7 +4298,7 @@ class AppController {
           return;
         }
         const preserveExistingFields = Boolean(fichaAtual && fichaAtual.sistema !== 'D&D');
-        const dados: Record<string, string | number> = preserveExistingFields
+        const dados: Record<string, unknown> = preserveExistingFields
           ? { ...(fichaAtual?.dados || {}) }
           : {};
         const dndFieldNames: Record<string, string> = {
@@ -5161,6 +5635,7 @@ class AppController {
       const campanhaExistente = this.campanhaEmEdicaoId
         ? this.campanhas.find(campanha => campanha.idCampanha === this.campanhaEmEdicaoId)
         : undefined;
+      const previousMonsters = [...(campanhaExistente?.monstros || [])];
 
       let campaignApiError: unknown;
       if (this.authToken && this.campaignApiAvailable && campanhaExistente?.backendId) {
@@ -5212,11 +5687,30 @@ class AppController {
         if (!campanhaExistente.backendId) campanhaExistente.personagens = selecionados;
         campanhaExistente.fichas = fichas;
         campanhaExistente.monstros = monstros;
+        if (
+          this.authToken &&
+          campanhaExistente.backendId &&
+          campanhaExistente.workspaceType === 'master'
+        ) {
+          try {
+            await this.sincronizarMonstrosDaCampanha(
+              campanhaExistente.backendId,
+              monstros,
+              previousMonsters,
+            );
+          } catch (error) {
+            remoteCreationWarning = error instanceof Error
+              ? `Campanha atualizada, mas não foi possível sincronizar os monstros: ${error.message}`
+              : 'Campanha atualizada, mas não foi possível sincronizar os monstros.';
+          }
+        }
       } else {
         const nova = new Campanha(nome, lore, newRemoteCampaign?.createdAt, newRemoteCampaign ? [] : selecionados, [], newRemoteCampaign?.id, fichas, monstros);
         if (newRemoteCampaign) {
           nova.backendId = newRemoteCampaign.id;
           nova.ownerId = newRemoteCampaign.ownerId;
+          nova.workspaceType =
+            newRemoteCampaign.workspaceType || StorageService.workspaceType();
           if (this.authToken) {
             try {
               this.campaignCharacters[newRemoteCampaign.id] = await CampaignService.listarPersonagens(newRemoteCampaign.id, this.authToken);
@@ -5231,6 +5725,22 @@ class AppController {
         }
         this.campanhas.push(nova);
         this.mestre.adicionarCampanha(nova);
+        if (
+          this.authToken &&
+          nova.backendId &&
+          nova.workspaceType === 'master'
+        ) {
+          try {
+            await this.sincronizarMonstrosDaCampanha(
+              nova.backendId,
+              monstros,
+            );
+          } catch (error) {
+            remoteCreationWarning = error instanceof Error
+              ? `Campanha criada, mas não foi possível sincronizar os monstros: ${error.message}`
+              : 'Campanha criada, mas não foi possível sincronizar os monstros.';
+          }
+        }
       }
       this.persistStorage(StorageService.salvarCampanhas(this.campanhas));
 
@@ -5687,7 +6197,7 @@ class AppController {
         this.criandoMonstro = false;
         this.renderCurrentView();
       });
-      inlineForm.addEventListener('submit', event => {
+      inlineForm.addEventListener('submit', async event => {
         event.preventDefault();
         const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value.trim() || '';
         const destination = value('monstro-destination');
@@ -5700,11 +6210,24 @@ class AppController {
           atual.nome = value('monstro-nome') || atual.nome;
           atual.descricao = value('monstro-description');
           atual.parentId = destination || null;
-          atual.dados = dados;
+          atual.dados = { ...atual.dados, ...dados };
         } else {
           this.monstroItens.push({ id: crypto.randomUUID(), nome: value('monstro-nome') || 'Novo monstro', tipo: 'ficha', sistema: 'D&D', descricao: value('monstro-description'), parentId: destination || null, dataCriacao: new Date().toLocaleDateString('pt-BR'), dados });
         }
         this.persistStorage(StorageService.salvarMonstroPastas(this.monstroItens));
+        if (atual?.backendIdsByCampaign) {
+          try {
+            await this.sincronizarMonstroEditado(atual);
+            await StorageService.salvarMonstroPastas(this.monstroItens);
+          } catch (error) {
+            this.showToast(
+              error instanceof Error
+                ? `Ficha salva localmente, mas não sincronizada: ${error.message}`
+                : 'Ficha salva localmente, mas não sincronizada.',
+              'falha',
+            );
+          }
+        }
         this.monstroEmEdicaoId = null;
         this.criandoMonstro = false;
         this.showToast('Ficha de monstro salva.');
@@ -5733,7 +6256,7 @@ class AppController {
       const item = this.monstroItens.find(entry => entry.id === button.dataset.id);
       if (item) { this.monstroEmEdicaoId = item.id; this.criandoMonstro = false; this.renderCurrentView(); }
     }));
-    document.querySelectorAll<HTMLButtonElement>('.btn-delete-monstro').forEach(button => button.addEventListener('click', () => {
+    document.querySelectorAll<HTMLButtonElement>('.btn-delete-monstro').forEach(button => button.addEventListener('click', async () => {
       const item = this.monstroItens.find(entry => entry.id === button.dataset.id);
       const confirmation = item?.tipo === 'pasta'
         ? `Excluir a pasta "${item.nome}"? As notas e missões vinculadas serão mantidas sem pasta.`
@@ -5742,6 +6265,31 @@ class AppController {
       const ids = new Set([item.id]);
       let changed = true;
       while (changed) { changed = false; this.monstroItens.forEach(entry => { if (entry.parentId && ids.has(entry.parentId) && !ids.has(entry.id)) { ids.add(entry.id); changed = true; } }); }
+      if (this.authToken) {
+        try {
+          for (const monster of this.monstroItens.filter(entry =>
+            ids.has(entry.id) && entry.tipo === 'ficha'
+          )) {
+            for (const [campaignId, linked] of Object.entries(
+              monster.backendIdsByCampaign || {},
+            )) {
+              await CampaignService.excluirMonstro(
+                campaignId,
+                linked.id,
+                this.authToken,
+              );
+            }
+          }
+        } catch (error) {
+          this.showToast(
+            error instanceof Error
+              ? `Não foi possível excluir todas as cópias remotas: ${error.message}`
+              : 'Não foi possível excluir todas as cópias remotas.',
+            'falha',
+          );
+          return;
+        }
+      }
       this.monstroItens = this.monstroItens.filter(entry => !ids.has(entry.id));
       this.persistStorage(StorageService.salvarMonstroPastas(this.monstroItens));
       if (this.removeDeletedCampaignSheetReferences()) {

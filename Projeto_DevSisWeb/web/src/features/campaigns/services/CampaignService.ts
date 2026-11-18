@@ -15,6 +15,26 @@ import type {
 } from '../../../shared/types/campaignApi';
 import { StorageService } from '../../../services/StorageService';
 
+export type ApiCampaignMonster = {
+  id: string;
+  campaignId: string;
+  ownerId: string;
+  workspaceType: 'master';
+  name: string;
+  data: Record<string, unknown>;
+  system: { id: string; name: string; slug: string };
+  version: { id: string; systemId: string; name: string; slug: string };
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CampaignMonsterPayload = {
+  name: string;
+  systemId: string;
+  systemVersionId: string;
+  data: Record<string, unknown>;
+};
+
 export class CampaignService {
   private static readonly baseUrl = 'http://localhost:3000/api';
 
@@ -38,6 +58,51 @@ export class CampaignService {
   public static async listar(token: string): Promise<ApiCampaign[]> {
     const body = await this.request<{ campaigns: ApiCampaign[] }>('/campaigns', token);
     return body.campaigns;
+  }
+
+  public static async listarMonstros(campaignId: string, token: string): Promise<ApiCampaignMonster[]> {
+    const body = await this.request<{ monsters: ApiCampaignMonster[] }>(
+      `/campaigns/${campaignId}/monsters`,
+      token,
+    );
+    return body.monsters;
+  }
+
+  public static async criarMonstro(
+    campaignId: string,
+    payload: CampaignMonsterPayload,
+    token: string,
+  ): Promise<ApiCampaignMonster> {
+    const body = await this.request<{ monster: ApiCampaignMonster }>(
+      `/campaigns/${campaignId}/monsters`,
+      token,
+      { method: 'POST', body: JSON.stringify(payload) },
+    );
+    return body.monster;
+  }
+
+  public static async atualizarMonstro(
+    campaignId: string,
+    monsterId: string,
+    payload: CampaignMonsterPayload,
+    token: string,
+  ): Promise<ApiCampaignMonster> {
+    const body = await this.request<{ monster: ApiCampaignMonster }>(
+      `/campaigns/${campaignId}/monsters/${monsterId}`,
+      token,
+      { method: 'PUT', body: JSON.stringify(payload) },
+    );
+    return body.monster;
+  }
+
+  public static async excluirMonstro(
+    campaignId: string,
+    monsterId: string,
+    token: string,
+  ): Promise<void> {
+    await this.request(`/campaigns/${campaignId}/monsters/${monsterId}`, token, {
+      method: 'DELETE',
+    });
   }
 
   public static async resumoMestre(token: string): Promise<ApiMasterDashboard> {
