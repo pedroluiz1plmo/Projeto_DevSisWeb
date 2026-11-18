@@ -1300,7 +1300,162 @@ class RpgApi {
         character.toJson(),
       );
     }
+    if (id != null && !isGuestMode) {
+      await _syncCharacterWorkspaceCopies(
+        characterId: id,
+        sourceWorkspaceType: workspaceType ?? client.workspaceType,
+        name: name,
+        systemId: systemId,
+        systemVersionId: systemVersionId,
+        data: data,
+      );
+    }
     return character;
+  }
+
+  Future<void> registerCharacterWorkspaceCopy({
+    required String characterId,
+    required String characterWorkspaceType,
+    required String copyId,
+    required String copyWorkspaceType,
+  }) async {
+    if (characterWorkspaceType == copyWorkspaceType ||
+        (characterWorkspaceType != 'player' &&
+            characterWorkspaceType != 'master') ||
+        (copyWorkspaceType != 'player' && copyWorkspaceType != 'master')) {
+      if (characterWorkspaceType == copyWorkspaceType) return;
+      throw ArgumentError('Os workspaces da ficha e da cópia são inválidos.');
+    }
+    final ownerId = _cacheOwnerId?.trim();
+    if (ownerId == null || ownerId.isEmpty || isGuestMode) return;
+
+    final workspaceIds = <String, String>{};
+    for (final workspace in const ['player', 'master']) {
+      final records = await _localStorage.loadMany(
+        'character_workspace_links',
+        ownerId: ownerId,
+        workspaceType: workspace,
+      );
+      for (final record in records) {
+        final ids = _workspaceCharacterIds(record['workspaceIds']);
+        if (record['id'] == characterId || record['id'] == copyId) {
+          workspaceIds.addAll(ids);
+        }
+      }
+    }
+    workspaceIds[characterWorkspaceType] = characterId;
+    workspaceIds[copyWorkspaceType] = copyId;
+
+    for (final workspace in const ['player', 'master']) {
+      await _localStorage.saveRecord(
+        'character_workspace_links',
+        {'id': characterId, 'workspaceIds': workspaceIds},
+        ownerId: ownerId,
+        workspaceType: workspace,
+        operation: 'UPDATE',
+      );
+      if (copyId != characterId) {
+        await _localStorage.saveRecord(
+          'character_workspace_links',
+          {'id': copyId, 'workspaceIds': workspaceIds},
+          ownerId: ownerId,
+          workspaceType: workspace,
+          operation: 'UPDATE',
+        );
+      }
+    }
+  }
+
+  Future<String?> characterWorkspaceCopyId({
+    required String characterId,
+    required String sourceWorkspaceType,
+    required String targetWorkspaceType,
+  }) async {
+    if (sourceWorkspaceType == targetWorkspaceType) return characterId;
+    final ownerId = _cacheOwnerId?.trim();
+    if (ownerId == null ||
+        ownerId.isEmpty ||
+        (sourceWorkspaceType != 'player' && sourceWorkspaceType != 'master') ||
+        (targetWorkspaceType != 'player' && targetWorkspaceType != 'master')) {
+      return null;
+    }
+    final records = await _localStorage.loadMany(
+      'character_workspace_links',
+      ownerId: ownerId,
+      workspaceType: sourceWorkspaceType,
+    );
+    for (final record in records) {
+      if (record['id'] == characterId) {
+        return _workspaceCharacterIds(
+            record['workspaceIds'])[targetWorkspaceType];
+      }
+    }
+    return null;
+  }
+
+  Future<void> _syncCharacterWorkspaceCopies({
+    required String characterId,
+    required String? sourceWorkspaceType,
+    required String name,
+    required String systemId,
+    required String? systemVersionId,
+    required Map<String, dynamic> data,
+  }) async {
+    final ownerId = _cacheOwnerId?.trim();
+    if (ownerId == null ||
+        ownerId.isEmpty ||
+        (sourceWorkspaceType != 'player' && sourceWorkspaceType != 'master')) {
+      return;
+    }
+    final records = await _localStorage.loadMany(
+      'character_workspace_links',
+      ownerId: ownerId,
+      workspaceType: sourceWorkspaceType!,
+    );
+    final link = records.cast<Map<String, dynamic>?>().firstWhere(
+          (record) => record?['id'] == characterId,
+          orElse: () => null,
+        );
+    if (link == null) return;
+    final workspaceIds = _workspaceCharacterIds(link['workspaceIds']);
+    final copies = workspaceIds.entries
+        .where((entry) => entry.key != sourceWorkspaceType)
+        .toList();
+    if (copies.isEmpty) return;
+
+    final payload = <String, dynamic>{
+      'name': name,
+      'systemId': systemId,
+      'data': data,
+      if (systemVersionId != null) 'systemVersionId': systemVersionId,
+    };
+    for (final copy in copies) {
+      try {
+        await client.putInWorkspace(
+          '/characters/${copy.value}',
+          payload,
+          workspaceType: copy.key,
+        );
+      } on ApiException catch (error) {
+        throw ApiException(
+          'A ficha principal foi salva, mas não foi possível atualizar a cópia '
+          'da campanha no workspace ${copy.key}: ${error.message}',
+          statusCode: error.statusCode,
+        );
+      }
+    }
+  }
+
+  Map<String, String> _workspaceCharacterIds(Object? value) {
+    if (value is! Map) return {};
+    return {
+      for (final entry in value.entries)
+        if (entry.key is String &&
+            (entry.key == 'player' || entry.key == 'master') &&
+            entry.value is String &&
+            (entry.value as String).isNotEmpty)
+          entry.key as String: entry.value as String,
+    };
   }
 
   Future<void> deleteCharacter(String id) async {

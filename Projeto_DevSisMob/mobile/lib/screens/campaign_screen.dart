@@ -414,9 +414,15 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       var targetCharacterId = _campaignCharacterIds[
           '${_campaign.id}:${selected.id}:$targetWorkspace'];
       if (targetCharacterId == null) {
-        if (selected.workspaceType == targetWorkspace) {
+        targetCharacterId = await widget.api.characterWorkspaceCopyId(
+          characterId: selected.id,
+          sourceWorkspaceType: selected.workspaceType,
+          targetWorkspaceType: targetWorkspace,
+        );
+        if (targetCharacterId == null &&
+            selected.workspaceType == targetWorkspace) {
           targetCharacterId = selected.id;
-        } else {
+        } else if (targetCharacterId == null) {
           final copiedCharacter = await widget.api.saveCharacter(
             name: selected.name,
             systemId: selected.system.id,
@@ -425,6 +431,12 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             workspaceType: targetWorkspace,
           );
           targetCharacterId = copiedCharacter.id;
+          await widget.api.registerCharacterWorkspaceCopy(
+            characterId: selected.id,
+            characterWorkspaceType: selected.workspaceType,
+            copyId: copiedCharacter.id,
+            copyWorkspaceType: targetWorkspace,
+          );
         }
         _campaignCharacterIds[
                 '${_campaign.id}:${selected.id}:$targetWorkspace'] =

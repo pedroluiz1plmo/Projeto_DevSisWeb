@@ -151,6 +151,26 @@ class ApiClient {
   ) =>
       _request('PUT', path, body: body);
 
+  Future<Map<String, dynamic>> putInWorkspace(
+    String path,
+    Map<String, dynamic> body, {
+    required String workspaceType,
+  }) {
+    if (workspaceType != 'player' && workspaceType != 'master') {
+      throw ArgumentError.value(
+        workspaceType,
+        'workspaceType',
+        'Workspace must be player or master.',
+      );
+    }
+    return _request(
+      'PUT',
+      path,
+      body: body,
+      workspaceType: workspaceType,
+    );
+  }
+
   Future<Map<String, dynamic>> delete(
     String path, [
     Map<String, dynamic>? body,

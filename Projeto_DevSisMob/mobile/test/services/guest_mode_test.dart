@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mobile/core/api_client.dart';
@@ -68,5 +72,60 @@ void main() {
 
   test('blocks account-only social features for visitors', () async {
     expect(api.friendships(), throwsA(isA<ApiException>()));
+  });
+
+  test('updates the campaign workspace copy when a player edits a character',
+      () async {
+    final preferences = await SharedPreferences.getInstance();
+    final requests = <http.Request>[];
+    final client = ApiClient(
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        final workspace = request.headers['X-Workspace-Type']!;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'character': {
+              'id': request.url.pathSegments.last,
+              'name': payload['name'],
+              'data': payload['data'],
+              'workspaceType': workspace,
+              'system': {'id': 'system-1', 'name': 'Sistema', 'slug': 'system'},
+            },
+          }),
+          200,
+        );
+      }),
+      tokenStore: _MemoryTokenStore(),
+    );
+    final accountApi = RpgApi(
+      client,
+      localStorage: LocalStorageService(preferences: preferences),
+    )..setCacheOwner('user-123');
+    client.setWorkspaceType('player');
+
+    await accountApi.registerCharacterWorkspaceCopy(
+      characterId: 'player-character',
+      characterWorkspaceType: 'player',
+      copyId: 'campaign-character',
+      copyWorkspaceType: 'master',
+    );
+    await accountApi.saveCharacter(
+      id: 'player-character',
+      name: 'Ficha atualizada',
+      systemId: 'system-1',
+      data: {'strength': 18},
+    );
+
+    final copyRequest = requests.singleWhere(
+      (request) => request.url.pathSegments.last == 'campaign-character',
+    );
+    expect(copyRequest.method, 'PUT');
+    expect(copyRequest.headers['X-Workspace-Type'], 'master');
+    expect(
+      jsonDecode(copyRequest.body)['data']['strength'],
+      18,
+    );
   });
 }
