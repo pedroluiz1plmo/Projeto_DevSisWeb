@@ -1,9 +1,8 @@
 # RPG HUB - Sistema de Gerenciamento de Fichas de RPG
 
-Projeto desenvolvido para a disciplina de **Engenharia de Software** do curso de **Bacharelado em Ciências da Computação** da **UNEMAT (Universidade do Estado de Mato Grosso)**.
+Projeto desenvolvido para as disciplinas de **Laboratório de Engenharia de Software**,  **Desenvolvimento de Sistemas Web** e **Desenvolvimento de Sistemas para Dispositivos Móveis** do curso de **Bacharelado em Ciências da Computação** da **UNEMAT (Universidade do Estado de Mato Grosso)**.
 
-- **Docente:** Profª. Maricy Caregnato
-- **Discentes:** Danny Anny Terezinha Scholze e Pedro Luiz Mateus de Oliveira
+- **Discentes:** Danny A. T. Scholze, Pedro L. M. de Oliveira, Lucas R. de B. Jardim, Taíse A. de Miranda e Tássia B. Ferreira 
 
 ---
 
