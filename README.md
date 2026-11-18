@@ -49,8 +49,8 @@ git clone https://github.com/pedroluiz1plmo/Projeto_DevSisWeb.git
 
 # 2. Acessar as duas pastas do projeto
 |-cd Projeto_DevSisWeb/
-|  |-web/
-|  |-backend/
+|  |-cd web/
+|  |-cd backend/
 
 # 3. Instalar as dependências nas duas pastas
 npm install
