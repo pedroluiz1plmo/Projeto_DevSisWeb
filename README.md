@@ -28,12 +28,11 @@ O **RPG HUB** é uma aplicação web moderna focada na experiência do usuário 
 * **UC01 - Manter Personagem:** Consulta, edição contínua de PV, Mana, CA, XP e subida de nível em tempo real.
 * **UC02 - Criar Personagem Guiado (Wizard):** Assistente passo a passo que valida a distribuição de atributos (faixa de 8 a 18) e calcula automaticamente Modificadores, Pontos de Vida (PV) e Classe de Armadura (CA).
 * **UC03 - Gerenciar Inventário:** Cálculo automático de peso total vs. limite de carga máxima da Força (`Força * 7 kg`), com alerta visual instantâneo de **"Sobrecarregado"**.
-* **UC04 - Gerenciar Magias e Habilidades:** Cadastro e consulta de feitiços arcanos, custos de recursos e efeitos.
-* **UC05 - Realizar Rolagem de Dados:** Rolagens de `1d20 + Modificador` com detecção de Acertos Críticos (20) e Falhas Críticas (1), além de histórico de sessão.
-* **UC06 - Manter Campanhas:** Organização do grupo de jogadores, lore e repositório narrativo da mesa pelo Mestre.
-* **UC07 - Manter NPCs e Criaturas:** Fichas simplificadas de monstros e ameaças com controle de PV em tempo real.
-* **UC08 - Gerenciar Iniciativa:** Painel tático que insere combatentes, rola iniciativa e ordena automaticamente a ordem de turnos do combate.
-* **UC09 - Gerenciar Notas e Missões:** Registros pessoais sincronizados entre Web e Mobile, com pastas e campanhas opcionais e exportação `.txt`.
+* **UC04 - Realizar Rolagem de Dados:** Rolagens de `1d20 + Modificador` com detecção de Acertos Críticos (20) e Falhas Críticas (1), além de histórico de sessão.
+* **UC05 - Manter Campanhas:** Organização do grupo de jogadores, lore e repositório narrativo da mesa pelo Mestre.
+* **UC06 - Manter NPCs e Criaturas:** Fichas simplificadas de monstros e ameaças com controle de PV em tempo real.
+* **UC07 - Gerenciar Iniciativa:** Painel tático que insere combatentes, rola iniciativa e ordena automaticamente a ordem de turnos do combate.
+* **UC08 - Gerenciar Notas e Missões:** Registros pessoais sincronizados entre Web e Mobile, com pastas e campanhas opcionais e exportação `.txt`.
 * **Hub UML Interativo:** Visualização em alta definição de todos os diagramas da modelagem do sistema.
 
 ---
