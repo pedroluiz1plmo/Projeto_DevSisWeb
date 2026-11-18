@@ -24,6 +24,27 @@ export type ApiCampaignCharacter = {
   joinedAt: string;
 };
 
+export type ApiCampaignCombatParticipant = {
+  id: string;
+  combatId: string;
+  campaignId: string;
+  characterId: string | null;
+  type: 'character' | 'monster' | 'npc';
+  name: string;
+  initiativeValue: number;
+  turnOrder: number;
+};
+
+export type ApiCampaignCombat = {
+  id: string;
+  campaignId: string;
+  name: string;
+  status: 'preparing' | 'active' | 'finished';
+  currentRound: number;
+  currentParticipantId: string | null;
+  participants: ApiCampaignCombatParticipant[];
+};
+
 export type ApiCampaignPublicCharacter = {
   id: string;
   name: string;

@@ -1,10 +1,10 @@
 import { Campanha } from '../models/Campanha';
 import { NPC } from '../models/NPC';
 import { Personagem } from '../models/Personagem';
-import { Mestre } from '../models/Mestre';
 import type { MonstroPasta } from '../models/MonstroPasta';
 import type { SistemaPasta } from '../models/SistemaPasta';
 import type {
+  ApiCampaignCombat,
   ApiCampaignCharacter,
   ApiCampaignCharacterRequest,
   ApiCampaignInviteInfo,
@@ -474,95 +474,170 @@ export class MestreView {
   }
 
   public static renderIniciativa(
-    mestre: Mestre,
-    personagens: Personagem[],
-    npcs: NPC[],
-    fichas: SistemaPasta[] = [],
-    fichasMonstros: MonstroPasta[] = []
+    campaigns: Array<{ id: string; name: string }>,
+    selectedCampaignId: string | null,
+    combats: ApiCampaignCombat[],
+    characters: ApiCampaignCharacter[],
+    selectedCombatId: string | null,
+    loading: boolean,
+    error: string | null
   ): string {
-    const lista = mestre.gerenciarIniciativa();
+    const escape = (value: string): string => value.replace(/[&<>"']/g, character => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[character] || character);
+    const selectedCombat = combats.find(combat => combat.id === selectedCombatId) || null;
+    const selectedCampaign = campaigns.find(campaign => campaign.id === selectedCampaignId);
+    const statusLabel = (status: ApiCampaignCombat['status']): string => ({
+      preparing: 'Em preparação',
+      active: 'Em andamento',
+      finished: 'Encerrado'
+    })[status];
+    const typeLabel = (type: ApiCampaignCombat['participants'][number]['type']): string => ({
+      character: 'Personagem',
+      monster: 'Monstro',
+      npc: 'NPC'
+    })[type];
+    const characterOptions = characters.map(character =>
+      `<option value="${escape(character.id)}">${escape(character.name)}</option>`
+    ).join('');
 
     return `
       <div class="glass-card">
         <div class="glass-card-header">
           <div>
             <h3 style="color: var(--gm-accent);">⚔️ Painel de Ordem de Iniciativa e Combate</h3>
-            <p style="font-size: 0.85rem; color: var(--text-muted);">Organização dinâmica de turnos e status de combate</p>
-          </div>
-          <div style="display: flex; gap: 10px;">
-            <button id="btn-limpar-iniciativa" class="btn btn-secondary">Limpar Fila</button>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Combates, participantes, rodadas e turnos vinculados às campanhas</p>
           </div>
         </div>
-
-        <!-- Seletor de Combatentes para Adicionar -->
-        <div class="grid-2" style="margin-bottom: 24px; background: rgba(0,0,0,0.25); padding: 16px; border-radius: var(--radius-md);">
-          <div>
-            <h5 style="color: #818cf8; margin-bottom: 8px;">+ Adicionar Herói do Grupo:</h5>
-            <div style="display: flex; gap: 8px;">
-              <select id="select-init-personagem" class="custom-select" style="flex: 1;">
-                ${personagens.map(p => `<option value="${p.idPersonagem}">${p.nomePersonagem} (DES: ${p.atributos.destreza})</option>`).join('')}
-                ${fichas.map(f => `<option value="ficha:${f.id}">${f.nome} (${f.sistema})</option>`).join('')}
-              </select>
-              <button id="btn-add-init-personagem" class="btn btn-secondary">Adicionar</button>
-            </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 20px 0;">
+          <div class="form-group" style="max-width: 520px; flex: 1; margin: 0;">
+            <label for="initiative-campaign">Campanha</label>
+            <select id="initiative-campaign" class="custom-select">
+              <option value="">Selecione uma campanha</option>
+              ${campaigns.map(campaign => `<option value="${escape(campaign.id)}" ${campaign.id === selectedCampaignId ? 'selected' : ''}>${escape(campaign.name)}</option>`).join('')}
+            </select>
           </div>
-
-          <div>
-            <h5 style="color: #fb7185; margin-bottom: 8px;">+ Adicionar Monstro/NPC:</h5>
-            <div style="display: flex; gap: 8px;">
-              <select id="select-init-npc" class="custom-select" style="flex: 1;">
-                ${npcs.map(n => `<option value="${n.idNpc}">${n.nome} (${n.nivelDesafio})</option>`).join('')}
-                ${fichasMonstros.filter(f => f.tipo === 'ficha').map(f => `<option value="monstro:${f.id}">${f.nome} (${f.sistema})</option>`).join('')}
-              </select>
-              <button id="btn-add-init-npc" class="btn btn-secondary">Adicionar</button>
-            </div>
-          </div>
+          ${selectedCampaignId ? '<button id="btn-refresh-combats" class="btn btn-secondary">Atualizar</button>' : ''}
         </div>
-
-        <!-- Fila de Turnos Ordenada -->
-        <div>
-          <h4 style="margin-bottom: 12px;">Ordem Atual de Turnos (Decrescente):</h4>
-          ${lista.length === 0 ? `
-            <div style="text-align: center; padding: 40px; color: var(--text-dim); border: 1px dashed var(--border-color); border-radius: var(--radius-md);">
-              Nenhum combatente na arena. Adicione heróis e monstros e role a iniciativa!
+        ${error ? `<div class="field-help" role="alert" style="color: #fca5a5; margin-bottom: 16px;">${escape(error)}</div>` : ''}
+        ${!campaigns.length ? `
+          <p>Não há campanhas remotas próprias disponíveis para gerenciar combates.</p>
+        ` : !selectedCampaignId ? `
+          <p>Selecione uma campanha para consultar ou iniciar um combate.</p>
+        ` : loading ? `
+          <p role="status">Carregando combates e personagens da campanha…</p>
+        ` : !selectedCampaign ? `
+          <p>Esta campanha não está mais disponível.</p>
+        ` : selectedCombat ? `
+          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
+            <div>
+              <button id="btn-back-combats" class="btn btn-secondary" style="margin-bottom: 8px;">← Combates</button>
+              <h4>${escape(selectedCombat.name)}</h4>
+              <p style="color: var(--text-muted);">${escape(selectedCampaign.name)} · ${statusLabel(selectedCombat.status)}${selectedCombat.status === 'active' ? ` · Rodada ${selectedCombat.currentRound}` : ''} · ${selectedCombat.participants.length} participantes</p>
             </div>
-          ` : `
+            ${selectedCombat.status !== 'finished' ? `
+              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                ${selectedCombat.status === 'preparing' ? `<button id="btn-combat-start" class="btn btn-primary" ${selectedCombat.participants.length ? '' : 'disabled'}>Iniciar combate</button>` : ''}
+                ${selectedCombat.status === 'active' ? `
+                  <button id="btn-combat-previous" class="btn btn-secondary" ${selectedCombat.participants.length ? '' : 'disabled'}>Turno anterior</button>
+                  <button id="btn-combat-next" class="btn btn-primary" ${selectedCombat.participants.length ? '' : 'disabled'}>Próximo turno</button>
+                  <button id="btn-combat-finish" class="btn btn-danger">Encerrar combate</button>
+                ` : ''}
+                <button id="btn-combat-sort" class="btn btn-secondary" ${selectedCombat.participants.length > 1 ? '' : 'disabled'}>Ordenar iniciativa</button>
+                <button id="btn-combat-add" class="btn btn-secondary">Adicionar participante</button>
+                <button id="btn-combat-rename" class="btn btn-secondary">Renomear</button>
+              </div>
+            ` : ''}
+          </div>
+          ${selectedCombat.participants.length ? `
             <div style="display: flex; flex-direction: column; gap: 10px;">
-              ${lista.map((c, index) => `
-                <div class="glass-card" style="padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; background: ${
-                  index === 0 ? 'linear-gradient(90deg, rgba(99,102,241,0.25), rgba(0,0,0,0.3))' : 'rgba(0,0,0,0.3)'
-                }; border-left: 5px solid ${c.tipo === 'Personagem' ? 'var(--primary)' : 'var(--gm-accent)'};">
-                  <div style="display: flex; align-items: center; gap: 14px;">
-                    <div style="font-family: var(--font-mono); font-size: 1.4rem; font-weight: 700; color: ${index === 0 ? 'var(--gold)' : 'var(--text-muted)'}; min-width: 32px;">
-                      #${index + 1}
-                    </div>
-                    <div>
-                      <div style="display: flex; align-items: center; gap: 8px;">
-                        <strong style="font-size: 1.05rem;">${c.nome}</strong>
-                        <span class="badge" style="background: ${c.tipo === 'Personagem' ? 'rgba(99,102,241,0.2)' : 'rgba(244,63,94,0.2)'}; color: ${c.tipo === 'Personagem' ? '#a5b4fc' : '#fda4af'}; font-size: 0.75rem;">
-                          ${c.tipo}
-                        </span>
-                        ${index === 0 ? '<span class="badge" style="background: rgba(245,158,11,0.2); color: #fde047; font-weight: bold;">⚡ TURNO ATUAL</span>' : ''}
-                      </div>
-                      <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-                        Vida: <strong>${c.vidaAtual} / ${c.vidaMax}</strong> PV
+              ${selectedCombat.participants.map((participant, index) => {
+                const isCurrent = participant.id === selectedCombat.currentParticipantId;
+                return `
+                  <div class="glass-card" style="padding: 14px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; border-left: 4px solid ${isCurrent ? 'var(--gold)' : 'var(--primary)'}; ${isCurrent ? 'background: rgba(245,158,11,0.12);' : ''}">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                      <strong style="font-family: var(--font-mono);">#${index + 1}</strong>
+                      <div>
+                        <strong>${escape(participant.name)}</strong>
+                        <span class="badge" style="margin-left: 8px;">${typeLabel(participant.type)}</span>
+                        ${isCurrent ? '<span class="badge" style="margin-left: 8px; color: #fde047;">Turno atual</span>' : ''}
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Iniciativa: ${participant.initiativeValue > 0 ? '+' : ''}${participant.initiativeValue}</div>
                       </div>
                     </div>
+                    ${selectedCombat.status !== 'finished' ? `
+                      <div style="display: flex; align-items: center; gap: 6px;">
+                        ${selectedCombat.status === 'active' ? `<button class="btn btn-secondary" data-turn-select="${escape(participant.id)}" ${isCurrent ? 'disabled' : ''}>Selecionar turno</button>` : ''}
+                        <button class="btn btn-secondary" data-combat-move="up" data-participant-id="${escape(participant.id)}" ${index === 0 ? 'disabled' : ''} aria-label="Mover para cima">↑</button>
+                        <button class="btn btn-secondary" data-combat-move="down" data-participant-id="${escape(participant.id)}" ${index === selectedCombat.participants.length - 1 ? 'disabled' : ''} aria-label="Mover para baixo">↓</button>
+                        <button class="btn btn-secondary" data-participant-edit="${escape(participant.id)}">Editar</button>
+                        <button class="btn btn-danger" data-participant-remove="${escape(participant.id)}">Remover</button>
+                      </div>
+                    ` : ''}
                   </div>
-
-                  <div style="display: flex; align-items: center; gap: 16px;">
-                    <div style="text-align: right;">
-                      <span style="font-size: 0.75rem; color: var(--text-dim);">INICIATIVA</span>
-                      <div style="font-family: var(--font-mono); font-size: 1.3rem; font-weight: 700; color: #34d399;">
-                        🎲 ${c.iniciativa}
-                      </div>
-                    </div>
-                    <button class="btn-icon btn-remove-init" data-id="${c.id}" title="Remover da iniciativa" style="color: #f87171;">✕</button>
-                  </div>
+                `;
+              }).join('')}
+            </div>
+          ` : '<p style="padding: 24px; text-align: center;">Adicione personagens vinculados à campanha, monstros ou NPCs para preparar o combate.</p>'}
+        ` : `
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px;">
+            <h4>Combates de ${escape(selectedCampaign.name)}</h4>
+            ${!combats.some(combat => combat.status !== 'finished') ? '<button id="btn-combat-create" class="btn btn-primary">Novo combate</button>' : ''}
+          </div>
+          ${combats.length ? `
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              ${combats.map(combat => `
+                <div class="glass-card" style="padding: 14px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+                  <button class="btn btn-secondary" data-combat-open="${escape(combat.id)}" style="text-align: left; flex: 1;">
+                    <strong>${escape(combat.name)}</strong><br>
+                    <span>${statusLabel(combat.status)} · ${combat.participants.length} participantes${combat.status === 'active' ? ` · Rodada ${combat.currentRound}` : ''}</span>
+                  </button>
+                  <button class="btn btn-danger" data-combat-delete="${escape(combat.id)}">Excluir</button>
                 </div>
               `).join('')}
             </div>
-          `}
+          ` : '<p>Nenhum combate registrado nesta campanha.</p>'}
+        `}
+        <div id="combat-participant-modal" class="modal-backdrop hidden">
+          <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+              <h3 id="combat-participant-title">Adicionar participante</h3>
+              <button id="btn-close-combat-participant" class="btn-icon" type="button" aria-label="Fechar">✕</button>
+            </div>
+            <form id="combat-participant-form">
+              <input type="hidden" name="participantId">
+              <div class="form-group">
+                <label for="combat-participant-type">Tipo</label>
+                <select id="combat-participant-type" name="type" class="custom-select">
+                  <option value="character">Personagem da campanha</option>
+                  <option value="monster">Monstro</option>
+                  <option value="npc">NPC</option>
+                </select>
+              </div>
+              <div class="form-group" id="combat-character-field">
+                <label for="combat-participant-character">Personagem</label>
+                <select id="combat-participant-character" name="characterId" class="custom-select">
+                  <option value="">Selecione um personagem vinculado</option>
+                  ${characterOptions}
+                </select>
+              </div>
+              <div class="form-group hidden" id="combat-name-field">
+                <label for="combat-participant-name">Nome</label>
+                <input id="combat-participant-name" name="name" class="form-control" maxlength="160">
+              </div>
+              <div class="form-group">
+                <label for="combat-participant-initiative">Iniciativa</label>
+                <input id="combat-participant-initiative" name="initiativeValue" class="form-control" type="number" min="-999999" max="999999" step="1" value="0" required>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button id="btn-cancel-combat-participant" class="btn btn-secondary" type="button">Cancelar</button>
+                <button class="btn btn-primary" type="submit">Salvar</button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     `;

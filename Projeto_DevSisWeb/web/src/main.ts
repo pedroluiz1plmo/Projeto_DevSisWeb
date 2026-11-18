@@ -2,7 +2,7 @@ import './index.css';
 import type { Html5Qrcode as Html5QrcodeType } from 'html5-qrcode';
 import { Personagem } from './models/Personagem';
 import { Jogador } from './models/Jogador';
-import { Mestre, type CombatenteIniciativa } from './models/Mestre';
+import { Mestre } from './models/Mestre';
 import { Campanha } from './models/Campanha';
 import { NPC } from './models/NPC';
 import { Item } from './models/Item';
@@ -28,6 +28,7 @@ import { SystemService, type RpgSystem } from './features/rpg-systems/services/S
 import { isCharacterSheetSystem, renderCharacterSheet, type CharacterSheetSystem } from './features/rpg-systems/shared/CharacterSheetDom';
 import type {
   ApiCampaign,
+  ApiCampaignCombat,
   ApiCampaignCharacter,
   ApiCampaignCharacterRequest,
   ApiCampaignCharacterSheet,
@@ -102,6 +103,13 @@ class AppController {
   private missaoEmEdicaoId: string | null = null;
   private campanhaEmEdicaoId: string | null = null;
   private campaignApiAvailable = false;
+  private initiativeCampaignId: string | null = null;
+  private initiativeLoadedCampaignId: string | null = null;
+  private initiativeCombatId: string | null = null;
+  private initiativeCombats: ApiCampaignCombat[] = [];
+  private initiativeCharacters: ApiCampaignCharacter[] = [];
+  private initiativeLoading = false;
+  private initiativeError: string | null = null;
   private openCampaignDetails = new Set<string>();
   private campaignMembers: Record<string, ApiCampaignMember[]> = {};
   private campaignCharacters: Record<string, ApiCampaignCharacter[]> = {};
@@ -2984,15 +2992,30 @@ class AppController {
         break;
 
       case 'iniciativa':
+        {
+          const campaigns = this.campanhas
+            .filter(campaign =>
+              Boolean(campaign.backendId)
+              && campaign.ownerId === String(this.authenticatedUser?.id || '')
+              && campaign.workspaceType !== 'player'
+            )
+            .map(campaign => ({ id: campaign.backendId!, name: campaign.nomeCampanha }));
         container.innerHTML = MestreView.renderIniciativa(
-          this.mestre,
-          this.personagens,
-          this.npcs,
-          this.sistemaItens.filter(item => item.tipo === 'ficha'),
-          this.monstroItens
+          campaigns,
+          this.initiativeCampaignId,
+          this.initiativeCombats,
+          this.initiativeCharacters,
+          this.initiativeCombatId,
+          this.initiativeLoading,
+          this.initiativeError
         );
         this.bindIniciativaEvents();
+        if (this.initiativeCampaignId && !this.initiativeLoading &&
+            this.initiativeLoadedCampaignId !== this.initiativeCampaignId) {
+          void this.loadInitiativeCampaign(this.initiativeCampaignId);
+        }
         break;
+        }
 
       default:
         container.innerHTML = DashboardView.render(this.personagens, this.campanhas, this.npcs);
@@ -5501,97 +5524,312 @@ class AppController {
     });
   }
 
+  private async loadInitiativeCampaign(
+    campaignId: string | null,
+    selectedCombatId: string | null = null
+  ): Promise<void> {
+    const campaignChanged = this.initiativeCampaignId !== campaignId;
+    this.initiativeCampaignId = campaignId;
+    this.initiativeCombatId = campaignChanged ? null : selectedCombatId;
+    this.initiativeError = null;
+    if (campaignChanged) {
+      this.initiativeCombats = [];
+      this.initiativeCharacters = [];
+    }
+    if (!campaignId) {
+      this.initiativeLoadedCampaignId = null;
+      this.initiativeCombats = [];
+      this.initiativeCharacters = [];
+      this.initiativeLoading = false;
+      this.renderCurrentView();
+      return;
+    }
+
+    this.initiativeLoadedCampaignId = campaignId;
+    const token = this.authToken;
+    if (!token) {
+      this.initiativeError = 'Faça login para consultar os combates da campanha.';
+      this.renderCurrentView();
+      return;
+    }
+
+    this.initiativeLoading = true;
+    this.renderCurrentView();
+    try {
+      const [combats, characters] = await Promise.all([
+        CampaignService.listarCombates(campaignId, token),
+        CampaignService.listarPersonagens(campaignId, token)
+      ]);
+      if (this.initiativeCampaignId !== campaignId) return;
+      this.initiativeCombats = combats;
+      this.initiativeCharacters = characters;
+      this.initiativeCombatId = selectedCombatId && combats.some(combat => combat.id === selectedCombatId)
+        ? selectedCombatId
+        : null;
+      this.initiativeError = null;
+    } catch (error) {
+      if (this.initiativeCampaignId === campaignId) {
+        this.initiativeError = error instanceof Error
+          ? error.message
+          : 'Não foi possível carregar os combates da campanha.';
+      }
+    } finally {
+      if (this.initiativeCampaignId === campaignId) {
+        this.initiativeLoading = false;
+        if (this.currentTab === 'iniciativa') this.renderCurrentView();
+      }
+    }
+  }
+
+  private applyInitiativeCombat(combat: ApiCampaignCombat): void {
+    const index = this.initiativeCombats.findIndex(item => item.id === combat.id);
+    if (index === -1) this.initiativeCombats = [combat, ...this.initiativeCombats];
+    else this.initiativeCombats[index] = combat;
+    this.initiativeCombatId = combat.id;
+    this.initiativeError = null;
+    this.renderCurrentView();
+  }
+
+  private async updateInitiativeCombat(
+    operation: (token: string) => Promise<ApiCampaignCombat>
+  ): Promise<void> {
+    const token = this.authToken;
+    if (!token) {
+      this.showToast('Faça login para gerenciar combates.', 'falha');
+      return;
+    }
+    try {
+      this.applyInitiativeCombat(await operation(token));
+    } catch (error) {
+      this.initiativeError = error instanceof Error
+        ? error.message
+        : 'Não foi possível atualizar o combate.';
+      this.showToast(this.initiativeError, 'falha');
+      this.renderCurrentView();
+    }
+  }
+
+  private openInitiativeParticipantDialog(participant?: ApiCampaignCombat['participants'][number]): void {
+    const modal = document.getElementById('combat-participant-modal');
+    const form = document.getElementById('combat-participant-form') as HTMLFormElement | null;
+    if (!modal || !form) return;
+    form.reset();
+    const type = form.querySelector<HTMLSelectElement>('[name="type"]');
+    const participantId = form.querySelector<HTMLInputElement>('[name="participantId"]');
+    const characterId = form.querySelector<HTMLSelectElement>('[name="characterId"]');
+    const name = form.querySelector<HTMLInputElement>('[name="name"]');
+    const initiative = form.querySelector<HTMLInputElement>('[name="initiativeValue"]');
+    const title = document.getElementById('combat-participant-title');
+    if (type) type.value = participant?.type || 'character';
+    if (participantId) participantId.value = participant?.id || '';
+    if (characterId) characterId.value = participant?.characterId || '';
+    if (name) name.value = participant?.name || '';
+    if (initiative) initiative.value = String(participant?.initiativeValue ?? 0);
+    if (title) title.textContent = participant ? 'Editar participante' : 'Adicionar participante';
+    this.updateInitiativeParticipantFields();
+    modal.classList.remove('hidden');
+  }
+
+  private updateInitiativeParticipantFields(): void {
+    const type = document.getElementById('combat-participant-type') as HTMLSelectElement | null;
+    document.getElementById('combat-character-field')?.classList.toggle('hidden', type?.value !== 'character');
+    document.getElementById('combat-name-field')?.classList.toggle('hidden', type?.value === 'character');
+  }
+
   /* ================= INICIATIVA EVENTS ================= */
   private bindIniciativaEvents(): void {
-    document.getElementById('btn-add-init-personagem')?.addEventListener('click', () => {
-      const sel = document.getElementById('select-init-personagem') as HTMLSelectElement;
-      const selected = sel?.value || '';
-      const ficha = selected.startsWith('ficha:')
-        ? this.sistemaItens.find(item => item.id === selected.slice('ficha:'.length))
-        : undefined;
-      const p = this.personagens.find(item => item.idPersonagem === selected);
-      if (ficha) {
-        const dados = ficha.dados || {};
-        const prefixo = ficha.sistema === 'D&D' ? 'dnd' : ficha.sistema === 'Vampiro: A Máscara' ? 'vampire' : 'coc';
-        const ler = (campo: string, alternativo = '') => Number(dados[`${prefixo}-${campo}`] || dados[`inline-${prefixo}-${campo}`] || dados[`guided-${prefixo}-${campo}`] || dados[alternativo] || 0);
-        const destreza = ler(ficha.sistema === 'Vampiro: A Máscara' ? 'dexterity' : 'dex');
-        const pontosVida = ler(ficha.sistema === 'D&D' ? 'current-hp' : ficha.sistema === 'Vampiro: A Máscara' ? 'health' : 'hp') || 1;
-        const iniciativa = DiceService.sortearNumero(1, 20) + (ficha.sistema === 'D&D' ? Math.floor((destreza - 10) / 2) : Math.floor(destreza / 10));
-        this.mestre.adicionarCombatente({ id: crypto.randomUUID(), nome: ficha.nome, tipo: 'Personagem', iniciativa, vidaAtual: pontosVida, vidaMax: pontosVida, ca: ler('ac') || undefined });
-        this.showToast(`⚔️ ${ficha.nome} entrou na iniciativa.`);
-        this.renderCurrentView();
-        return;
-      }
-      if (p) {
-        const modDes = p.obterModificador('destreza');
-        const d20 = DiceService.sortearNumero(1, 20);
-        const init = d20 + modDes;
+    document.getElementById('initiative-campaign')?.addEventListener('change', event => {
+      const campaignId = (event.currentTarget as HTMLSelectElement).value || null;
+      void this.loadInitiativeCampaign(campaignId);
+    });
 
-        const combatente: CombatenteIniciativa = {
-          id: crypto.randomUUID(),
-          nome: p.nomePersonagem,
-          tipo: 'Personagem',
-          iniciativa: init,
-          vidaAtual: p.pontosVida,
-          vidaMax: p.pontosVidaMax,
-          ca: p.ca
-        };
-        this.mestre.adicionarCombatente(combatente);
-        this.showToast(`⚔️ ${p.nomePersonagem} rolou iniciativa: d20(${d20}) + ${modDes} = ${init}`);
+    document.getElementById('btn-refresh-combats')?.addEventListener('click', () => {
+      void this.loadInitiativeCampaign(this.initiativeCampaignId, this.initiativeCombatId);
+    });
+
+    document.getElementById('btn-combat-create')?.addEventListener('click', async () => {
+      const campaignId = this.initiativeCampaignId;
+      const token = this.authToken;
+      if (!campaignId || !token) return;
+      const name = window.prompt('Nome do novo combate:', 'Novo combate')?.trim();
+      if (!name) return;
+      try {
+        this.applyInitiativeCombat(await CampaignService.criarCombate(campaignId, name, token));
+      } catch (error) {
+        this.initiativeError = error instanceof Error ? error.message : 'Não foi possível criar o combate.';
+        this.showToast(this.initiativeError, 'falha');
         this.renderCurrentView();
       }
     });
 
-    document.getElementById('btn-add-init-npc')?.addEventListener('click', () => {
-      const sel = document.getElementById('select-init-npc') as HTMLSelectElement;
-      const selected = sel?.value || '';
-      const fichaMonstro = selected.startsWith('monstro:')
-        ? this.monstroItens.find(item => item.id === selected.slice('monstro:'.length))
-        : undefined;
-      const n = this.npcs.find(item => item.idNpc === selected);
-      if (fichaMonstro) {
-        const dados = fichaMonstro.dados || {};
-        const ler = (campo: string) => Number(dados[`inline-${campo}`] || dados[campo] || 0);
-        const vida = ler('monstro-current-hp') || ler('monstro-hp') || 1;
-        const destreza = ler('monstro-dex');
-        const iniciativa = DiceService.sortearNumero(1, 20) + Math.floor((destreza - 10) / 2);
-        this.mestre.adicionarCombatente({ id: crypto.randomUUID(), nome: fichaMonstro.nome, tipo: 'NPC', iniciativa, vidaAtual: vida, vidaMax: vida, ca: ler('monstro-ac') || undefined });
-        this.showToast(`🐉 ${fichaMonstro.nome} entrou na iniciativa.`);
-        this.renderCurrentView();
-        return;
-      }
-      if (n) {
-        const d20 = DiceService.sortearNumero(1, 20);
-        const init = d20;
-
-        const combatente: CombatenteIniciativa = {
-          id: crypto.randomUUID(),
-          nome: n.nome,
-          tipo: 'NPC',
-          iniciativa: init,
-          vidaAtual: n.vida,
-          vidaMax: n.vidaMax
-        };
-        this.mestre.adicionarCombatente(combatente);
-        this.showToast(`🐉 ${n.nome} rolou iniciativa: ${init}`);
-        this.renderCurrentView();
-      }
-    });
-
-    document.getElementById('btn-limpar-iniciativa')?.addEventListener('click', () => {
-      this.mestre.limparIniciativa();
-      this.showToast('Fila de iniciativa limpa.');
+    document.getElementById('btn-back-combats')?.addEventListener('click', () => {
+      this.initiativeCombatId = null;
       this.renderCurrentView();
     });
 
-    document.querySelectorAll('.btn-remove-init').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-id');
-        if (id) {
-          this.mestre.removerCombatente(id);
+    document.querySelectorAll<HTMLElement>('[data-combat-open]').forEach(button => {
+      button.addEventListener('click', () => {
+        this.initiativeCombatId = button.dataset.combatOpen || null;
+        this.renderCurrentView();
+      });
+    });
+
+    document.querySelectorAll<HTMLElement>('[data-combat-delete]').forEach(button => {
+      button.addEventListener('click', async () => {
+        const combatId = button.dataset.combatDelete;
+        const token = this.authToken;
+        if (!combatId || !token || !window.confirm('Excluir este combate e todos os participantes associados?')) return;
+        try {
+          await CampaignService.excluirCombate(combatId, token);
+          this.initiativeCombats = this.initiativeCombats.filter(combat => combat.id !== combatId);
+          this.initiativeError = null;
+          this.showToast('Combate excluído.');
+          this.renderCurrentView();
+        } catch (error) {
+          this.initiativeError = error instanceof Error ? error.message : 'Não foi possível excluir o combate.';
+          this.showToast(this.initiativeError, 'falha');
           this.renderCurrentView();
         }
       });
+    });
+
+    document.getElementById('btn-combat-rename')?.addEventListener('click', async () => {
+      const combat = this.initiativeCombats.find(item => item.id === this.initiativeCombatId);
+      const token = this.authToken;
+      if (!combat || !token) return;
+      const name = window.prompt('Nome do combate:', combat.name)?.trim();
+      if (!name || name === combat.name) return;
+      await this.updateInitiativeCombat(current =>
+        CampaignService.atualizarNomeCombate(combat.id, name, current)
+      );
+    });
+
+    document.getElementById('btn-combat-add')?.addEventListener('click', () => {
+      this.openInitiativeParticipantDialog();
+    });
+
+    document.getElementById('btn-combat-start')?.addEventListener('click', () => {
+      const combatId = this.initiativeCombatId;
+      if (combatId) void this.updateInitiativeCombat(token =>
+        CampaignService.atualizarStatusCombate(combatId, 'active', token)
+      );
+    });
+    document.getElementById('btn-combat-finish')?.addEventListener('click', () => {
+      const combatId = this.initiativeCombatId;
+      if (combatId && window.confirm('Encerrar este combate? O histórico será mantido, mas não poderá mais ser alterado.')) {
+        void this.updateInitiativeCombat(token =>
+          CampaignService.atualizarStatusCombate(combatId, 'finished', token)
+        );
+      }
+    });
+    document.getElementById('btn-combat-next')?.addEventListener('click', () => {
+      const combatId = this.initiativeCombatId;
+      if (combatId) void this.updateInitiativeCombat(token =>
+        CampaignService.atualizarTurnoCombate(combatId, 'next', token)
+      );
+    });
+    document.getElementById('btn-combat-previous')?.addEventListener('click', () => {
+      const combatId = this.initiativeCombatId;
+      if (combatId) void this.updateInitiativeCombat(token =>
+        CampaignService.atualizarTurnoCombate(combatId, 'previous', token)
+      );
+    });
+
+    document.getElementById('btn-combat-sort')?.addEventListener('click', () => {
+      const combat = this.initiativeCombats.find(item => item.id === this.initiativeCombatId);
+      if (!combat) return;
+      const sorted = [...combat.participants].sort((a, b) =>
+        b.initiativeValue - a.initiativeValue || a.turnOrder - b.turnOrder
+      );
+      void this.updateInitiativeCombat(token =>
+        CampaignService.atualizarOrdemCombate(combat.id, sorted.map(item => item.id), token)
+      );
+    });
+
+    document.querySelectorAll<HTMLElement>('[data-turn-select]').forEach(button => {
+      button.addEventListener('click', () => {
+        const combatId = this.initiativeCombatId;
+        const participantId = button.dataset.turnSelect;
+        if (combatId && participantId) void this.updateInitiativeCombat(token =>
+          CampaignService.atualizarTurnoCombate(combatId, 'select', token, participantId)
+        );
+      });
+    });
+
+    document.querySelectorAll<HTMLElement>('[data-combat-move]').forEach(button => {
+      button.addEventListener('click', () => {
+        const combat = this.initiativeCombats.find(item => item.id === this.initiativeCombatId);
+        const participantId = button.dataset.participantId;
+        if (!combat || !participantId) return;
+        const ids = combat.participants.map(participant => participant.id);
+        const oldIndex = ids.indexOf(participantId);
+        const newIndex = oldIndex + (button.dataset.combatMove === 'up' ? -1 : 1);
+        if (oldIndex < 0 || newIndex < 0 || newIndex >= ids.length) return;
+        [ids[oldIndex], ids[newIndex]] = [ids[newIndex], ids[oldIndex]];
+        void this.updateInitiativeCombat(token =>
+          CampaignService.atualizarOrdemCombate(combat.id, ids, token)
+        );
+      });
+    });
+
+    document.querySelectorAll<HTMLElement>('[data-participant-edit]').forEach(button => {
+      button.addEventListener('click', () => {
+        const combat = this.initiativeCombats.find(item => item.id === this.initiativeCombatId);
+        const participant = combat?.participants.find(item => item.id === button.dataset.participantEdit);
+        if (participant) this.openInitiativeParticipantDialog(participant);
+      });
+    });
+
+    document.querySelectorAll<HTMLElement>('[data-participant-remove]').forEach(button => {
+      button.addEventListener('click', () => {
+        const combatId = this.initiativeCombatId;
+        const participantId = button.dataset.participantRemove;
+        if (combatId && participantId && window.confirm('Remover este participante do combate?')) {
+          void this.updateInitiativeCombat(token =>
+            CampaignService.removerParticipanteCombate(combatId, participantId, token)
+          );
+        }
+      });
+    });
+
+    const modal = document.getElementById('combat-participant-modal');
+    const form = document.getElementById('combat-participant-form') as HTMLFormElement | null;
+    document.getElementById('btn-close-combat-participant')?.addEventListener('click', () => modal?.classList.add('hidden'));
+    document.getElementById('btn-cancel-combat-participant')?.addEventListener('click', () => modal?.classList.add('hidden'));
+    document.getElementById('combat-participant-type')?.addEventListener('change', () => this.updateInitiativeParticipantFields());
+    form?.addEventListener('submit', event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const type = String(data.get('type')) as 'character' | 'monster' | 'npc';
+      const characterId = String(data.get('characterId') || '');
+      const name = String(data.get('name') || '').trim();
+      const initiativeValue = Number(data.get('initiativeValue'));
+      if (!['character', 'monster', 'npc'].includes(type) ||
+          (type === 'character' ? !characterId : !name) ||
+          !Number.isInteger(initiativeValue) || initiativeValue < -999999 || initiativeValue > 999999) {
+        this.showToast('Preencha os dados do participante e uma iniciativa inteira entre -999999 e 999999.', 'falha');
+        return;
+      }
+      const combatId = this.initiativeCombatId;
+      const participantId = String(data.get('participantId') || '') || undefined;
+      const selectedName = type === 'character'
+        ? this.initiativeCharacters.find(character => character.id === characterId)?.name || ''
+        : name;
+      if (!combatId || !this.authToken) return;
+      modal?.classList.add('hidden');
+      void this.updateInitiativeCombat(token =>
+        CampaignService.salvarParticipanteCombate(
+          combatId,
+          {
+            type,
+            name: selectedName,
+            initiativeValue,
+            ...(type === 'character' ? { characterId } : {})
+          },
+          token,
+          participantId
+        )
+      );
     });
   }
 

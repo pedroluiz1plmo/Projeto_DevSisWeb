@@ -1,5 +1,6 @@
 import type {
   ApiCampaign,
+  ApiCampaignCombat,
   ApiCampaignCharacter,
   ApiCampaignCharacterRequest,
   ApiCampaignCharacterSheet,
@@ -245,6 +246,100 @@ export class CampaignService {
   public static async listarPersonagens(campaignId: string, token: string): Promise<ApiCampaignCharacter[]> {
     const body = await this.request<{ characters: ApiCampaignCharacter[] }>(`/campaigns/${campaignId}/characters`, token);
     return body.characters;
+  }
+
+  public static async listarCombates(campaignId: string, token: string): Promise<ApiCampaignCombat[]> {
+    const body = await this.request<{ combats: ApiCampaignCombat[] }>(`/campaigns/${campaignId}/combats`, token);
+    return body.combats;
+  }
+
+  public static async criarCombate(campaignId: string, name: string, token: string): Promise<ApiCampaignCombat> {
+    const body = await this.request<{ combat: ApiCampaignCombat }>(`/campaigns/${campaignId}/combats`, token, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    return body.combat;
+  }
+
+  public static async atualizarNomeCombate(combatId: string, name: string, token: string): Promise<ApiCampaignCombat> {
+    const body = await this.request<{ combat: ApiCampaignCombat }>(`/combats/${combatId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+    return body.combat;
+  }
+
+  public static async excluirCombate(combatId: string, token: string): Promise<void> {
+    await this.request(`/combats/${combatId}`, token, { method: 'DELETE' });
+  }
+
+  public static async salvarParticipanteCombate(
+    combatId: string,
+    payload: {
+      type: 'character' | 'monster' | 'npc';
+      name: string;
+      initiativeValue: number;
+      characterId?: string;
+    },
+    token: string,
+    participantId?: string
+  ): Promise<ApiCampaignCombat> {
+    const path = `/combats/${combatId}/participants${participantId ? `/${participantId}` : ''}`;
+    const body = await this.request<{ combat: ApiCampaignCombat }>(path, token, {
+      method: participantId ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    return body.combat;
+  }
+
+  public static async removerParticipanteCombate(
+    combatId: string,
+    participantId: string,
+    token: string
+  ): Promise<ApiCampaignCombat> {
+    const body = await this.request<{ combat: ApiCampaignCombat }>(
+      `/combats/${combatId}/participants/${participantId}`,
+      token,
+      { method: 'DELETE' }
+    );
+    return body.combat;
+  }
+
+  public static async atualizarOrdemCombate(
+    combatId: string,
+    participantIds: string[],
+    token: string
+  ): Promise<ApiCampaignCombat> {
+    const body = await this.request<{ combat: ApiCampaignCombat }>(`/combats/${combatId}/order`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ participantIds }),
+    });
+    return body.combat;
+  }
+
+  public static async atualizarTurnoCombate(
+    combatId: string,
+    action: 'next' | 'previous' | 'select',
+    token: string,
+    participantId?: string
+  ): Promise<ApiCampaignCombat> {
+    const body = await this.request<{ combat: ApiCampaignCombat }>(`/combats/${combatId}/turn`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ action, ...(participantId ? { participantId } : {}) }),
+    });
+    return body.combat;
+  }
+
+  public static async atualizarStatusCombate(
+    combatId: string,
+    status: 'active' | 'finished',
+    token: string
+  ): Promise<ApiCampaignCombat> {
+    const body = await this.request<{ combat: ApiCampaignCombat }>(`/combats/${combatId}/status`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    return body.combat;
   }
 
   public static async adicionarPersonagem(campaignId: string, characterId: string, token: string): Promise<void> {
