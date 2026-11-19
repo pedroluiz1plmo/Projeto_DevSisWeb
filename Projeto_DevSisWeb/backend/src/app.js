@@ -48,6 +48,25 @@ class PayloadTooLargeError extends Error {
 }
 
 const readBody = (request) => new Promise((resolve, reject) => {
+  // Na Vercel, o corpo JSON já vem lido em request.body
+  if (request.body !== undefined) {
+    if (typeof request.body === 'object' && request.body !== null) {
+      return resolve(request.body);
+    }
+    if (typeof request.body === 'string') {
+      try {
+        return resolve(request.body ? JSON.parse(request.body) : {});
+      } catch {
+        return reject(new MalformedJsonError());
+      }
+    }
+  }
+
+  if (request.readableEnded) {
+    return resolve({});
+  }
+
+  // No seu computador (http.createServer), lê o stream normalmente
   let raw = '';
   let rawSize = 0;
   let tooLarge = false;
@@ -77,7 +96,7 @@ const readBody = (request) => new Promise((resolve, reject) => {
   request.on('error', reject);
 });
 
-http.createServer(async (request, response) => {
+const handleRequest = async (request, response) => {
   if (request.method === 'OPTIONS') {
     return sendJson(response, 204, {});
   }
@@ -111,48 +130,20 @@ http.createServer(async (request, response) => {
 
     let result = await handleAuthRoute(request, body);
 
-    if (!result) {
-      result = await handleAdminRoute(request, body);
-    }
-    if (!result) {
-      result = await handleUserRoute(request, body);
-    }
-    if (!result) {
-      result = await handleDashboardRoute(request);
-    }
-    if (!result) {
-      result = await handleFriendshipRoute(request, body);
-    }
-    if (!result) {
-      result = await handleSupportRoute(request, body);
-    }
-    if (!result) {
-      result = await handleCampaignRoute(request, body);
-    }
-    if (!result) {
-      result = await handleCampaignInvitationRoute(request, body);
-    }
-    if (!result) {
-      result = await handleCombatRoute(request, body);
-    }
-    if (!result) {
-      result = await handleMonsterRoute(request, body);
-    }
-    if (!result) {
-      result = await handleCharacterGenerationRoute(request, body);
-    }
-    if (!result) {
-      result = await handleFolderRoute(request, body);
-    }
-    if (!result) {
-      result = await handleRecordRoute(request, body);
-    }
-    if (!result) {
-      result = await handleSystemRoute(request);
-    }
-    if (!result) {
-      result = await handleCharactersRoute(request, body);
-    }
+    if (!result) result = await handleAdminRoute(request, body);
+    if (!result) result = await handleUserRoute(request, body);
+    if (!result) result = await handleDashboardRoute(request);
+    if (!result) result = await handleFriendshipRoute(request, body);
+    if (!result) result = await handleSupportRoute(request, body);
+    if (!result) result = await handleCampaignRoute(request, body);
+    if (!result) result = await handleCampaignInvitationRoute(request, body);
+    if (!result) result = await handleCombatRoute(request, body);
+    if (!result) result = await handleMonsterRoute(request, body);
+    if (!result) result = await handleCharacterGenerationRoute(request, body);
+    if (!result) result = await handleFolderRoute(request, body);
+    if (!result) result = await handleRecordRoute(request, body);
+    if (!result) result = await handleSystemRoute(request);
+    if (!result) result = await handleCharactersRoute(request, body);
 
     return result
       ? sendJson(response, result.status, result.body)
@@ -171,9 +162,7 @@ http.createServer(async (request, response) => {
       });
     }
   }
-}).listen(port, () => {
-  console.log(`API do RPG Manager em http://localhost:${port}`);
-});
+};
 
 let processingSubscriptionNotifications = false;
 const processSubscriptionNotifications = async () => {
@@ -189,9 +178,19 @@ const processSubscriptionNotifications = async () => {
   }
 };
 
-const subscriptionNotificationWorker = setInterval(
-  () => void processSubscriptionNotifications(),
-  30_000,
-);
-subscriptionNotificationWorker.unref();
-void processSubscriptionNotifications();
+// Inicia o servidor HTTP e o worker contínuo apenas localmente
+if (!process.env.VERCEL) {
+  http.createServer(handleRequest).listen(port, () => {
+    console.log(`API do RPG Manager em http://localhost:${port}`);
+  });
+
+  const subscriptionNotificationWorker = setInterval(
+    () => void processSubscriptionNotifications(),
+    30_000,
+  );
+  subscriptionNotificationWorker.unref();
+  void processSubscriptionNotifications();
+}
+
+// Exporta o manipulador para a Vercel
+export default handleRequest;
