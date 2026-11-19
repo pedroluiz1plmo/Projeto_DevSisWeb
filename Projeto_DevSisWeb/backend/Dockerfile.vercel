@@ -1,0 +1,14 @@
+
+FROM node:24-slim
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install --omit=dev
+
+COPY src ./src
+
+EXPOSE 80
+
+CMD ["node", "src/container.js"]
