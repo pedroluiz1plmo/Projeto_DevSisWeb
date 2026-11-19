@@ -4,7 +4,11 @@
  * Em produção, utiliza a variável de ambiente VITE_API_URL definida na Vercel.
  * Em desenvolvimento local, utiliza http://localhost:3000 como padrão.
  */
-export const API_URL: string = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const defaultApiUrl = import.meta.env.PROD
+  ? 'https://projetodevsisweb-backend.vercel.app'
+  : 'http://localhost:3000';
+
+export const API_URL: string = import.meta.env.VITE_API_URL || defaultApiUrl;
 
 /**
  * URL base da API incluindo o prefixo /api.
