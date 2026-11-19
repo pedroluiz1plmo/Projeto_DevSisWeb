@@ -69,6 +69,35 @@ npm run build
 npm run preview
 ```
 
+### Deploy na Vercel (Web e Backend)
+
+Publique `Projeto_DevSisWeb/web` e `Projeto_DevSisWeb/backend` como projetos
+Vercel separados. No projeto Web, configure o Root Directory para
+`Projeto_DevSisWeb/web`, o comando de build como `npm run build` e o diretório de
+saída como `dist`. Defina `VITE_API_URL` como a URL pública do projeto Backend,
+por exemplo `https://<dominio-real-do-backend>` (sem `/api` no final). Essa
+variável é incorporada ao bundle durante o build: depois de alterá-la, faça um
+novo deploy do Web.
+
+No projeto Backend, configure o Root Directory para
+`Projeto_DevSisWeb/backend`. O `vercel.json` desse diretório encaminha as
+requisições ao handler serverless em `src/app.js`. Configure no ambiente do
+Backend:
+
+- Obrigatórias: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` e
+  `JWT_SECRET`.
+- `DB_SSL=true` quando exigido pelo provedor PostgreSQL; caso contrário, deixe
+  desativada.
+- Opcionais conforme os recursos usados: `JWT_EXPIRES_IN` e as variáveis SMTP
+  documentadas acima.
+
+Cadastre variáveis de produção nos ambientes Vercel apropriados e nunca coloque
+credenciais do Backend em variáveis `VITE_*`. Aplique as migrations PostgreSQL
+necessárias com `npm run migrate` a partir do diretório `backend/` antes de
+validar cadastro e login. O Backend responde CORS com `Access-Control-Allow-Origin: *`
+e permite `Authorization` e `Content-Type`; portanto, não depende de uma lista
+manual de domínios de frontend.
+
 ## Parte Mobile
 
 ## Organização arquitetural
