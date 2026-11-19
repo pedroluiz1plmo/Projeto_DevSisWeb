@@ -1,0 +1,12 @@
+
+{
+  "name": "projeto-devsisweb",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix web && npm install --prefix backend",
+    "build": "npm run build --prefix web",
+    "dev": "npm run dev --prefix web",
+    "dev:backend": "npm start --prefix backend"
+  }
+}
