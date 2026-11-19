@@ -77,7 +77,7 @@ export type SimulatedCheckout = {
   mode: 'simulator';
 };
 
-const API_BASE = 'http://localhost:3000/api';
+import { API_BASE } from '../../../config/api';
 
 const request = async <T>(path: string, token: string): Promise<T> => {
   const headers: HeadersInit = {};

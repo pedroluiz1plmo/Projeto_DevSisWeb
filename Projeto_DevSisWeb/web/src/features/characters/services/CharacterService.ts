@@ -1,4 +1,5 @@
 import { StorageService } from '../../../services/StorageService';
+import { API_BASE } from '../../../config/api';
 
 export type ApiCharacter = {
   id: string;
@@ -26,7 +27,7 @@ export type GeneratedCharacterAttributes = {
 };
 
 export class CharacterService {
-  private static readonly baseUrl = 'http://localhost:3000/api';
+  private static readonly baseUrl = API_BASE;
 
   private static async request<T>(
     path: string,

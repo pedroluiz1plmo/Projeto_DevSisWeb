@@ -1,4 +1,5 @@
 import { StorageService } from '../../../services/StorageService';
+import { API_BASE } from '../../../config/api';
 import type {
   ApiFriend,
   ApiFriendshipData,
@@ -7,7 +8,7 @@ import type {
 } from '../types';
 
 export class FriendshipService {
-  private static readonly baseUrl = 'http://localhost:3000/api';
+  private static readonly baseUrl = API_BASE;
 
   private static async request<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
     init = StorageService.withWorkspace(init);

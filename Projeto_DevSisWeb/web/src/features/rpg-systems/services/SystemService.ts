@@ -1,3 +1,5 @@
+import { API_BASE } from '../../../config/api';
+
 export type RpgSystem = { id: string; name: string; slug: string; description?: string | null };
 export type RpgSystemVersion = {
   id: string;
@@ -8,7 +10,7 @@ export type RpgSystemVersion = {
 };
 
 export class SystemService {
-  private static readonly baseUrl = 'http://localhost:3000/api';
+  private static readonly baseUrl = API_BASE;
 
   private static async request<T>(path: string): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`);

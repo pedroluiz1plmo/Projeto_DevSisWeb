@@ -1,4 +1,5 @@
 import './index.css';
+import { API_URL, API_BASE } from './config/api';
 import type { Html5Qrcode as Html5QrcodeType } from 'html5-qrcode';
 import { Personagem } from './models/Personagem';
 import { Jogador } from './models/Jogador';
@@ -402,8 +403,6 @@ class AppController {
     this.revalidationInProgress = true;
     this.networkOnline = navigator.onLine;
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
       const response = await fetch(`${API_URL}/api/auth/me`, {
         headers: { Authorization: 'Bearer ' + token },
       });
@@ -1225,7 +1224,7 @@ class AppController {
       document.getElementById('app')?.classList.remove('hidden');
       gateway?.classList.add('hidden');
     };
-    const authFetch = (path: string, body: unknown) => fetch(`http://localhost:3000/api${path}`, {
+    const authFetch = (path: string, body: unknown) => fetch(`${API_BASE}${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
 
@@ -2064,7 +2063,7 @@ class AppController {
     if (!this.networkOnline) return;
 
     try {
-      const response = await fetch('http://localhost:3000/api/auth/me', {
+      const response = await fetch(`${API_BASE}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.status === 401 || response.status === 403) {
@@ -2330,7 +2329,7 @@ class AppController {
     const token = this.authToken;
     try {
       if (token) {
-        await fetch('http://localhost:3000/api/auth/logout', {
+        await fetch(`${API_BASE}/auth/logout`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         });
@@ -2404,7 +2403,7 @@ class AppController {
     }
 
     try {
-      const response = await fetch('http://localhost:3000/api/users/me', {
+      const response = await fetch(`${API_BASE}/users/me`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -2474,7 +2473,7 @@ class AppController {
     if (error) error.classList.add('hidden');
 
     try {
-      const response = await fetch('http://localhost:3000/api/auth/me', { headers: { Authorization: `Bearer ${this.authToken}` } });
+      const response = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${this.authToken}` } });
       const data = await response.json();
       if (!response.ok || !data.authenticated) throw new Error('Sua sessão expirou. Faça login novamente.');
       this.authenticatedUser = data.user;
@@ -2571,7 +2570,7 @@ class AppController {
       }));
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.authToken) headers.Authorization = `Bearer ${this.authToken}`;
-      const response = await fetch('http://localhost:3000/api/support/tickets', {
+      const response = await fetch(`${API_BASE}/support/tickets`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
@@ -2629,7 +2628,7 @@ class AppController {
         ? await StorageService.preparePasswordRotation(newPassword)
         : null;
       const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${this.authToken}` };
-      const profileResponse = await fetch('http://localhost:3000/api/users/me', { method: 'PUT', headers, body: JSON.stringify({ name, username, email }) });
+      const profileResponse = await fetch(`${API_BASE}/users/me`, { method: 'PUT', headers, body: JSON.stringify({ name, username, email }) });
       const profileData = await profileResponse.json();
       if (!profileResponse.ok || !profileData.success) throw new Error(profileData.message || 'Não foi possível atualizar o perfil.');
       await StorageService.updateVaultProfile({
@@ -2641,7 +2640,7 @@ class AppController {
       });
 
       if (newPassword) {
-        const passwordResponse = await fetch('http://localhost:3000/api/users/me/password', { method: 'PUT', headers, body: JSON.stringify({ currentPassword, newPassword }) });
+        const passwordResponse = await fetch(`${API_BASE}/users/me/password`, { method: 'PUT', headers, body: JSON.stringify({ currentPassword, newPassword }) });
         const passwordData = await passwordResponse.json();
         if (!passwordResponse.ok || !passwordData.success) throw new Error(passwordData.message || 'Não foi possível alterar a senha.');
         remotePasswordChanged = true;

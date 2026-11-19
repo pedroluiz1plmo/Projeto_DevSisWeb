@@ -1,4 +1,5 @@
 import { StorageService } from '../../../services/StorageService';
+import { API_BASE } from '../../../config/api';
 
 export type ApiFolder = {
   id: string;
@@ -10,7 +11,7 @@ export type ApiFolder = {
 };
 
 export class FolderService {
-  private static readonly baseUrl = 'http://localhost:3000/api';
+  private static readonly baseUrl = API_BASE;
 
   private static async request<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
     init = StorageService.withWorkspace(init);
