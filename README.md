@@ -74,10 +74,11 @@ npm run preview
 Publique `Projeto_DevSisWeb/web` e `Projeto_DevSisWeb/backend` como projetos
 Vercel separados. No projeto Web, configure o Root Directory para
 `Projeto_DevSisWeb/web`, o comando de build como `npm run build` e o diretório de
-saída como `dist`. Defina `VITE_API_URL` como a URL pública do projeto Backend,
-por exemplo `https://<dominio-real-do-backend>` (sem `/api` no final). Essa
-variável é incorporada ao bundle durante o build: depois de alterá-la, faça um
-novo deploy do Web.
+saída como `dist`. O arquivo `web/.env.production` define a URL pública atual do
+Backend. Configure também `VITE_API_URL=https://projetodevsisweb-backend.vercel.app`
+nas variáveis de ambiente de produção do projeto Web na Vercel, sem `/api` no
+final. Essa variável é incorporada ao bundle durante o build: depois de
+alterá-la, faça um novo deploy do Web.
 
 No projeto Backend, configure o Root Directory para
 `Projeto_DevSisWeb/backend`. O `vercel.json` desse diretório encaminha as

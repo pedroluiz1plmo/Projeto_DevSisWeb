@@ -17,6 +17,10 @@ if (!['http:', 'https:'].includes(parsedApiUrl.protocol)) {
   throw new Error('VITE_API_URL deve usar HTTP ou HTTPS.');
 }
 
+if (parsedApiUrl.search || parsedApiUrl.hash) {
+  throw new Error('VITE_API_URL deve conter somente a URL base do backend.');
+}
+
 if (import.meta.env.PROD) {
   const hostname = parsedApiUrl.hostname;
 
@@ -37,5 +41,9 @@ if (import.meta.env.PROD) {
   }
 }
 
-export const API_URL = apiUrl.replace(/\/+$/, '');
+const apiPath = parsedApiUrl.pathname
+  .replace(/\/+$/, '')
+  .replace(/\/api$/i, '');
+
+export const API_URL = `${parsedApiUrl.origin}${apiPath}`.replace(/\/+$/, '');
 export const API_BASE = `${API_URL}/api`;

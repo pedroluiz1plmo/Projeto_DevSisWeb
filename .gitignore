@@ -27,5 +27,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!Projeto_DevSisWeb/web/.env.production
 .dart_tool/
 build/
