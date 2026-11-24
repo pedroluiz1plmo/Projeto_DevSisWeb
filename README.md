@@ -1,395 +1,645 @@
-# RPG HUB (RPG Manager) - Sistema de Gerenciamento de Fichas de RPG
+# RPG Manager
 
-Projeto desenvolvido para as disciplinas de **Laboratório de Engenharia de Software**,  **Desenvolvimento de Sistemas Web** e **Desenvolvimento de Sistemas para Dispositivos Móveis** do curso de **Bacharelado em Ciências da Computação** da **UNEMAT (Universidade do Estado de Mato Grosso)**.
+Aplicação para organizar personagens, campanhas e atividades de mesas de RPG. O
+projeto nasceu como trabalho acadêmico das disciplinas de Laboratório de
+Engenharia de Software, Desenvolvimento de Sistemas Web e Desenvolvimento de
+Sistemas para Dispositivos Móveis, no curso de Ciência da Computação da UNEMAT.
 
-- **Discentes:** Danny A. T. Scholze, Pedro L. M. de Oliveira, Lucas R. de B. Jardim, Taíse A. de Miranda e Tássia B. Ferreira 
+**Equipe:** Danny A. T. Scholze, Pedro L. M. de Oliveira, Lucas R. de B. Jardim,
+Taíse A. de Miranda e Tássia B. Ferreira.
 
----
+[![Node.js 24](https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![TypeScript 6](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite 8](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![Flutter](https://img.shields.io/badge/Flutter-Dart%20%3E%3D%203.6.2-02569B?logo=flutter&logoColor=white)](https://flutter.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
-## 🎯 Sobre o Projeto
+## Índice
 
-O **RPG HUB** é uma aplicação web moderna focada na experiência do usuário (UX) e na redução de carga cognitiva para jogadores e mestres de RPG de Mesa (adotando a metodologia ágil **b_thinking**). O sistema integra regras, cálculos automáticos em tempo real, fichas dinâmicas, controle de inventário e combate tático.
+- [Visão geral](#visão-geral)
+- [Arquitetura e estrutura](#arquitetura-e-estrutura)
+- [Execução local com Docker](#execução-local-com-docker)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Vercel e PostgreSQL/Neon](#vercel-e-postgresqlneon)
+- [Comunicação Web, Mobile e API](#comunicação-web-mobile-e-api)
+- [Mobile: persistência e sincronização offline](#mobile-persistência-e-sincronização-offline)
+- [Usuário Super Admin](#usuário-super-admin)
+- [Banco de dados e migrations](#banco-de-dados-e-migrations)
+- [Execução do Flutter Desktop](#execução-do-flutter-desktop)
+- [Testes e solução de problemas](#testes-e-solução-de-problemas)
+- [O que precisa de confirmação externa](#o-que-precisa-de-confirmação-externa)
 
----
+## Visão geral
 
-## 🚀 Tecnologias Utilizadas
+O RPG Manager reúne ferramentas para jogadores e mestres, reduzindo o trabalho
+manual de manter fichas, inventário, campanhas e informações da sessão.
+Frontend Web e aplicativo Flutter utilizam a mesma API Node.js; o backend
+persiste os dados compartilhados em PostgreSQL.
 
-- **HTML5 & CSS3 Vanilla:** Design moderno Dark Glassmorphism, responsividade e animações fluídas sem frameworks pesados.
-- **TypeScript:** Tipagem estática rigorosa e implementação orientada a objetos (POO) aderente ao diagrama de classes UML.
-- **Vite:** Ferramenta de build ultrarrápida e servidor de desenvolvimento.
-- **Mermaid.js:** Renderização dinâmica dos diagramas UML (Classes, Atividades, Sequência e Casos de Uso) diretamente no navegador.
-- **Web Crypto API:** Geração de aleatoriedade criptográfica (`crypto.getRandomValues`) para rolagens de dados justas e precisas.
+Entre os recursos implementados estão:
 
----
+- Criação e edição de personagens, com fichas orientadas por sistema.
+- Rolagens de dados, inventário e acompanhamento de atributos.
+- Campanhas, participantes, convites, solicitações de entrada e QR Codes.
+- Pastas, monstros, combate e controle de turnos/iniciativa.
+- Notas e missões associadas opcionalmente a pastas e campanhas.
+- Autenticação, workspaces de Jogador e Mestre e painel administrativo com
+  permissões.
+- Cache local e acesso offline com comportamentos diferentes no Web e no
+  Mobile, descritos adiante.
 
-## 📋 Casos de Uso Implementados
+O código do Web e os formulários/roladores Mobile contemplam **Dungeons &
+Dragons 5ª edição**, **Call of Cthulhu 7ª edição** e **Vampiro: A Máscara V5**.
+Isso não significa que todas as regras desses sistemas estejam automatizadas
+em todos os recursos: por exemplo, a iniciativa de combate é manual e o
+rolador Mobile não calcula perícias ou combinações de atributos que não estejam
+estruturadas.
 
-* **UC01 - Manter Personagem:** Consulta, edição contínua de PV, Mana, CA, XP e subida de nível em tempo real.
-* **UC02 - Criar Personagem Guiado (Wizard):** Assistente passo a passo que valida a distribuição de atributos (faixa de 8 a 18) e calcula automaticamente Modificadores, Pontos de Vida (PV) e Classe de Armadura (CA).
-* **UC03 - Gerenciar Inventário:** Cálculo automático de peso total vs. limite de carga máxima da Força (`Força * 7 kg`), com alerta visual instantâneo de **"Sobrecarregado"**.
-* **UC04 - Realizar Rolagem de Dados:** Rolagens de `1d20 + Modificador` com detecção de Acertos Críticos (20) e Falhas Críticas (1), além de histórico de sessão.
-* **UC05 - Manter Campanhas:** Organização do grupo de jogadores, lore e repositório narrativo da mesa pelo Mestre.
-* **UC06 - Manter NPCs e Criaturas:** Fichas simplificadas de monstros e ameaças com controle de PV em tempo real.
-* **UC07 - Gerenciar Iniciativa:** Painel tático que insere combatentes, rola iniciativa e ordena automaticamente a ordem de turnos do combate.
-* **UC08 - Gerenciar Notas e Missões:** Registros pessoais sincronizados entre Web e Mobile, com pastas e campanhas opcionais e exportação `.txt`.
-* **Hub UML Interativo:** Visualização em alta definição de todos os diagramas da modelagem do sistema.
+### Tecnologias
 
----
+| Componente | Tecnologias confirmadas |
+|---|---|
+| Web | TypeScript, HTML, CSS, Vite, Mermaid e APIs do navegador |
+| Backend | Node.js, módulos ES, HTTP, PostgreSQL (`pg`), JWT e bcrypt |
+| Mobile | Flutter/Dart, HTTP, SQLite, SharedPreferences e armazenamento seguro |
+| Execução local | Docker Compose; imagens Node 24 e Nginx |
+| Hospedagem descrita/configurada | Configurações Vercel e conexão PostgreSQL por URL |
 
-## 🛠️ Como Executar o Projeto Localmente
-
-### Pré-requisitos
-* [Node.js](https://nodejs.org/) (versão 18 ou superior)
-* [Git](https://git-scm.com/)
-
-### Passos:
-```bash
-# 1. Clonar o repositório
-git clone https://github.com/pedroluiz1plmo/Projeto_DevSisWeb.git
-
-# 2. Acessar as duas pastas do projeto
-|-cd Projeto_DevSisWeb/
-|  |-cd web/
-|  |-cd backend/
-
-# 3. Instalar as dependências nas duas pastas
-npm install
-
-# 4. Iniciar o servidor de desenvolvimento
-npm run dev
-
-# 5. Acessar no navegador:
-# http://localhost:5173/
-```
-
-### Para gerar o bundle de produção:
-### Fronend
-```bash
-npm run build
-npm run preview
-```
-
-### Deploy na Vercel (Web e Backend)
-
-Publique `Projeto_DevSisWeb/web` e `Projeto_DevSisWeb/backend` como projetos
-Vercel separados. No projeto Web, configure o Root Directory para
-`Projeto_DevSisWeb/web`, o comando de build como `npm run build` e o diretório de
-saída como `dist`. O arquivo `web/.env.production` define a URL pública atual do
-Backend. Configure também `VITE_API_URL=https://projetodevsisweb-backend.vercel.app`
-nas variáveis de ambiente de produção do projeto Web na Vercel, sem `/api` no
-final. Essa variável é incorporada ao bundle durante o build: depois de
-alterá-la, faça um novo deploy do Web.
-
-No projeto Backend, configure o Root Directory para
-`Projeto_DevSisWeb/backend`. O `vercel.json` desse diretório encaminha as
-requisições ao handler serverless em `src/app.js`. Configure no ambiente do
-Backend:
-
-- Obrigatórias: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` e
-  `JWT_SECRET`.
-- `DB_SSL=true` quando exigido pelo provedor PostgreSQL; caso contrário, deixe
-  desativada.
-- Opcionais conforme os recursos usados: `JWT_EXPIRES_IN` e as variáveis SMTP
-  documentadas acima.
-
-Cadastre variáveis de produção nos ambientes Vercel apropriados e nunca coloque
-credenciais do Backend em variáveis `VITE_*`. Aplique as migrations PostgreSQL
-necessárias com `npm run migrate` a partir do diretório `backend/` antes de
-validar cadastro e login. O Backend responde CORS com `Access-Control-Allow-Origin: *`
-e permite `Authorization` e `Content-Type`; portanto, não depende de uma lista
-manual de domínios de frontend.
-
-## Parte Mobile
-
-## Organização arquitetural
-
-O projeto mantém três fronteiras independentes:
-
-- `web/`: aplicação TypeScript/Vite. Funcionalidades compartilhadas ficam em `src/views`, `src/components`, `src/models`, `src/services` e `src/core`.
-- `web/src/systems/`: código web que será específico de cada sistema de RPG. Os diretórios de cada sistema separam `models`, `services`, `views` e `data`.
-- `systems/`: conteúdo de RPG independente da aplicação, organizado por sistema em `ficha`, `atributos` e `regras`.
-
-Os diretórios dos sistemas foram criados como limites arquiteturais e permanecem vazios onde ainda não existe implementação real. A ficha genérica, o inventário, a navegação e o controlador principal continuam no frontend compartilhado para preservar o comportamento atual.
-
-### Notas e missões sincronizadas
-
-Notas e missões pertencem ao usuário autenticado e ao workspace ativo (`player`
-ou `master`). Pastas e campanhas são associações opcionais; vincular a uma
-campanha não compartilha o registro com seus participantes. A exclusão de uma
-pasta ou campanha apenas remove o vínculo, preservando a nota ou missão.
-
-A API fornece `GET`, `POST`, `PUT` e `DELETE` em `/api/notes` e `/api/missions`.
-As chamadas autenticadas enviam `Authorization: Bearer <JWT>` e
-`X-Workspace-Type: player|master`. A migration numerada é executada pelo
-comando `npm run migrate` no diretório `backend/`, após configurar as variáveis
-de conexão PostgreSQL exigidas em `backend/src/config/database.js`.
-
-O Web preserva o cache local e mantém alterações pendentes para sincronizar
-quando a conexão retorna. O Mobile lê e grava os mesmos registros pela API e
-permite compartilhar a exportação `.txt`.
-
-### Convites e aprovação de campanhas
-
-No workspace Mestre, o proprietário gerencia convites na seção de participantes:
-gera, renova ou revoga um código e pode convidar alguém pelo username. Códigos
-e QR Codes apenas permitem solicitar participação; o pedido precisa ser
-aprovado pelo Mestre. Convites por username precisam ser aceitos pelo jogador.
-Nenhum dos fluxos adiciona participantes antes da aprovação ou do aceite.
-
-No workspace Jogador, a área **Campanhas** permite consultar um código, ler um
-QR Code, acompanhar solicitações e responder a convites diretos. A leitura da
-câmera no Mobile requer permissão; no Web, o leitor QR depende de contexto
-seguro do navegador (HTTPS ou localhost). Os códigos completos são exibidos
-somente ao serem gerados/renovados e não são gravados no cache local.
-
-As tabelas usadas pelos dois fluxos são criadas pela migration
-`backend/src/database/migrations/019_create_campaign_invitations.sql`. Execute
-`npm run migrate` em `backend/` depois de configurar a conexão PostgreSQL; a
-migration não é aplicada automaticamente pela interface.
-
-### Acesso offline e cofre local (Web)
-
-Após entrar online, o Web prepara um cofre local usando a senha da conta. Os
-registros locais são armazenados no IndexedDB criptografados com AES-GCM-256;
-uma chave aleatória de dados é protegida por uma chave derivada da senha com
-PBKDF2-HMAC-SHA-256 (600.000 iterações). A criptografia autentica também a
-identidade do usuário, o workspace, o tipo e o identificador do registro. A
-chave de dados em claro permanece apenas em memória durante o uso e é removida
-ao bloquear ou sair.
-
-O acesso offline exige desbloquear explicitamente o cofre com a senha. Ele não
-cria JWT, não autentica no servidor e não habilita chamadas remotas. Quando a
-conexão retorna, um token de sessão existente só volta a ser usado depois de
-validado pelo endpoint autenticado; erros de rede não são tratados como prova
-de sessão inválida. A validação do JWT continua exclusivamente no backend
-(HS256); nenhum segredo de assinatura é incluído no navegador.
-
-Alterações de senha feitas nas configurações do Web preparam a nova proteção
-local antes da chamada ao backend e gravam o novo envelope após a confirmação
-remota. Se a atualização local falhar após a senha remota ter sido alterada,
-este dispositivo ainda pode exigir a senha anterior para desbloquear o cofre.
-Alterações de senha realizadas fora do Web não atualizam automaticamente o
-cofre local. Não existe recuperação local da senha nem chave de recuperação:
-sem a senha que protege o cofre, os dados criptografados locais não podem ser
-desbloqueados. Não apague os dados do navegador se houver alterações locais que
-ainda não tenham sido sincronizadas.
-
-Dados legados sem propriedade confiável são preservados em quarentena e não
-são carregados automaticamente para uma conta. A migração de dados legados
-com escopo verificável é retomável e só remove a origem após gravar e validar
-a cópia criptografada. A fila completa de sincronização e a resolução de
-conflitos continuam fora desta etapa.
-
-### Frontend Flutter
-
-O app está em `../Projeto_DevSisMob/mobile/`. Após instalar o Flutter SDK:
-
-```sh
-cd ../Projeto_DevSisMob/mobile
-flutter pub get
-flutter run
-```
-
-Para Android Emulator, informe `--dart-define=API_BASE_URL=http://10.0.2.2:3000/api`.
-
-### Arquitetura e persistência do Mobile
-
-O aplicativo Flutter mantém a separação por responsabilidade:
-
-- `lib/models/`: modelos tipados e conversão de/para JSON por `fromJson` e
-  `toJson`.
-- `lib/core/api_client.dart`: cliente HTTP, URL configurável por
-  `API_BASE_URL`, serialização JSON, timeout, cabeçalhos e erros HTTP.
-- `lib/services/rpg_api.dart`: operações REST, transformação das respostas em
-  modelos e atualização do cache depois da confirmação do servidor.
-- `lib/services/local_storage.dart`: snapshots JSON e metadados em
-  SharedPreferences, limitados por usuário e workspace (`player` ou `master`).
-- `lib/services/persona_service.dart`: preferência de perfil Jogador/Mestre
-  isolada por usuário.
-- `lib/screens/` e `lib/widgets/`: telas, formulários, estados de carregamento,
-  avisos do cache local e apresentação de erros.
+## Arquitetura e estrutura
 
 ```mermaid
 flowchart LR
-  UI[Telas e formulários Flutter] --> API[RpgApi]
-  API --> CLIENT[ApiClient]
-  CLIENT -->|REST JSON + Authorization Bearer JWT| BACKEND[Backend Node.js]
-  BACKEND -->|repositórios e serviços| PG[(PostgreSQL)]
-  API -->|snapshots e preferências| PREFS[(SharedPreferences)]
-  CLIENT -->|JWT separado| SECURE[flutter_secure_storage]
-  API -->|leitura de snapshot em falha de rede| UI
+  WEB[Web: TypeScript + Vite] -->|HTTP/JSON, JWT| API[Backend: Node.js]
+  MOBILE[Mobile/Desktop: Flutter] -->|HTTP/JSON, JWT| API
+  API -->|pg Pool| DB[(PostgreSQL)]
+  API -. conexão configurada externamente .-> NEON[(Neon, se DATABASE_URL apontar para Neon)]
 ```
 
-O JWT é armazenado exclusivamente por `flutter_secure_storage`. Quando existe
-token, chamadas autenticadas enviam `Authorization: Bearer <JWT>`; as rotas
-públicas de login e cadastro também funcionam sem token. O middleware Node.js
-valida o esquema `Bearer` e os recursos protegidos usam o usuário do JWT e o
-workspace recebido em `X-Workspace-Type`. O cliente limpa a sessão e notifica
-a interface quando uma chamada autenticada recebe `401`; `403`, `404`,
-indisponibilidade de rede e erros do servidor são tratados sem registrar o
-token.
+- **Web**: interface e fluxos para jogadores e mestres. Seus serviços chamam
+  `/api/...` e não acessam o banco diretamente.
+- **Mobile**: cliente Flutter independente, com código em
+  `Projeto_DevSisMob/mobile/`. Também consome a API; SQLite e preferências são
+  armazenamento local, não uma conexão direta ao PostgreSQL.
+- **Backend**: API REST Node.js em `Projeto_DevSisWeb/backend/`. As rotas
+  encaminham operações para módulos, serviços e repositórios.
+- **PostgreSQL**: armazenamento remoto do backend, configurado com
+  `DATABASE_URL` ou parâmetros individuais de conexão. O código usa o driver
+  `pg`; não inclui um servidor PostgreSQL no Docker Compose.
+- **Vercel**: configurações de roteamento e execução estão presentes nos
+  arquivos `vercel.json`. A escolha do projeto/domínio e as variáveis de
+  produção são configurações externas ao repositório.
 
-O `RpgApi` implementa leitura e CRUD para campanhas, personagens, pastas,
-notas, missões e monstros; monstros são subordinados a campanhas. As rotas e
-serviços backend aplicam autorização e escopo de proprietário/workspace, e os
-repositórios persistem no PostgreSQL. Os métodos de sistema e versão usados
-pelos formulários são consultas. Os payloads JSON não definem o proprietário:
-o backend o deriva da sessão autenticada.
+O backend valida JWTs, obtém a identidade do usuário da sessão e usa
+`X-Workspace-Type` (`player` ou `master`) em operações que dependem do
+workspace. O frontend e o Mobile enviam requisições HTTP/JSON para as mesmas
+rotas; a API aplica escopo e autorização antes de persistir dados.
 
-Em operação online, o cache é atualizado somente depois de uma resposta
-confirmada pela API. Sem conexão, consultas podem usar snapshots remotos
-armazenados para o mesmo usuário e workspace; a interface indica que os dados
-são locais e podem estar desatualizados. Escritas offline não são consideradas
-concluídas e não são reenviadas automaticamente. Embora o armazenamento
-identifique registros locais `LOCAL_ONLY`, não há fila integrada ao CRUD nem
-protocolo de sincronização/conflitos nesta versão. Senhas e JWTs não são
-armazenados em SharedPreferences. O logout desassocia o cache da sessão; a
-limpeza dos dados locais da conta ocorre no fluxo de exclusão da conta.
-
-As telas apresentam progresso durante consultas e usam mensagens de erro
-compreensíveis para falhas de rede, sessão, autorização, registros ausentes e
-falhas locais; as operações de escrita só exibem sucesso após confirmação da
-API. O comando `flutter test` valida contratos e comportamentos com clientes
-HTTP simulados. A integração ponta a ponta com servidor Node.js e PostgreSQL
-requer ambiente configurado e não é comprovada por esses testes.
-
-### Administração, planos e financeiro
-
-O Backend acrescenta as migrations `016_admin_plans_finance.sql` e
-`021_create_free_trials.sql`. Depois de configurar o PostgreSQL, aplique as
-migrations no diretório `backend/` com `npm run migrate`; as tabelas de
-pagamentos, contratos, despesas, permissões, auditoria e testes gratuitos não
-são criadas nem alteradas fora desse processo.
-
-O Freemium é criado ativo sem limites quantitativos. Um limite ausente ou
-`null` significa ilimitado; limites definidos pelo ADM são aplicados no Backend
-para campanhas, personagens, monstros, notas e missões, somando os workspaces
-da conta. Benefícios de planos também são verificados no servidor. Nenhum
-recurso existente foi definido como exclusivo do Premium por padrão. Benefícios
-e limites associados a esses recursos são verificados pelo servidor durante a
-criação; registros já existentes continuam preservados e legíveis.
-
-Para provisionar o primeiro ADM, registre e valide a conta normalmente e então
-execute no diretório `backend/`:
-
-```sh
-npm run admin:bootstrap -- --user-id 123 --reason "Provisionamento operacional inicial"
-```
-
-O comando exige usuário existente e habilitado, concede as permissões
-administrativas e registra a operação na trilha de auditoria. Não há cadastro
-ADM aberto no Web/Mobile. Permissões administrativas são verificadas no banco
-a cada requisição; bloquear uma conta revoga também suas sessões autenticadas.
-
-O painel define usuário ativo como conta habilitada com login dentro da janela
-configurável (30 dias inicialmente); bloqueadas e inativas são métricas
-separadas. Contas podem usar os workspaces Jogador e Mestre, então as
-contagens por workspace não são exclusivas e refletem dados/atividade
-cadastrados. Relatórios financeiros agrupam por moeda e não fazem conversão
-cambial; líquido usa pagamentos confirmados menos reembolsos, tarifas e
-despesas pagas.
-
-### Dashboard Administrativo e Métricas de Utilização
-
-O dashboard administrativo usa os dados reais do PostgreSQL para expor
-indicadores do ambiente atual sem criar novas tabelas de perfil. As medidas
-principais são:
-
-- UC: usuários com workspace Jogador ativo no sistema;
-- UP: usuários com workspace Mestre ativo no sistema;
-- UE: usuários com assinatura ativa reconhecida no schema de planos;
-- UA: usuários com autorização administrativa válida.
-
-Para a média de utilização de recursos, o cálculo considera o total de
-recursos persistidos (`campaigns`, `characters`, `monsters`, `notes` e
-`missions`) dividido pelo total de contas cadastradas. O Freemium continua
-sendo o plano padrão do sistema quando não existe assinatura ativa; ele não é
-contado como UE por si só, porque a estrutura real do projeto persiste a
-informação de plano por usuário em `subscriptions` e não em uma tabela de
-perfil separada.
-
-A API do dashboard retorna tanto os indicadores de jornada quanto os agregados
-de conteúdo, permitindo que a interface administrativa carregue valores reais
-sem recalcular regras a partir do localStorage ou do IndexedDB.
-
-Não há provedor de pagamentos configurado. O checkout responde como
-indisponível e não cria assinatura nem pagamento simulado; também não há
-webhook público sem verificação de assinatura. As tabelas de eventos externos
-suportam idempotência para futura integração, e a camada `billing` exige um
-provedor real para iniciar checkout ou verificar webhooks.
-
-Notificações de confirmação de assinatura reutilizam o serviço Nodemailer/SMTP
-existente e são registradas na migration
-`022_create_subscription_email_notifications.sql`. O evento só pode ser
-enfileirado junto à transação de pagamento depois que o adaptador do provedor
-validar e marcar `payment_provider_events` como `processed`; a chave única
-`provider + external_event_id + notification_type` evita novas mensagens quando
-o webhook é reprocessado. Falhas ficam registradas e podem ser reenviadas pelo
-painel de assinaturas. O checkout e o webhook do provedor ainda não estão
-implementados, portanto a confirmação automática só ficará ativa quando um
-provedor real validar o webhook, atualizar pagamento/assinatura e enfileirar a
-notificação na mesma transação. O Backend processa a fila periodicamente; falhas
-ficam registradas e podem ser reenviadas pelo painel de assinaturas. Trial grátis
-não gera notificação de assinatura paga.
-
-Configure no ambiente do Backend, sem compartilhar os valores:
+### Árvore resumida
 
 ```text
-SMTP_HOST
-SMTP_PORT
-SMTP_SECURE
-SMTP_USER
-SMTP_PASSWORD
-SMTP_FROM
-SMTP_FROM_NAME=Digital Master Shield
-APP_BASE_URL
-SUPPORT_EMAIL
+.
+├── README.md
+├── vercel.json
+├── Projeto_DevSisWeb/
+│   ├── docker-compose.yml
+│   ├── package.json
+│   ├── backend/
+│   │   ├── dockerfile
+│   │   ├── Dockerfile.vercel
+│   │   ├── package.json
+│   │   ├── vercel.json
+│   │   ├── src/
+│   │   │   ├── app.js, container.js
+│   │   │   ├── config/, database/, middleware/, routes/, services/, cli/
+│   │   │   └── modules/ (campanhas, personagens, notas, admin e outros)
+│   │   └── test/
+│   └── web/
+│       ├── dockerfile
+│       ├── Dockerfile.vercel
+│       ├── package.json
+│       ├── public/
+│       └── src/
+│           ├── main.ts, config/, models/, services/, views/
+│           └── features/ (campanhas, fichas, administração e outros)
+└── Projeto_DevSisMob/
+    └── mobile/
+        ├── pubspec.yaml
+        ├── lib/
+        │   ├── core/ (API e banco local)
+        │   ├── models/, screens/, services/, widgets/
+        ├── test/
+        ├── android/, ios/, macos/, web/
+        └── linux/, windows/
 ```
 
-`SMTP_FROM_NAME` usa Digital Master Shield por padrão e `SUPPORT_EMAIL` usa o
-endereço de suporte já adotado pelo serviço de e-mail se omitido. `APP_BASE_URL`
-deve ser a URL pública da aplicação para incluir o link no e-mail; sem ela, a
-mensagem orienta o usuário a abrir Meu Plano pela plataforma. A migração cria
-apenas o registro da fila; nenhum segredo é enviado ao Web ou ao Mobile.
+## Execução local com Docker
 
-O teste gratuito Premium é registrado uma única vez por conta em
-`free_trials`. A migration `021_create_free_trials.sql` fixa o período em sete
-dias exatos; o acesso é concedido pelo mesmo `getPlanAccess` usado pelas
-assinaturas e retorna ao Freemium quando a data de encerramento passa, salvo se
-houver uma assinatura ativa. `GET /api/free-trial/me` consulta elegibilidade e
-status e `POST /api/free-trial/activate` inicia o teste do plano escolhido; os
-dois endpoints exigem JWT e usam a identidade da sessão. O teste não cria
-assinatura, pagamento ou renovação automática. A área administrativa lista os
-testes em `GET /api/admin/free-trials`, protegido por `subscriptions.read`;
-conversão indica somente a existência de uma assinatura paga registrada após
-o encerramento, não confirmação de pagamento.
+### Pré-requisitos
 
-### Recuperação e exclusão de conta
+- Git.
+- Docker Engine ou Docker Desktop com **Docker Compose v2** (`docker compose`).
+- Uma conexão PostgreSQL acessível pelo backend. O Compose atual não inicia um
+  banco local; pode-se configurar um PostgreSQL externo, inclusive Neon.
 
-A migration `017_password_recovery_tokens.sql` cria o armazenamento de tokens
-de recuperação. Os tokens são aleatórios, guardados como hash, expiram em 30
-minutos e só podem ser usados uma vez; cinco tentativas inválidas esgotam o
-código. Configure o SMTP no ambiente do backend antes de habilitar a
-recuperação:
+### Clonar e configurar
 
-```text
-SMTP_HOST
-SMTP_PORT
-SMTP_SECURE=true|false
-SMTP_USER
-SMTP_PASSWORD
-SMTP_FROM
+Na raiz em que deseja guardar o projeto:
+
+```bash
+git clone https://github.com/Datsc-21/Projeto_DevSisWeb.git
+cd Projeto_DevSisWeb/Projeto_DevSisWeb
 ```
 
-`POST /api/auth/password-recovery` aceita `{ "email": "..." }` sem sessão e
-sempre responde de forma genérica quanto à existência da conta. O código é
-enviado por e-mail. `POST /api/auth/password-recovery/confirm` aceita
-`{ "email": "...", "token": "...", "newPassword": "..." }`; não exige sessão.
-Sem SMTP configurado, a solicitação retorna `503` sem criar nem simular uma
-recuperação. Cada conta pode solicitar até três códigos por hora; tentativas
-inválidas também são limitadas pelo código ativo.
+O Compose referencia `backend/.env` e esse arquivo é ignorado pelo Git. Não há
+um `.env.example` verificado neste repositório. Se `backend/.env` ainda não
+existir, crie-o localmente com as variáveis aplicáveis da seção
+[Variáveis de ambiente](#variáveis-de-ambiente), por exemplo:
 
-`DELETE /api/users/me` exige JWT e `{ "currentPassword": "..." }`. O backend
-deriva a conta exclusivamente do `sub` do token. A exclusão é transacional;
-registros financeiros com restrição referencial impedem a remoção, enquanto
-dados relacionados seguem as regras `ON DELETE` já existentes no PostgreSQL.
+```dotenv
+DATABASE_URL=postgresql://usuario:senha@host-exemplo/banco?sslmode=require
+JWT_SECRET=<segredo-forte-e-exclusivo>
+PORT=3000
+```
+
+Os valores acima são apenas formatos fictícios. Não copie credenciais reais
+para o README, não as envie ao repositório e não use o marcador de segredo como
+valor. Em alternativa a `DATABASE_URL`, o backend aceita `DB_HOST`, `DB_PORT`,
+`DB_NAME`, `DB_USER` e `DB_PASSWORD`. `PORT=3000` mantém o processo alinhado à
+porta publicada pelo Compose.
+
+### Construir, iniciar e acompanhar
+
+```bash
+# Construir as imagens e iniciar em primeiro plano
+docker compose up --build
+
+# Iniciar em segundo plano (depois que as imagens já foram construídas)
+docker compose up -d
+
+# Conferir estado e portas publicadas
+docker compose ps
+
+# Acompanhar todos os logs
+docker compose logs -f
+
+# Acompanhar um serviço específico
+docker compose logs -f backend
+docker compose logs -f frontend
+```
+
+O Compose inicia:
+
+| Serviço | Porta local | URL |
+|---|---:|---|
+| Web (Vite) | `5173` | <http://localhost:5173> |
+| Backend (Node.js) | `3000` | <http://localhost:3000> |
+
+A API usa o prefixo `/api`; por exemplo, `GET http://localhost:3000/api/systems`
+consulta os sistemas cadastrados. Essa rota depende de conexão e migrations
+válidas no PostgreSQL.
+
+O Compose não executa migrations automaticamente. Com o banco configurado,
+aplique-as em outro terminal:
+
+```bash
+cd backend
+npm install
+npm run migrate
+```
+
+Para reiniciar serviços ou pará-los:
+
+```bash
+docker compose restart
+docker compose down
+
+# ATENÇÃO: também pode remover volumes e dados persistidos
+docker compose down --volumes
+```
+
+Depois de alterar código ou arquivos usados na imagem, reconstrua e recrie os
+serviços:
+
+```bash
+docker compose up --build -d
+```
+
+> **Atenção:** `docker compose down --volumes` também solicita a remoção dos
+> volumes associados e pode apagar dados persistidos neles. O Compose atual não
+> declara volumes nem um container PostgreSQL; mesmo assim, confira a
+> configuração antes de usar essa opção. Ela não apaga diretamente um banco
+> Neon/PostgreSQL externo.
+
+## Variáveis de ambiente
+
+Os valores abaixo foram conferidos no código/configuração. `DATABASE_URL` tem
+precedência sobre as variáveis individuais de banco. A existência de um
+`backend/.env` local ignorado pelo Git não torna seus valores parte da
+documentação; nenhum valor real é reproduzido aqui.
+
+| Variável | Componente | Finalidade | Obrigatória? | Exemplo fictício |
+|---|---|---|---|---|
+| `DATABASE_URL` | Backend | URL de conexão PostgreSQL; se definida, é usada pelo pool `pg`. | Sim para o banco, salvo uso do grupo `DB_*`. | `postgresql://user:pass@db.example.invalid/app?sslmode=require` |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Backend | Alternativa à URL para configurar a conexão PostgreSQL. | Sim em conjunto quando `DATABASE_URL` não é definida. | `DB_HOST=db.example.invalid` |
+| `DB_SSL` | Backend | Ativa SSL para conexão configurada pelas variáveis `DB_*` quando igual a `true`. | Não; padrão sem SSL nesse modo. | `DB_SSL=true` |
+| `JWT_SECRET` | Backend | Chave usada para assinar/verificar tokens JWT. | Necessária para autenticação. | `<segredo-forte-e-exclusivo>` |
+| `JWT_EXPIRES_IN` | Backend | Duração do JWT; o serviço usa `8h` quando omitida. | Não. | `12h` |
+| `PORT` | Backend | Porta do servidor local; padrão `3000`. O Compose publica `3000:3000`. | Não; recomenda-se `3000` com o Compose. | `PORT=3000` |
+| `VITE_API_URL` | Web | URL base do backend, sem credenciais. O código aceita e remove um sufixo `/api`; em desenvolvimento o padrão é `http://localhost:3000`, e em produção sem valor usa a origem do próprio Web. | Condicional: definir para usar backend em domínio separado. | `https://api.example.invalid` |
+| `API_BASE_URL` | Mobile Flutter | URL base compilada com `--dart-define`; o cliente normaliza o sufixo para exatamente `/api`. | Não; padrão Android `10.0.2.2:3000/api`, demais alvos `localhost:3000/api`. | `https://api.example.invalid/api` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Backend | Acesso SMTP para recuperação de senha, suporte e notificações de e-mail. | Não para iniciar a API; necessário para envio de e-mail. | Valores fornecidos pelo serviço SMTP |
+| `SMTP_SECURE` | Backend | Habilita conexão SMTP segura quando `true`. | Não; o código considera `false` se omitida. | `SMTP_SECURE=true` |
+| `SMTP_FROM_NAME` | Backend | Nome exibido como remetente; padrão `Digital Master Shield`. | Não. | `RPG Manager` |
+| `APP_BASE_URL` | Backend | URL pública usada em links de e-mail. | Não. | `https://app.example.invalid` |
+| `SUPPORT_EMAIL` | Backend | Destinatário de suporte; o serviço tem um padrão quando omitida. | Não. | `suporte@example.invalid` |
+| `PAYMENT_SIMULATOR_ENABLED` | Backend | Flag lida pelo simulador de pagamento, que também bloqueia execução em `NODE_ENV=production`. | Não; não representa integração com provedor real. | `false` |
+
+`VITE_API_URL` é incorporada ao bundle Web e pode ser vista pelo navegador; nunca
+a use para guardar segredos. JWT secret, senha do banco e credenciais SMTP
+pertencem somente ao ambiente do backend.
+
+## Vercel e PostgreSQL/Neon
+
+### O que a configuração confirma
+
+- A Vercel pode hospedar/rotear a aplicação conforme os arquivos
+  `vercel.json`. A configuração da raiz declara serviços `frontend` e
+  `backend`, encaminha `/api/...` ao backend e as demais rotas ao frontend.
+- `backend/vercel.json` também define uma função Node para `src/app.js`.
+  `backend/Dockerfile.vercel` configura o processo de container para escutar
+  na porta `80`; `web/Dockerfile.vercel` constrói o bundle e o serve com Nginx.
+- O backend cria um pool PostgreSQL com `pg`. Se `DATABASE_URL` estiver
+  definida, ela é passada como `connectionString`; caso contrário, usa
+  `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` e, opcionalmente,
+  `DB_SSL`.
+- Não há SDK específico do Neon. O código conecta-se a PostgreSQL por URL; uma
+  URL do Neon pode ser usada como `DATABASE_URL` se for configurada no ambiente
+  do backend.
+
+### Configuração operacional
+
+No projeto/serviço Vercel que executa o backend, cadastre `DATABASE_URL`,
+`JWT_SECRET` e as demais variáveis necessárias em **Settings → Environment
+Variables**, para os ambientes Vercel apropriados. Não armazene os valores no
+repositório e não os exponha ao bundle Web por `VITE_*`. Se o Web apontar para
+um backend em domínio separado, configure `VITE_API_URL` no build do frontend
+e publique um novo build depois de alterá-la. Quando a configuração de raiz
+roteia `/api` ao backend no mesmo domínio, o padrão de produção do Web usa a
+origem atual.
+
+O deploy precisa disponibilizar o backend e suas variáveis, aplicar as
+migrations no banco e disponibilizar o Web com uma URL de API coerente. O
+repositório não determina quais projetos/domínios Vercel estão ativos nem se o
+deploy é disparado por Git, CLI ou outro fluxo. Há configurações Vercel na raiz
+e no backend, portanto confirme no painel qual configuração e diretório raiz
+cada projeto usa.
+
+Para verificar uma API publicada, substitua o domínio pelo endereço real:
+
+```bash
+curl -i https://<dominio-da-api>/api/systems
+```
+
+Uma resposta `200` com JSON confirma a rota e a consulta, desde que o banco
+esteja configurado e as migrations aplicadas. Não foi encontrada uma rota
+dedicada de health check. Uma resposta de erro de banco não deve ser
+interpretada como confirmação de que o PostgreSQL está saudável.
+
+## Comunicação Web, Mobile e API
+
+### Web
+
+`web/src/config/api.ts` lê `VITE_API_URL`. Em desenvolvimento, se a variável
+estiver vazia, usa `http://localhost:3000`; no build de produção usa a origem
+do Web. O módulo normaliza a URL e acrescenta `/api` para montar `API_BASE`.
+URLs de produção precisam ser HTTPS; endereços locais são recusados no build
+de produção.
+
+Para apontar o Web local a outro backend, defina `VITE_API_URL` no ambiente
+usado pelo Vite/build, por exemplo `https://api.example.invalid` (sem
+credenciais). A configuração lê essa variável durante o build.
+
+### Flutter Mobile
+
+`ApiClient` recebe `API_BASE_URL` via `String.fromEnvironment` e normaliza o
+caminho para conter `/api` uma única vez. Se não for informado, usa
+`http://10.0.2.2:3000/api` no Android e `http://localhost:3000/api` nas demais
+plataformas. O cliente centraliza as chamadas HTTP, JSON, timeout, token
+Bearer e o cabeçalho `X-Workspace-Type`.
+
+Para executar no emulador Android apontando ao backend local:
+
+```bash
+cd Projeto_DevSisMob/mobile
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000/api
+```
+
+Para gerar APK release apontando para a API real de produção:
+
+```bash
+flutter build apk --release \
+  --dart-define=API_BASE_URL=https://SEU-DOMINIO.vercel.app/api
+```
+
+Substitua `SEU-DOMINIO` pelo domínio real da API. O exemplo não confirma que
+esse domínio exista nem que `/api` esteja publicado nele.
+
+### Endereços locais e produção
+
+| Endereço | Significado |
+|---|---|
+| `localhost` | A própria máquina que executa o programa. No Flutter Desktop, é o computador; no Android Emulator, é o emulador, não o computador hospedeiro. |
+| `10.0.2.2` | Endereço especial usado pelo Android Emulator para acessar o `localhost` do computador hospedeiro. |
+| IP da rede local | Para um aparelho físico alcançar o backend no computador, use o endereço LAN do computador e permita o tráfego na rede/firewall. |
+| URL HTTPS pública | Endereço do backend implantado, necessário em dispositivos externos e builds release que usam produção. |
+
+Em ambos os clientes, a autenticação usa `Authorization: Bearer <JWT>` e o
+workspace pode ser enviado em `X-Workspace-Type`. O Mobile guarda JWT em
+`flutter_secure_storage`; não o coloca em SharedPreferences. Rotas públicas,
+como login e cadastro, não exigem token. A API deriva a identidade do usuário
+do token validado, em vez de confiar em um proprietário informado no payload.
+
+## Mobile: persistência e sincronização offline
+
+### Armazenamento local
+
+O aplicativo usa:
+
+- **SharedPreferences** para snapshots/cache JSON e preferências separadas por
+  usuário e workspace.
+- **SQLite** versionado para registros locais e operações da Outbox. A versão
+  local atual do schema é 4; Linux e Windows usam `sqflite_common_ffi`.
+- **`flutter_secure_storage`** para o JWT.
+
+Consultas tentam a API primeiro; quando há falha de transporte, alguns recursos
+podem exibir snapshots locais do mesmo usuário/workspace. Erros HTTP, como
+`401` e `403`, não são tratados como falta de conexão. Escritas online só são
+confirmadas na interface depois da resposta da API.
+
+### O que já está implementado para notas e missões
+
+Em notas e missões autenticadas, uma falha de transporte pode gravar a
+alteração em `local_records` e inserir a operação correspondente na Outbox na
+mesma transação SQLite. Há suporte local para `CREATE`, `UPDATE` e `DELETE`;
+edições pendentes podem ser consolidadas, e excluir um registro cujo `CREATE`
+ainda não foi enviado cancela as operações locais relacionadas. Isso não
+significa que o backend já recebeu a alteração.
+
+Os IDs locais são UUIDs. O `CREATE` inclui `clientId` na requisição; o backend
+armazena esse identificador no escopo do usuário/workspace e trata repetições
+de criação. Quando a resposta retorna o ID numérico remoto, o DAO atualiza o
+vínculo no registro local e nas operações seguintes dentro de uma transação.
+`UPDATE` e `DELETE` usam esse ID remoto.
+
+`OutboxSyncService` implementa processadores para operações `CREATE`, `UPDATE`
+e `DELETE` de notas e missões. O DAO reivindica operações pendentes com lease,
+registra tentativas e falhas e permite re-enfileirar operações com falha.
+Entretanto, **o serviço não está conectado ao ciclo de vida da aplicação nem
+ao `ConnectionService`**: não há worker/chamada automática que consuma a fila,
+nem retomada automática quando a conexão retorna. Assim, a persistência
+offline está implementada, mas o envio automático e a sincronização completa
+permanecem em desenvolvimento. A fila não cobre todas as entidades.
+
+O `ConnectionService` observa a conectividade e verifica acesso à internet/API
+para atualizar o indicador de estado. Ele não processa a Outbox. Não há
+sincronização P2P, Bluetooth ou transferência direta entre aparelhos.
+
+Na Web, o offline usa um cofre separado no IndexedDB: registros são protegidos
+com AES-GCM e a chave local é protegida por derivação da senha. Desbloquear o
+cofre não cria sessão/JWT nem habilita chamadas remotas; alterações locais
+pendentes não devem ser descartadas antes de serem sincronizadas. Esse
+mecanismo Web não é a Outbox SQLite do Flutter.
+
+## Usuário Super Admin
+
+O usuário é armazenado em `users` com nome, username, e-mail, `password_hash`
+e estado `is_active`. A senha é armazenada como hash. Papéis de membros de
+campanha (`campaign_members.role`) não equivalem a privilégios administrativos.
+
+Não há um papel literal `super_admin`. O backend identifica administração por
+permissões em `admin_permissions`; rotas verificam o JWT, a conta ativa e a
+permissão exigida. O endpoint `GET /api/admin/me` retorna a identidade e as
+permissões do usuário autenticado.
+
+Há um procedimento implementado para provisionar o primeiro administrador:
+
+1. Aplique as migrations e configure o ambiente do backend.
+2. Crie uma conta pelo fluxo normal de cadastro e confirme que ela está ativa.
+3. Use o ID numérico dessa conta no script do backend:
+
+   ```bash
+   cd Projeto_DevSisWeb/backend
+   npm run admin:bootstrap -- --user-id <ID_NUMERICO> --reason "Provisionamento operacional inicial"
+   ```
+
+O comando exige usuário existente e ativo, concede as permissões conhecidas
+pela aplicação e registra a ação na auditoria. Não altera permissões por uma
+edição manual avulsa do banco. O script falha se os parâmetros estiverem
+inválidos ou se a conta não existir/estiver bloqueada.
+
+Para verificar a concessão, entre com essa conta e consulte
+`GET /api/admin/me` usando o JWT da sessão, ou acesse o painel administrativo.
+Um `403` indica que a chamada autenticada não tem a permissão necessária; um
+`401` indica sessão inválida/ausente ou conta inativa.
+
+## Banco de dados e migrations
+
+O backend usa PostgreSQL com o cliente `pg`. As migrations SQL numeradas estão
+em `Projeto_DevSisWeb/backend/src/database/migrations/`; o runner
+`src/database/run.js` aplica os arquivos em ordem e registra os nomes já
+executados em `schema_migrations`. O projeto contém migrations `001` a `025`.
+Elas criam e evoluem, entre outras, tabelas de usuários, sistemas/versões,
+personagens, campanhas/participantes, pastas, notas/missões, monstros, combate,
+convites, permissões administrativas, planos, assinaturas e auditoria.
+
+Para aplicar migrations, estando no diretório `backend/` e com a conexão
+configurada:
+
+```bash
+npm install
+npm run migrate
+```
+
+O runner precisa de acesso ao banco e termina com erro se uma migration falhar.
+As migrations não são executadas pelo frontend nem automaticamente ao subir o
+Compose. Faça backup e valide o ambiente antes de aplicar alterações em
+produção.
+
+Se `psql` estiver instalado e `DATABASE_URL` estiver configurada, uma consulta
+de leitura pode confirmar a conexão e o controle de migrations:
+
+```bash
+psql "$DATABASE_URL" -c 'SELECT current_database(), current_user;'
+psql "$DATABASE_URL" -c 'SELECT filename, applied_at FROM schema_migrations ORDER BY filename;'
+```
+
+Não compartilhe a URL impressa pelo ambiente nem use consultas de escrita em
+produção sem procedimento de operação e backup.
+
+## Execução do Flutter Desktop
+
+Os diretórios `mobile/linux/` e `mobile/windows/` contêm runners e configuração
+de plugins, portanto os alvos Desktop estão configurados no projeto. Para
+executar com `flutter run`, **não é necessário gerar APK nem instalar Android
+Studio**.
+
+### Linux
+
+1. Instale o Flutter SDK e adicione o comando `flutter` ao `PATH`. O Dart SDK
+   correspondente é fornecido pelo Flutter; a restrição do projeto é Dart
+   `>=3.6.2`.
+2. Em distribuições Debian/Ubuntu, instale as ferramentas usadas pelo build
+   Linux Desktop e a dependência do armazenamento seguro:
+
+   ```bash
+   sudo apt-get update
+   sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev libsecret-1-dev
+   ```
+
+3. Verifique o ambiente, habilite o alvo se necessário e confirme o dispositivo:
+
+   ```bash
+   flutter doctor
+   flutter config --enable-linux-desktop
+   flutter devices
+   ```
+
+4. Na raiz do repositório:
+
+   ```bash
+   cd Projeto_DevSisMob/mobile
+   flutter pub get
+   flutter run -d linux
+   ```
+
+Para passar uma API explícita no shell Linux:
+
+```bash
+flutter run -d linux \
+  --dart-define=API_BASE_URL=http://localhost:3000/api
+```
+
+### Windows
+
+1. Instale o Flutter SDK e configure o `PATH`.
+2. Instale o **Visual Studio** (não apenas Visual Studio Code), incluindo a
+   carga de trabalho **Desktop development with C++**, ferramentas C++,
+   CMake e um Windows SDK compatível com o Flutter.
+3. No PowerShell, confira e habilite o destino:
+
+   ```powershell
+   flutter doctor
+   flutter config --enable-windows-desktop
+   flutter devices
+   ```
+
+4. Da raiz do repositório, instale dependências e execute:
+
+   ```powershell
+   cd Projeto_DevSisMob\mobile
+   flutter pub get
+   flutter run -d windows
+   ```
+
+Para apontar para backend local:
+
+```powershell
+flutter run -d windows --dart-define="API_BASE_URL=http://localhost:3000/api"
+```
+
+Para usar produção, substitua o endereço por uma URL HTTPS real:
+
+```powershell
+flutter run -d windows --dart-define="API_BASE_URL=https://SEU-DOMINIO.vercel.app/api"
+```
+
+### Comparação dos alvos
+
+| Sistema | Ferramentas principais | Execução | Observações |
+|---|---|---|---|
+| Linux | Flutter, clang, CMake, Ninja, GTK 3, `libsecret-1-dev` e ambiente gráfico. | `flutter run -d linux` | SQLite usa FFI. `flutter_secure_storage` requer suporte do sistema/Secret Service. |
+| Windows | Flutter e Visual Studio com **Desktop development with C++**, CMake e Windows SDK. | `flutter run -d windows` | Não requer Android Studio para execução Desktop. |
+
+`flutter run` compila e inicia uma versão de desenvolvimento para depuração; não
+gera um instalador distribuível. Para criar artefatos release, os alvos
+configurados aceitam `flutter build linux --release` e
+`flutter build windows --release`.
+
+Os plugins de câmera/leitura QR (`mobile_scanner`) e seleção de imagem
+(`image_picker`) não aparecem nos registradores gerados de Linux/Windows.
+Consequentemente, não conte com câmera/QR ou seleção de fotos nesses alvos.
+Também há diferenças entre listas de plugins Desktop geradas por plataforma;
+valide compartilhamento, conectividade e armazenamento seguro no sistema em
+que o app será usado.
+
+## Testes e solução de problemas
+
+### Comandos de validação
+
+Execute a partir da raiz do repositório, salvo indicação:
+
+```bash
+# Backend: testes Node.js
+cd Projeto_DevSisWeb/backend
+npm install
+npm test
+
+# Web: build de produção (o package.json não define script de teste Web)
+cd ../web
+npm install
+npm run build
+
+# Mobile Flutter
+cd ../../Projeto_DevSisMob/mobile
+flutter pub get
+flutter analyze
+flutter test
+```
+
+O build Web verifica TypeScript e gera o bundle Vite. Os testes Flutter usam
+clientes simulados em vários casos; não substituem teste ponta a ponta com API
+e PostgreSQL reais. O backend também requer variáveis e conexão configuradas
+para operações que dependem do banco.
+
+Para conferir Docker e uma rota de API local:
+
+```bash
+cd Projeto_DevSisWeb
+docker compose ps
+curl -i http://localhost:3000/api/systems
+```
+
+### Problemas comuns
+
+| Sintoma | Causa provável | Verificação/solução |
+|---|---|---|
+| Compose informa que `backend/.env` não existe. | O `docker-compose.yml` declara esse arquivo como `env_file`; não há `.env.example` fornecido. | Crie `backend/.env` localmente com as variáveis necessárias; não coloque credenciais no Git. |
+| Backend não inicia ou migrations falham com configuração incompleta. | `DATABASE_URL` não foi definida e faltam uma ou mais variáveis `DB_*`, ou o banco não está acessível. | Confira a URL/host, rede, usuário, senha e SSL aplicável; execute `npm run migrate` com o ambiente correto. |
+| Cadastro/login falham ao assinar token. | `JWT_SECRET` ausente ou diferente entre instâncias/deploys. | Configure um segredo consistente no ambiente do backend; não o inclua no Web/Mobile. |
+| Web não alcança a API. | `VITE_API_URL` aponta para o host/porta errados, ou o frontend foi compilado antes da mudança. | Em desenvolvimento confirme `http://localhost:3000`; em produção confirme HTTPS, domínio e novo build. |
+| Flutter no Android tenta acessar o próprio emulador. | `localhost` não representa o computador hospedeiro no Android Emulator. | Use `--dart-define=API_BASE_URL=http://10.0.2.2:3000/api`. Para aparelho físico use o IP LAN do computador. |
+| `/api/systems` retorna erro apesar de o servidor responder. | Banco desconectado, migrations ausentes ou tabela de sistemas não disponível. | Verifique logs do backend, conexão PostgreSQL e `npm run migrate`. |
+| Endpoint administrativo responde `401` ou `403`. | Token ausente/inválido, conta inativa ou permissão não concedida. | Valide a sessão e, para provisionamento inicial, use `admin:bootstrap`; consulte `/api/admin/me`. |
+| Flutter Desktop não compila/inicia. | Ferramentas Desktop ausentes, target desabilitado ou integração nativa do sistema indisponível. | Execute `flutter doctor`; no Linux instale as dependências listadas, e no Windows confira a carga C++ do Visual Studio. |
+| Câmera/QR ou seleção de imagem não funciona no Desktop. | `mobile_scanner`/`image_picker` não têm plugin registrado nesses alvos. | Use Android/iOS ou Web compatível para esses recursos; a aplicação Desktop não inclui essas implementações. |
+| Registros Mobile offline continuam pendentes depois de reconectar. | O worker da Outbox ainda não é iniciado automaticamente. | A operação local está preservada, mas o envio automático não está implementado/integrado nesta versão. |
+
+## O que precisa de confirmação externa
+
+- O código aceita PostgreSQL via `DATABASE_URL`, mas não comprova que o banco em
+  produção seja Neon. Confirme no painel do provedor o host, TLS, backups e
+  políticas de acesso; não copie a URL para documentação pública.
+- Os arquivos Vercel descrevem mais de um arranjo possível (serviços em
+  `vercel.json` da raiz e configurações individuais dos subprojetos). O
+  repositório não revela quais projetos, Root Directories, domínios, variáveis
+  ou gatilhos de deploy estão efetivamente configurados na conta Vercel.
+- Não há `.env.example` versionado nem configuração de domínio de produção
+  comprovada. Use o painel do deploy para verificar os valores e ambientes
+  configurados, sem publicá-los.
+- O processador da Outbox existe, mas o ciclo automático de envio e retomada
+  após reconexão ainda precisa ser integrado e testado.
+- Os plugins Desktop gerados não incluem todos os plugins Mobile. Confirme
+  individualmente qualquer funcionalidade nativa que se pretenda disponibilizar
+  em Linux ou Windows.
+
