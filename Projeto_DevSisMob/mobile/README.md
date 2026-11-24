@@ -14,10 +14,11 @@ flutter run -d linux
 
 The default API URL is `http://localhost:3000/api` on desktop and web. Android
 emulators use `http://10.0.2.2:3000/api`. Override it for a device or deployed
-backend with `--dart-define=API_BASE_URL=https://host.example/api`. For a
-physical Android device, use the development machine's LAN address and ensure
-the backend is reachable on the network. Cleartext HTTP is allowed only in
-Android debug builds; use HTTPS for release builds.
+backend with `--dart-define=API_BASE_URL=https://host.example`; the client
+normalizes the URL to include exactly one `/api` suffix. For a physical Android
+device, use the development machine's LAN address and ensure the backend is
+reachable on the network. Cleartext HTTP is allowed only in Android debug
+builds; use HTTPS for release builds.
 
 The Linux secure-storage plugin requires the system package `libsecret-1-dev`.
 Android builds require an installed Android SDK.
@@ -126,11 +127,12 @@ workspace.
 ### Persistência local
 
 O aplicativo usa `shared_preferences` para snapshots JSON pequenos das
-consultas de jogo que precisam estar disponíveis sem conexão. SharedPreferences
-é adequado ao escopo limitado do cache e às preferências simples; não é um
-banco relacional, não substitui o PostgreSQL e não é usado para credenciais.
-O conjunto de registros por chave de cache tem limite de 512 KiB. O JWT fica
-em `flutter_secure_storage`.
+consultas de jogo que precisam estar disponíveis sem conexão. Notas e missões
+de contas autenticadas usam SQLite como armazenamento local; no modo visitante,
+continuam em `shared_preferences` e não criam operações autenticadas na Outbox.
+SharedPreferences não é um banco relacional, não substitui o PostgreSQL e não é
+usado para credenciais. O conjunto de registros por chave de cache tem limite
+de 512 KiB. O JWT fica em `flutter_secure_storage`.
 
 O cache de consultas fica separado por ID do usuário, workspace (`player` ou
 `master`) e tipo de registro. Cada registro guarda payload JSON, datas,
@@ -139,6 +141,51 @@ confirmados pela API são apresentados como cache remoto. Consultas de
 autenticação, plano, assinatura e administração permanecem remotas.
 `PersonaService` também guarda a preferência de workspace sob uma chave
 específica do usuário; o JWT é mantido separadamente no armazenamento seguro.
+
+### Infraestrutura SQLite
+
+Há uma camada SQLite versionada em `lib/core/database/`, com acesso por
+`LocalRecordDao` e `OutboxDao`. A tabela genérica `local_records` separa
+registros por proprietário, workspace, tipo e ID; a Outbox registra operações
+pendentes no mesmo escopo. A versão 3 do esquema inclui a tabela da Outbox.
+Notas e missões autenticadas tentam primeiro a API; quando há falha de
+transporte, a consulta usa SQLite e as escritas alteram o registro e a Outbox
+atomicamente. Edições pendentes são consolidadas; excluir um CREATE ainda não
+enviado remove o registro e cancela a operação. Uma resposta remota confirmada
+atualiza o SQLite sem enfileirar uma operação já realizada no servidor.
+
+Esta etapa não processa nem envia operações da Outbox. Pastas e campanhas
+continuam usando seus fluxos atuais. Em particular,
+`NotesMissionsScreen._load()` aguarda notas, missões, pastas e campanhas em
+conjunto; se pastas ou campanhas não puderem ser carregadas, a tela inteira
+mostra erro mesmo que notas e missões estejam disponíveis em SQLite. Android
+usa `sqflite`; Linux e Windows usam a implementação FFI. iOS e macOS usam o
+plugin nativo. O alvo Web continua compilando, mas não oferece SQLite nesta
+infraestrutura; nele, notas e missões preservam o cache online existente, mas
+não podem enfileirar escritas offline nesta etapa.
+
+### Persistência de login
+
+Após login ou validação bem-sucedida, o app salva somente o perfil mínimo
+(ID, nome, username e e-mail) em `LocalSessionService`, separado do JWT. Na
+inicialização, o JWT continua sendo lido exclusivamente de
+`flutter_secure_storage`; o perfil local permite abrir a interface e consultar
+os snapshots do mesmo usuário/workspace se a API estiver indisponível. Esse
+estado é identificado pelo ícone de nuvem riscada na barra superior e não é
+considerado autenticação validada pelo servidor.
+
+Uma resposta HTTP 401 remove o JWT e o perfil local e pede novo login. Falhas
+de transporte e respostas HTTP 5xx preservam ambos e a validação é tentada
+quando a conexão retorna, além de novas tentativas enquanto a API estiver
+indisponível. A persona continua armazenada separadamente por ID do usuário.
+Logout remove o JWT e o perfil de sessão, sem apagar os snapshots isolados da
+conta.
+
+No Android, as regras de backup excluem somente o arquivo de preferências
+`FlutterSecureStorage` do backup em nuvem e da transferência entre dispositivos.
+Isso evita restaurar o texto cifrado sem a chave do Android Keystore, preservando
+o backup dos demais dados. Após restaurar o app em outro dispositivo, o usuário
+precisará entrar novamente; reiniciar o mesmo dispositivo não é afetado.
 
 ### Arquitetura e fluxo
 
@@ -200,6 +247,10 @@ apresentada como sucesso. Não há fila de sincronização de escritas.
   origem/aviso dos dados.
 - `lib/services/local_storage.dart`: snapshots e metadados em
   SharedPreferences, com isolamento por usuário/workspace e limite.
+- `lib/services/local_session_service.dart`: perfil não secreto para retomar a
+  identidade local, sem guardar o JWT.
+- `android/app/src/main/res/xml/`: regras que excluem somente o arquivo de
+  preferências do armazenamento seguro dos backups Android.
 - `lib/widgets/local_cache_indicator.dart`: indicador reutilizável de dados
   locais.
 - `lib/screens/`: estados de carregamento, erro, vazio e dados em cache nas
@@ -209,13 +260,22 @@ apresentada como sucesso. Não há fila de sincronização de escritas.
 
 ### Limitações conhecidas
 
-- A sessão ainda é validada por `/auth/me` na inicialização; iniciar o app sem
-  internet não restaura a sessão offline.
-- Os snapshots são limitados a 512 KiB e não oferecem consultas relacionais,
-  criptografia própria nem migração de dados do antigo SQLite.
-- Não existe fila de alterações offline; uma escrita sem conexão não é salva
-  no servidor e precisa ser repetida pelo usuário.
+- O perfil local é apenas uma identidade para acesso offline aos dados
+  armazenados. Operações remotas continuam dependendo de validação online do
+  JWT; autenticação não é simulada quando a API está indisponível.
+- Os snapshots ainda usados por outras consultas são limitados a 512 KiB e não
+  oferecem consultas relacionais nem criptografia própria.
+- O SQLite mantém o UUID em `record_id` e pode associar a ele o ID numérico do
+  servidor em `remote_id`. A persistência oferece uma conclusão transacional de
+  CREATE que grava essa associação no registro e nas operações posteriores. O
+  worker ainda não existe; a Outbox de notas e missões permanece local até uma
+  etapa futura de sincronização.
+- A tela de notas/missões também depende de pastas e campanhas, que não estão
+  disponíveis offline sem snapshots locais utilizáveis.
 - Dados locais podem ficar desatualizados até uma consulta remota bem-sucedida.
+- A restauração após reinicialização física do aparelho e o comportamento de
+  backup Android precisam de validação em dispositivo real; os testes
+  automatizados cobrem recriação da aplicação e regras de sessão.
 
 ## Validation
 

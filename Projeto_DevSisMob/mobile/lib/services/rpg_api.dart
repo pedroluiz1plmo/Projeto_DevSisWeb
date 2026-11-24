@@ -1,5 +1,11 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import '../core/api_client.dart';
+import '../core/database/daos/local_record_dao.dart';
+import '../core/database/daos/outbox_dao.dart';
+import '../core/database/database_helper.dart';
 import '../models/models.dart';
+import '../models/outbox_operation.dart';
 import 'local_storage.dart';
 
 enum RpgDataSource { server, localCache }
@@ -34,10 +40,18 @@ class RpgApi {
   RpgApi(
     this.client, {
     LocalStorageService? localStorage,
-  }) : _localStorage = localStorage ?? LocalStorageService.instance;
+    LocalDatabase? localDatabase,
+  })  : _localStorage = localStorage ?? LocalStorageService.instance,
+        _localDatabase = localDatabase ?? LocalDatabase.instance {
+    _localRecords = LocalRecordDao(_localDatabase);
+    _outbox = OutboxDao(_localDatabase);
+  }
 
   final ApiClient client;
   final LocalStorageService _localStorage;
+  final LocalDatabase _localDatabase;
+  late final LocalRecordDao _localRecords;
+  late final OutboxDao _outbox;
 
   String? _cacheOwnerId;
   bool isGuestMode = false;
@@ -104,8 +118,10 @@ class RpgApi {
     return user;
   }
 
-  Future<AppUser> currentUser() async {
-    final data = await client.get('/auth/me');
+  Future<AppUser> currentUser({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final data = await client.get('/auth/me', timeout: timeout);
     return _modelField(data, 'user', AppUser.fromJson);
   }
 
@@ -1709,12 +1725,23 @@ class RpgApi {
         parse: (response) => _items(response, 'notes', RpgNote.fromJson),
       );
     }
-    return _cachedList(
+    if (kIsWeb) {
+      return _cachedList(
+        kind: 'notes',
+        key: 'notes',
+        request: () => client.get('/notes'),
+        parse: (response) => _items(response, 'notes', RpgNote.fromJson),
+        serialize: (note) => note.toJson(),
+      );
+    }
+    return _cachedEntityList(
       kind: 'notes',
       key: 'notes',
       request: () => client.get('/notes'),
       parse: (response) => _items(response, 'notes', RpgNote.fromJson),
       serialize: (note) => note.toJson(),
+      idOf: (note) => note.id,
+      clientIdOf: (note) => note.clientId,
     );
   }
 
@@ -1747,19 +1774,59 @@ class RpgApi {
       );
       return note;
     }
+    if (id != null && await _hasPendingCreate('notes', id)) {
+      return _saveOfflineNote(
+        id: id,
+        title: title,
+        content: content,
+        folderId: folderId,
+        campaignId: campaignId,
+      );
+    }
+    final remoteId = id == null
+        ? null
+        : kIsWeb
+            ? id
+            : await _requireRemoteId('notes', id);
+    final clientId = id == null ? OutboxOperation.generateUuidV4() : null;
     final payload = {
+      if (clientId != null) 'clientId': clientId,
       'title': title,
       'content': content,
       'folderId': folderId,
       'campaignId': campaignId,
     };
-    final response = id == null
-        ? await client.post('/notes', payload)
-        : await client.put('/notes/$id', payload);
-    final note = _modelField(response, 'note', RpgNote.fromJson);
-    await _cacheConfirmedWrite('notes', note.toJson());
-    await _cacheConfirmedWrite('note:${note.id}', note.toJson());
-    return note;
+    try {
+      final response = remoteId == null
+          ? await client.post('/notes', payload)
+          : await client.put('/notes/$remoteId', payload);
+      final serverNote = _modelField(response, 'note', RpgNote.fromJson);
+      final preserveLocalId = !kIsWeb && id != null && _isLocalUuid(id);
+      final note = preserveLocalId ? _noteWithId(serverNote, id) : serverNote;
+      if (kIsWeb) {
+        await _cacheConfirmedWrite('notes', note.toJson());
+        await _cacheConfirmedWrite('note:${note.id}', note.toJson());
+      } else {
+        await _clearUnsettledOperations('notes', note.id);
+        await _saveConfirmedRecord(
+          'notes',
+          note.id,
+          note.toJson(),
+          remoteId: preserveLocalId ? serverNote.id : null,
+        );
+      }
+      return note;
+    } on NetworkUnavailableException {
+      if (kIsWeb) rethrow;
+      return _saveOfflineNote(
+        id: id,
+        clientId: clientId,
+        title: title,
+        content: content,
+        folderId: folderId,
+        campaignId: campaignId,
+      );
+    }
   }
 
   Future<void> deleteNote(String id) async {
@@ -1768,9 +1835,32 @@ class RpgApi {
       await _deleteGuestRecord('note:$id', id);
       return;
     }
-    await client.delete('/notes/$id');
-    await _removeCached('notes', id);
-    await _removeCached('note:$id', id);
+    if (await _hasPendingCreate('notes', id)) {
+      await _deleteOfflineRecord('notes', id);
+      return;
+    }
+    final remoteId = kIsWeb ? id : await _requireRemoteId('notes', id);
+    try {
+      await client.delete('/notes/$remoteId');
+      if (kIsWeb) {
+        await _removeCached('notes', id);
+        await _removeCached('note:$id', id);
+      } else {
+        await _clearUnsettledOperations('notes', id);
+        final scope = _cacheScope;
+        if (scope != null) {
+          await _localRecords.delete(
+            ownerId: scope.ownerId,
+            workspaceType: scope.workspaceType,
+            kind: 'notes',
+            recordId: id,
+          );
+        }
+      }
+    } on NetworkUnavailableException {
+      if (kIsWeb) rethrow;
+      await _deleteOfflineRecord('notes', id);
+    }
   }
 
   Future<List<RpgMission>> missions() {
@@ -1781,12 +1871,23 @@ class RpgApi {
         parse: (response) => _items(response, 'missions', RpgMission.fromJson),
       );
     }
-    return _cachedList(
+    if (kIsWeb) {
+      return _cachedList(
+        kind: 'missions',
+        key: 'missions',
+        request: () => client.get('/missions'),
+        parse: (response) => _items(response, 'missions', RpgMission.fromJson),
+        serialize: (mission) => mission.toJson(),
+      );
+    }
+    return _cachedEntityList(
       kind: 'missions',
       key: 'missions',
       request: () => client.get('/missions'),
       parse: (response) => _items(response, 'missions', RpgMission.fromJson),
       serialize: (mission) => mission.toJson(),
+      idOf: (mission) => mission.id,
+      clientIdOf: (mission) => mission.clientId,
     );
   }
 
@@ -1826,7 +1927,25 @@ class RpgApi {
       );
       return mission;
     }
+    if (id != null && await _hasPendingCreate('missions', id)) {
+      return _saveOfflineMission(
+        id: id,
+        title: title,
+        description: description,
+        reward: reward,
+        status: status,
+        folderId: folderId,
+        campaignId: campaignId,
+      );
+    }
+    final remoteId = id == null
+        ? null
+        : kIsWeb
+            ? id
+            : await _requireRemoteId('missions', id);
+    final clientId = id == null ? OutboxOperation.generateUuidV4() : null;
     final payload = {
+      if (clientId != null) 'clientId': clientId,
       'title': title,
       'description': description,
       'reward': reward,
@@ -1834,13 +1953,41 @@ class RpgApi {
       'folderId': folderId,
       'campaignId': campaignId,
     };
-    final response = id == null
-        ? await client.post('/missions', payload)
-        : await client.put('/missions/$id', payload);
-    final mission = _modelField(response, 'mission', RpgMission.fromJson);
-    await _cacheConfirmedWrite('missions', mission.toJson());
-    await _cacheConfirmedWrite('mission:${mission.id}', mission.toJson());
-    return mission;
+    try {
+      final response = remoteId == null
+          ? await client.post('/missions', payload)
+          : await client.put('/missions/$remoteId', payload);
+      final serverMission =
+          _modelField(response, 'mission', RpgMission.fromJson);
+      final preserveLocalId = !kIsWeb && id != null && _isLocalUuid(id);
+      final mission =
+          preserveLocalId ? _missionWithId(serverMission, id) : serverMission;
+      if (kIsWeb) {
+        await _cacheConfirmedWrite('missions', mission.toJson());
+        await _cacheConfirmedWrite('mission:${mission.id}', mission.toJson());
+      } else {
+        await _clearUnsettledOperations('missions', mission.id);
+        await _saveConfirmedRecord(
+          'missions',
+          mission.id,
+          mission.toJson(),
+          remoteId: preserveLocalId ? serverMission.id : null,
+        );
+      }
+      return mission;
+    } on NetworkUnavailableException {
+      if (kIsWeb) rethrow;
+      return _saveOfflineMission(
+        id: id,
+        clientId: clientId,
+        title: title,
+        description: description,
+        reward: reward,
+        status: status,
+        folderId: folderId,
+        campaignId: campaignId,
+      );
+    }
   }
 
   Future<void> deleteMission(String id) async {
@@ -1849,9 +1996,32 @@ class RpgApi {
       await _deleteGuestRecord('mission:$id', id);
       return;
     }
-    await client.delete('/missions/$id');
-    await _removeCached('missions', id);
-    await _removeCached('mission:$id', id);
+    if (await _hasPendingCreate('missions', id)) {
+      await _deleteOfflineRecord('missions', id);
+      return;
+    }
+    final remoteId = kIsWeb ? id : await _requireRemoteId('missions', id);
+    try {
+      await client.delete('/missions/$remoteId');
+      if (kIsWeb) {
+        await _removeCached('missions', id);
+        await _removeCached('mission:$id', id);
+      } else {
+        await _clearUnsettledOperations('missions', id);
+        final scope = _cacheScope;
+        if (scope != null) {
+          await _localRecords.delete(
+            ownerId: scope.ownerId,
+            workspaceType: scope.workspaceType,
+            kind: 'missions',
+            recordId: id,
+          );
+        }
+      }
+    } on NetworkUnavailableException {
+      if (kIsWeb) rethrow;
+      await _deleteOfflineRecord('missions', id);
+    }
   }
 
   Future<List<T>> _guestList<T>({
@@ -2060,6 +2230,471 @@ class RpgApi {
     }
     return (ownerId: ownerId, workspaceType: workspaceType);
   }
+
+  Future<List<T>> _cachedEntityList<T>({
+    required String kind,
+    required String key,
+    required Future<Map<String, dynamic>> Function() request,
+    required List<T> Function(Map<String, dynamic>) parse,
+    required Map<String, dynamic> Function(T) serialize,
+    required String Function(T) idOf,
+    required String Function(T) clientIdOf,
+  }) async {
+    _clearReadSource(kind);
+    late final Map<String, dynamic> response;
+    try {
+      response = await request();
+    } on NetworkUnavailableException {
+      final scope = _cacheScope;
+      if (scope == null) {
+        throw const OfflineDataUnavailableException(
+          'O servidor está indisponível e não há uma sessão e workspace válidos para consultar os registros locais.',
+        );
+      }
+      final cached = await _localRecords.findAll(
+        ownerId: scope.ownerId,
+        workspaceType: scope.workspaceType,
+        kind: kind,
+      );
+      _setReadSource(kind, RpgDataSource.localCache);
+      return parse({key: cached.map((record) => record.payload).toList()});
+    }
+
+    final serverRecords = parse(response);
+    final scope = _cacheScope;
+    if (scope == null) {
+      _setReadSource(kind, RpgDataSource.server);
+      return serverRecords;
+    }
+
+    final unsettled = await _outbox.findAll(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      statuses: {
+        OutboxOperationStatus.pending,
+        OutboxOperationStatus.processing,
+        OutboxOperationStatus.retryableFailed,
+        OutboxOperationStatus.permanentFailed,
+      },
+    );
+    final operations =
+        unsettled.where((operation) => operation.entityType == kind).toList();
+    final localRecords = await _localRecords.findAll(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      kind: kind,
+    );
+    final localById = {
+      for (final record in localRecords) record.recordId: record,
+    };
+    final preservedIds = <String>{};
+    final deletedIds = <String>{};
+    final pendingCreateClientIds = <String>{};
+    for (final operation in operations) {
+      preservedIds.add(operation.recordId);
+      if (operation.remoteId != null) preservedIds.add(operation.remoteId!);
+      if (operation.operationType == OutboxOperationType.delete) {
+        deletedIds.add(operation.recordId);
+        if (operation.remoteId != null) deletedIds.add(operation.remoteId!);
+      } else if (operation.operationType == OutboxOperationType.create) {
+        final clientId = operation.payload?['clientId'];
+        if (clientId is String && clientId.isNotEmpty) {
+          pendingCreateClientIds.add(clientId);
+        }
+      }
+    }
+
+    final visibleServerRecords = serverRecords.where((record) {
+      final recordId = idOf(record);
+      return !deletedIds.contains(recordId) &&
+          !pendingCreateClientIds.contains(clientIdOf(record));
+    }).toList();
+    final snapshot = visibleServerRecords
+        .map(
+          (record) => _toLocalDatabaseRecord(
+            ownerId: scope.ownerId,
+            workspaceType: scope.workspaceType,
+            kind: kind,
+            recordId: idOf(record),
+            payload: serialize(record),
+          ),
+        )
+        .toList();
+    await _localRecords.replaceSnapshot(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      kind: kind,
+      records: snapshot,
+      preservedRecordIds: preservedIds,
+    );
+
+    final localByRemoteId = {
+      for (final record in localRecords)
+        if (record.remoteId != null) record.remoteId!: record,
+    };
+    final merged = <String, T>{};
+    for (final record in visibleServerRecords) {
+      final localIdRecord = _withLocalRecordId(
+        record,
+        localByRemoteId[idOf(record)],
+        key: key,
+        serialize: serialize,
+        parse: parse,
+      );
+      merged[idOf(localIdRecord)] = localIdRecord;
+    }
+    for (final operation in operations) {
+      if (operation.operationType == OutboxOperationType.delete) continue;
+      final local = localById[operation.recordId] ??
+          (operation.remoteId == null ? null : localById[operation.remoteId]);
+      if (local == null) continue;
+      final parsed = parse({
+        key: [local.payload]
+      });
+      if (parsed.isNotEmpty) merged[idOf(parsed.first)] = parsed.first;
+    }
+    _setReadSource(kind, RpgDataSource.server);
+    return merged.values.toList();
+  }
+
+  Future<RpgNote> _saveOfflineNote({
+    String? id,
+    String? clientId,
+    required String title,
+    required String content,
+    String? folderId,
+    String? campaignId,
+  }) async {
+    final scope = _requireLocalScope();
+    final old = id == null
+        ? null
+        : await _localRecords.findById(
+            ownerId: scope.ownerId,
+            workspaceType: scope.workspaceType,
+            kind: 'notes',
+            recordId: id,
+          );
+    if (id != null && old == null) {
+      throw const OfflineDataUnavailableException(
+        'A nota não está salva localmente para edição offline.',
+      );
+    }
+    final recordId = id ?? clientId ?? OutboxOperation.generateUuidV4();
+    final oldPayload = old?.payload;
+    final now = DateTime.now().toUtc().toIso8601String();
+    final note = RpgNote(
+      id: recordId,
+      clientId: oldPayload?['clientId'] is String
+          ? oldPayload!['clientId'] as String
+          : clientId ?? '',
+      title: title,
+      content: content,
+      createdAt: oldPayload?['createdAt'] is String
+          ? oldPayload!['createdAt'] as String
+          : now,
+      folderId: folderId,
+      campaignId: campaignId,
+    );
+    final operation = OutboxOperation.create(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      entityType: 'notes',
+      recordId: recordId,
+      remoteId: old?.remoteId ?? _remoteIdFor(recordId),
+      operationType:
+          id == null ? OutboxOperationType.create : OutboxOperationType.update,
+      payload: {
+        'clientId': note.clientId,
+        'title': note.title,
+        'content': note.content,
+        'folderId': note.folderId,
+        'campaignId': note.campaignId,
+      },
+    );
+    await _localRecords.persistWithOutbox(
+      record: _toLocalDatabaseRecord(
+        ownerId: scope.ownerId,
+        workspaceType: scope.workspaceType,
+        kind: 'notes',
+        recordId: recordId,
+        remoteId: old?.remoteId ?? _remoteIdFor(recordId),
+        payload: note.toJson(),
+      ),
+      operation: operation,
+    );
+    _setReadSource('notes', RpgDataSource.localCache);
+    return note;
+  }
+
+  Future<RpgMission> _saveOfflineMission({
+    String? id,
+    String? clientId,
+    required String title,
+    required String description,
+    required String reward,
+    required String status,
+    String? folderId,
+    String? campaignId,
+  }) async {
+    final scope = _requireLocalScope();
+    final old = id == null
+        ? null
+        : await _localRecords.findById(
+            ownerId: scope.ownerId,
+            workspaceType: scope.workspaceType,
+            kind: 'missions',
+            recordId: id,
+          );
+    if (id != null && old == null) {
+      throw const OfflineDataUnavailableException(
+        'A missão não está salva localmente para edição offline.',
+      );
+    }
+    final recordId = id ?? clientId ?? OutboxOperation.generateUuidV4();
+    final oldPayload = old?.payload;
+    final now = DateTime.now().toUtc().toIso8601String();
+    final mission = RpgMission(
+      id: recordId,
+      clientId: oldPayload?['clientId'] is String
+          ? oldPayload!['clientId'] as String
+          : clientId ?? '',
+      title: title,
+      description: description,
+      reward: reward,
+      status: status,
+      createdAt: oldPayload?['createdAt'] is String
+          ? oldPayload!['createdAt'] as String
+          : now,
+      folderId: folderId,
+      campaignId: campaignId,
+    );
+    final operation = OutboxOperation.create(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      entityType: 'missions',
+      recordId: recordId,
+      remoteId: old?.remoteId ?? _remoteIdFor(recordId),
+      operationType:
+          id == null ? OutboxOperationType.create : OutboxOperationType.update,
+      payload: {
+        'clientId': mission.clientId,
+        'title': mission.title,
+        'description': mission.description,
+        'reward': mission.reward,
+        'status': mission.status,
+        'folderId': mission.folderId,
+        'campaignId': mission.campaignId,
+      },
+    );
+    await _localRecords.persistWithOutbox(
+      record: _toLocalDatabaseRecord(
+        ownerId: scope.ownerId,
+        workspaceType: scope.workspaceType,
+        kind: 'missions',
+        recordId: recordId,
+        remoteId: old?.remoteId ?? _remoteIdFor(recordId),
+        payload: mission.toJson(),
+      ),
+      operation: operation,
+    );
+    _setReadSource('missions', RpgDataSource.localCache);
+    return mission;
+  }
+
+  Future<void> _deleteOfflineRecord(String kind, String id) async {
+    final scope = _requireLocalScope();
+    final record = await _localRecords.findById(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      kind: kind,
+      recordId: id,
+    );
+    if (record == null) {
+      throw OfflineDataUnavailableException(
+        'O registro não está salvo localmente para exclusão offline.',
+      );
+    }
+    final operation = OutboxOperation.create(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      entityType: kind,
+      recordId: id,
+      remoteId: record.remoteId ?? _remoteIdFor(id),
+      operationType: OutboxOperationType.delete,
+      payload: null,
+    );
+    await _localRecords.deleteWithOutbox(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      kind: kind,
+      recordId: id,
+      operation: operation,
+    );
+  }
+
+  Future<bool> _hasPendingCreate(String kind, String id) async {
+    if (kIsWeb) return false;
+    final scope = _cacheScope;
+    if (scope == null) return false;
+    final operations = await _outbox.findAll(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      statuses: {
+        OutboxOperationStatus.pending,
+        OutboxOperationStatus.processing,
+        OutboxOperationStatus.retryableFailed,
+        OutboxOperationStatus.permanentFailed,
+      },
+    );
+    return operations.any(
+      (operation) =>
+          operation.entityType == kind &&
+          operation.recordId == id &&
+          operation.operationType == OutboxOperationType.create,
+    );
+  }
+
+  Future<void> _clearUnsettledOperations(String kind, String id) async {
+    final scope = _cacheScope;
+    if (scope == null) return;
+    final operations = await _outbox.findAll(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      statuses: {
+        OutboxOperationStatus.pending,
+        OutboxOperationStatus.retryableFailed,
+        OutboxOperationStatus.permanentFailed,
+      },
+    );
+    for (final operation in operations.where(
+      (operation) => operation.entityType == kind && operation.recordId == id,
+    )) {
+      await _outbox.deleteOperation(
+        ownerId: scope.ownerId,
+        workspaceType: scope.workspaceType,
+        operationId: operation.operationId,
+        allowedStatuses: {operation.status},
+      );
+    }
+  }
+
+  Future<void> _saveConfirmedRecord(
+      String kind, String id, Map<String, dynamic> payload,
+      {String? remoteId}) async {
+    final scope = _cacheScope;
+    if (scope == null) return;
+    await _localRecords.upsert(
+      _toLocalDatabaseRecord(
+        ownerId: scope.ownerId,
+        workspaceType: scope.workspaceType,
+        kind: kind,
+        recordId: id,
+        remoteId: remoteId,
+        payload: payload,
+      ),
+    );
+  }
+
+  LocalDatabaseRecord _toLocalDatabaseRecord({
+    required String ownerId,
+    required String workspaceType,
+    required String kind,
+    required String recordId,
+    String? remoteId,
+    required Map<String, dynamic> payload,
+  }) {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final createdAt = payload['createdAt'];
+    return LocalDatabaseRecord(
+      ownerId: ownerId,
+      workspaceType: workspaceType,
+      kind: kind,
+      recordId: recordId,
+      remoteId: remoteId,
+      payload: payload,
+      createdAt: createdAt is String ? createdAt : now,
+      updatedAt: now,
+    );
+  }
+
+  ({String ownerId, String workspaceType}) _requireLocalScope() {
+    final scope = _cacheScope;
+    if (scope == null) {
+      throw const OfflineDataUnavailableException(
+        'Não há uma sessão autenticada e workspace válidos para salvar os registros offline.',
+      );
+    }
+    return scope;
+  }
+
+  Future<String> _requireRemoteId(String kind, String id) async {
+    final remoteId = await _resolveRemoteId(kind, id);
+    if (remoteId == null) {
+      throw OfflineDataUnavailableException(
+        'Não há um ID remoto sincronizado para este registro $kind.',
+      );
+    }
+    return remoteId;
+  }
+
+  Future<String?> _resolveRemoteId(String kind, String id) async {
+    final numericId = _remoteIdFor(id);
+    if (numericId != null || !_isLocalUuid(id)) return numericId;
+
+    final scope = _cacheScope;
+    if (scope == null) return null;
+    final record = await _localRecords.findById(
+      ownerId: scope.ownerId,
+      workspaceType: scope.workspaceType,
+      kind: kind,
+      recordId: id,
+    );
+    return record?.remoteId;
+  }
+
+  bool _isLocalUuid(String id) => RegExp(
+        r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+        r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+      ).hasMatch(id);
+
+  RpgNote _noteWithId(RpgNote note, String id) => RpgNote(
+        id: id,
+        clientId: note.clientId,
+        title: note.title,
+        content: note.content,
+        createdAt: note.createdAt,
+        folderId: note.folderId,
+        campaignId: note.campaignId,
+      );
+
+  RpgMission _missionWithId(RpgMission mission, String id) => RpgMission(
+        id: id,
+        clientId: mission.clientId,
+        title: mission.title,
+        description: mission.description,
+        reward: mission.reward,
+        status: mission.status,
+        createdAt: mission.createdAt,
+        folderId: mission.folderId,
+        campaignId: mission.campaignId,
+      );
+
+  T _withLocalRecordId<T>(
+    T record,
+    LocalDatabaseRecord? localRecord, {
+    required String key,
+    required Map<String, dynamic> Function(T) serialize,
+    required List<T> Function(Map<String, dynamic>) parse,
+  }) {
+    if (localRecord == null) return record;
+    final payload = serialize(record)..['id'] = localRecord.recordId;
+    final mappedRecords = parse({
+      key: [payload]
+    });
+    return mappedRecords.isEmpty ? record : mappedRecords.first;
+  }
+
+  String? _remoteIdFor(String id) => RegExp(r'^\d+$').hasMatch(id) ? id : null;
 
   Future<List<T>> _cachedList<T>({
     required String kind,

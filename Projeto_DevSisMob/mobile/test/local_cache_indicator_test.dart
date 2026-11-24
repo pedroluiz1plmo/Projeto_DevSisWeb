@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobile/core/api_client.dart';
+import 'package:mobile/core/database/database_helper.dart';
 import 'package:mobile/models/models.dart';
 import 'package:mobile/screens/campaign_screen.dart';
 import 'package:mobile/screens/character_screen.dart';
@@ -15,19 +17,37 @@ import 'package:mobile/services/local_storage.dart';
 import 'package:mobile/services/rpg_api.dart';
 import 'package:mobile/widgets/local_cache_indicator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   late LocalStorageService storage;
   late _CampaignHttpClient httpClient;
+  late Directory temporaryDirectory;
+  late LocalDatabase database;
   late RpgApi api;
 
+  setUpAll(sqfliteFfiInit);
+
   setUp(() async {
+    temporaryDirectory = await Directory.systemTemp.createTemp('cache-widget-');
+    database = LocalDatabase(
+      databaseFactory: databaseFactoryFfi,
+      databasePath:
+          '${temporaryDirectory.path}${Platform.pathSeparator}test.db',
+    );
     SharedPreferences.setMockInitialValues({});
     storage = LocalStorageService(
       preferences: await SharedPreferences.getInstance(),
     );
     httpClient = _CampaignHttpClient();
-    api = _createApi(httpClient, storage);
+    api = _createApi(httpClient, storage, database);
+  });
+
+  tearDown(() async {
+    await database.close();
+    if (await temporaryDirectory.exists()) {
+      await temporaryDirectory.delete(recursive: true);
+    }
   });
 
   testWidgets('não mostra indicador para dados remotos', (tester) async {
@@ -157,6 +177,7 @@ void main() {
       tester,
       httpClient,
       storage,
+      database,
       preload: (api) async {
         await api.characters();
         await api.systems();
@@ -168,6 +189,7 @@ void main() {
       tester,
       httpClient,
       storage,
+      database,
       preload: (api) async {
         await api.folders();
         await api.characters();
@@ -178,6 +200,7 @@ void main() {
       tester,
       httpClient,
       storage,
+      database,
       preload: (api) async {
         await api.notes();
         await api.missions();
@@ -190,6 +213,7 @@ void main() {
       tester,
       httpClient,
       storage,
+      database,
       preload: (api) async {
         await api.campaigns();
       },
@@ -207,6 +231,7 @@ void main() {
       tester,
       httpClient,
       storage,
+      database,
       preload: (api) async {
         await api.campaignMonsters('4');
         await api.systems();
@@ -259,18 +284,22 @@ void main() {
 Future<void> _expectCachedScreen(
   WidgetTester tester,
   _CampaignHttpClient httpClient,
-  LocalStorageService storage, {
+  LocalStorageService storage,
+  LocalDatabase database, {
   required Future<void> Function(RpgApi api) preload,
   required Widget Function(RpgApi api) screen,
 }) async {
   httpClient.unavailable = false;
-  final api = _createApi(httpClient, storage);
-  await preload(api);
+  final api = _createApi(httpClient, storage, database);
+  await tester.runAsync(() => preload(api));
   httpClient.unavailable = true;
 
   await tester.pumpWidget(MaterialApp(
     home: Scaffold(body: screen(api)),
   ));
+  await tester.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 10)),
+  );
   await tester.pumpAndSettle();
   expect(find.text(api.localCacheNotice), findsOneWidget);
   await tester.pumpWidget(const SizedBox.shrink());
@@ -282,13 +311,21 @@ Widget _indicatorApp(RpgApi api) => MaterialApp(
       ),
     );
 
-RpgApi _createApi(_CampaignHttpClient httpClient, LocalStorageService storage) {
+RpgApi _createApi(
+  _CampaignHttpClient httpClient,
+  LocalStorageService storage,
+  LocalDatabase database,
+) {
   final client = ApiClient(
     httpClient: httpClient,
     tokenStore: _MemoryTokenStore(),
     baseUrl: 'https://example.test/api',
   )..setWorkspaceType('player');
-  final api = RpgApi(client, localStorage: storage)..setCacheOwner('41');
+  final api = RpgApi(
+    client,
+    localStorage: storage,
+    localDatabase: database,
+  )..setCacheOwner('41');
   return api;
 }
 

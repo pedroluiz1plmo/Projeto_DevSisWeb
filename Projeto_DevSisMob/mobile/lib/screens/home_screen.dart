@@ -27,6 +27,7 @@ class HomeScreen extends StatefulWidget {
     required this.onUserUpdated,
     required this.onAccountDeleted,
     this.isGuest = false,
+    this.isOfflineSession = false,
   });
 
   final RpgApi api;
@@ -37,6 +38,7 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<AppUser> onUserUpdated;
   final Future<void> Function() onAccountDeleted;
   final bool isGuest;
+  final bool isOfflineSession;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -101,6 +103,14 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text('${sections[_index]} · ${widget.persona.label}'),
         actions: [
+          if (widget.isOfflineSession)
+            const Tooltip(
+              message: 'Sessão local: ainda não validada pelo servidor.',
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Icon(Icons.cloud_off_outlined),
+              ),
+            ),
           PopupMenuButton<String>(
             tooltip: 'Conta',
             onSelected: (value) async {

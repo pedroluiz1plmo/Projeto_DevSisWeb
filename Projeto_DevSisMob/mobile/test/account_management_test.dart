@@ -32,6 +32,7 @@ void main() {
 
   testWidgets('cadastro duplicado mostra o erro recebido do backend',
       (tester) async {
+    SharedPreferences.setMockInitialValues({});
     final requests = <http.Request>[];
     final api = _api(
       requests,
@@ -57,6 +58,7 @@ void main() {
 
   testWidgets('recuperação valida e-mail e permite redefinir senha',
       (tester) async {
+    SharedPreferences.setMockInitialValues({});
     final requests = <http.Request>[];
     final api = _api(requests);
 
@@ -125,6 +127,7 @@ void main() {
 
   testWidgets('recuperação apresenta falha de conexão sem confirmar envio',
       (tester) async {
+    SharedPreferences.setMockInitialValues({});
     final api = RpgApi(
       ApiClient(
         httpClient: _OfflineHttpClient(),

@@ -43,6 +43,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   connectivity_plus: ^6.1.4
   image_picker: ^1.1.2
+  path_provider: ^2.1.5
+  sqflite: ^2.4.1
+  sqflite_common_ffi: ^2.3.4
+  sqlite3_flutter_libs: ^0.5.40
 
 dev_dependencies:
   flutter_test:

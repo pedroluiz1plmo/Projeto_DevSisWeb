@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'core/api_client.dart';
 import 'models/models.dart';
@@ -10,6 +11,7 @@ import 'screens/home_screen.dart';
 import 'screens/persona_selection_screen.dart';
 import 'services/connection_service.dart';
 import 'services/guest_session_service.dart';
+import 'services/local_session_service.dart';
 import 'services/persona_service.dart';
 import 'services/rpg_api.dart';
 import 'widgets/connection_status_widget.dart';
@@ -23,12 +25,14 @@ class RpgManagerApp extends StatefulWidget {
     this.personaService,
     this.connectionService,
     this.guestSessionService,
+    this.localSessionService,
   });
 
   final RpgApi? api;
   final PersonaService? personaService;
   final ConnectionService? connectionService;
   final GuestSessionService? guestSessionService;
+  final LocalSessionService? localSessionService;
 
   @override
   State<RpgManagerApp> createState() => _RpgManagerAppState();
@@ -42,23 +46,40 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
       widget.connectionService ?? ConnectionService(apiClient: _api.client);
   late final GuestSessionService _guestSessionService =
       widget.guestSessionService ?? GuestSessionService();
+  late final LocalSessionService _localSessionService =
+      widget.localSessionService ?? LocalSessionService();
   AppUser? _user;
   UserPersona? _persona;
   bool _isGuest = false;
+  bool _sessionUnvalidated = false;
   bool _loading = true;
   String? _startupError;
   String? _startupNotice;
+  Future<void>? _validationFuture;
+  Timer? _validationRetryTimer;
 
   @override
   void initState() {
     super.initState();
     _api.client.onUnauthorized = _expireSession;
+    _connectionService.status.addListener(_handleConnectionStatusChanged);
     unawaited(_connectionService.start());
-    _restoreSession();
+    _validationRetryTimer =
+        Timer.periodic(_connectionService.probeInterval, (_) {
+      final status = _connectionService.status.value;
+      if (_sessionUnvalidated &&
+          status != ConnectionStatus.offline &&
+          status != ConnectionStatus.checking) {
+        unawaited(_validateSession());
+      }
+    });
+    unawaited(_restoreSession());
   }
 
   @override
   void dispose() {
+    _validationRetryTimer?.cancel();
+    _connectionService.status.removeListener(_handleConnectionStatusChanged);
     unawaited(_connectionService.dispose());
     super.dispose();
   }
@@ -80,29 +101,114 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
 
       await _api.client.restoreToken();
       if (_api.client.token != null) {
-        final user = await _api.currentUser();
-        final persona = await _personaService.loadForUser(user.id);
-        _api.setCacheOwner(user.id);
-        _api.client.setWorkspaceType(persona?.workspaceType);
-        if (!mounted) return;
-        _user = user;
-        _persona = persona;
+        try {
+          final localUser = await _localSessionService.loadUser();
+          if (localUser != null) {
+            final persona = await _personaService.loadForUser(localUser.id);
+            _setSessionContext(localUser, persona);
+            _user = localUser;
+            _persona = persona;
+            _sessionUnvalidated = true;
+          }
+        } on LocalSessionException catch (error) {
+          _startupError = error.message;
+        }
+        await _validateSession();
       }
     } on ApiException catch (error) {
       _startupError = error.message;
+    } on PlatformException catch (error) {
+      _startupError =
+          'Não foi possível restaurar a sessão segura (${error.code}). Entre novamente.';
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  void _handleConnectionStatusChanged() {
+    final status = _connectionService.status.value;
+    if (status == ConnectionStatus.online ||
+        status == ConnectionStatus.reconnected) {
+      unawaited(_validateSession());
+    }
+  }
+
+  Future<void> _validateSession() {
+    if (_isGuest || _api.client.token == null) {
+      return Future<void>.value();
+    }
+    return _validationFuture ??= _performSessionValidation().whenComplete(() {
+      _validationFuture = null;
+    });
+  }
+
+  Future<void> _performSessionValidation() async {
+    final token = _api.client.token;
+    if (token == null) return;
+    try {
+      final user = await _api.currentUser();
+      if (!mounted || _api.client.token != token) return;
+      final persona = user.id == _user?.id
+          ? _persona
+          : await _personaService.loadForUser(user.id);
+      if (!mounted || _api.client.token != token) return;
+      _setSessionContext(user, persona);
+      _user = user;
+      _persona = persona;
+      _isGuest = false;
+      _sessionUnvalidated = false;
+      _startupError = null;
+      try {
+        await _localSessionService.saveUser(user);
+        _startupNotice = null;
+      } on LocalSessionException catch (error) {
+        _startupNotice =
+            'Sessão validada, mas não foi possível salvar a restauração local: ${error.message}';
+      }
+      if (mounted) setState(() {});
+    } on ApiException catch (error) {
+      if (error.statusCode == 401) return;
+      _keepLocalSessionAfterValidationFailure(error.message);
+    } on FormatException catch (error) {
+      _keepLocalSessionAfterValidationFailure(error.message);
+    }
+  }
+
+  void _keepLocalSessionAfterValidationFailure(String message) {
+    if (_user == null) {
+      _startupError = message;
+    } else {
+      _sessionUnvalidated = true;
+      _startupNotice = 'Sessão local: aguardando validação do servidor.';
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _setSessionContext(AppUser user, UserPersona? persona) {
+    _api.setCacheOwner(user.id);
+    _api.client.setWorkspaceType(persona?.workspaceType);
+  }
+
   void _expireSession() {
+    unawaited(_clearLocalSession());
     if (mounted) {
       setState(() {
         _user = null;
         _persona = null;
+        _sessionUnvalidated = false;
+        _startupError = null;
+        _startupNotice = 'Sua sessão expirou ou foi revogada. Entre novamente.';
       });
       _api.setCacheOwner(null);
       _api.client.setWorkspaceType(null);
+    }
+  }
+
+  Future<void> _clearLocalSession() async {
+    try {
+      await _localSessionService.clearUser();
+    } on LocalSessionException catch (error) {
+      if (mounted) setState(() => _startupError = error.message);
     }
   }
 
@@ -110,20 +216,36 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
     await _guestSessionService.setActive(false);
     _api.setGuestMode(false);
     final persona = await _personaService.loadForUser(user.id);
-    _api.setCacheOwner(user.id);
-    _api.client.setWorkspaceType(persona?.workspaceType);
+    _setSessionContext(user, persona);
+    String? persistenceNotice;
+    try {
+      await _localSessionService.saveUser(user);
+    } on LocalSessionException catch (error) {
+      persistenceNotice =
+          'Login realizado, mas a restauração local falhou: ${error.message}';
+    }
     if (!mounted) return;
     setState(() {
       _user = user;
       _persona = persona;
       _isGuest = false;
+      _sessionUnvalidated = false;
       _startupError = null;
-      _startupNotice = null;
+      _startupNotice = persistenceNotice;
     });
   }
 
   void _onUserUpdated(AppUser user) {
     setState(() => _user = user);
+    unawaited(_persistUpdatedUser(user));
+  }
+
+  Future<void> _persistUpdatedUser(AppUser user) async {
+    try {
+      await _localSessionService.saveUser(user);
+    } on LocalSessionException catch (error) {
+      if (mounted) setState(() => _startupNotice = error.message);
+    }
   }
 
   Future<void> _onAccountDeleted() async {
@@ -134,6 +256,11 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
     } on Exception {
       cleanupError =
           'A conta foi excluída, mas não foi possível limpar o token local.';
+    }
+    try {
+      await _localSessionService.clearUser();
+    } on LocalSessionException catch (error) {
+      cleanupError = error.message;
     }
 
     _api.setCacheOwner(null);
@@ -157,6 +284,7 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
       setState(() {
         _user = null;
         _persona = null;
+        _sessionUnvalidated = false;
         _startupError = cleanupError;
         _startupNotice = 'Sua conta foi excluída com sucesso.';
       });
@@ -180,12 +308,14 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
       _api.setGuestMode(true);
       _api.setCacheOwner(guestId);
       _api.client.setWorkspaceType(null);
+      await _localSessionService.clearUser();
       final persona = await _personaService.loadForUser(guestId);
       if (!mounted) return;
       setState(() {
         _user = _guestUser(guestId);
         _persona = persona;
         _isGuest = true;
+        _sessionUnvalidated = false;
         _startupError = null;
         _startupNotice = null;
       });
@@ -215,6 +345,7 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
           _user = null;
           _persona = null;
           _isGuest = false;
+          _sessionUnvalidated = false;
         });
       }
       return;
@@ -225,6 +356,12 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
     } catch (_) {
       await _api.client.setToken(null);
     } finally {
+      String? cleanupError;
+      try {
+        await _localSessionService.clearUser();
+      } on LocalSessionException catch (error) {
+        cleanupError = error.message;
+      }
       if (mounted) {
         _api.setCacheOwner(null);
         _api.client.setWorkspaceType(null);
@@ -232,6 +369,9 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
           _user = null;
           _persona = null;
           _isGuest = false;
+          _sessionUnvalidated = false;
+          _startupError = cleanupError;
+          _startupNotice = null;
           _api.setGuestMode(false);
         });
       }
@@ -309,6 +449,7 @@ class _RpgManagerAppState extends State<RpgManagerApp> {
                         onUserUpdated: _onUserUpdated,
                         onAccountDeleted: _onAccountDeleted,
                         isGuest: _isGuest,
+                        isOfflineSession: _sessionUnvalidated,
                       ),
       );
 }

@@ -10,9 +10,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/main.dart';
 import 'package:mobile/core/api_client.dart';
 import 'package:mobile/services/rpg_api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('exibe login e permite abrir cadastro', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     final api = RpgApi(ApiClient(tokenStore: _MemoryTokenStore()));
     await tester.pumpWidget(RpgManagerApp(api: api));
     await tester.pumpAndSettle();

@@ -49,7 +49,7 @@ class ApiClient {
     String? baseUrl,
   })  : _http = httpClient ?? http.Client(),
         _tokenStore = tokenStore,
-        _baseUrl = (baseUrl ?? _defaultBaseUrl).replaceFirst(RegExp(r'/$'), '');
+        _baseUrl = _normalizeBaseUrl(baseUrl ?? _defaultBaseUrl);
 
   static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
   static String get _defaultBaseUrl {
@@ -57,6 +57,16 @@ class ApiClient {
     return defaultTargetPlatform == TargetPlatform.android
         ? 'http://10.0.2.2:3000/api'
         : 'http://localhost:3000/api';
+  }
+
+  static String _normalizeBaseUrl(String value) {
+    final uri = Uri.parse(value.trim());
+    final path = uri.path.replaceFirst(RegExp(r'/+$'), '');
+    final pathWithoutApiSuffix = path.replaceFirst(RegExp(r'(?:/api)+$'), '');
+    return uri
+        .replace(path: '$pathWithoutApiSuffix/api')
+        .toString()
+        .replaceFirst(RegExp(r'/$'), '');
   }
 
   final http.Client _http;
@@ -111,7 +121,11 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> get(String path) => _request('GET', path);
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Duration timeout = const Duration(seconds: 20),
+  }) =>
+      _request('GET', path, timeout: timeout);
 
   Future<Map<String, dynamic>> post(
     String path, [
@@ -177,11 +191,30 @@ class ApiClient {
   ]) =>
       _request('DELETE', path, body: body);
 
+  Future<Map<String, dynamic>> deleteInWorkspace(
+    String path, {
+    required String workspaceType,
+  }) {
+    if (workspaceType != 'player' && workspaceType != 'master') {
+      throw ArgumentError.value(
+        workspaceType,
+        'workspaceType',
+        'Workspace must be player or master.',
+      );
+    }
+    return _request(
+      'DELETE',
+      path,
+      workspaceType: workspaceType,
+    );
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
     Map<String, dynamic>? body,
     String? workspaceType,
+    Duration timeout = const Duration(seconds: 20),
   }) async {
     final headers = <String, String>{'Accept': 'application/json'};
     final requestWorkspace = workspaceType ?? this.workspaceType;
@@ -204,8 +237,8 @@ class ApiClient {
         ..headers.addAll(headers);
       if (body != null) request.body = jsonEncode(body);
       response = await http.Response.fromStream(
-        await _http.send(request).timeout(const Duration(seconds: 20)),
-      ).timeout(const Duration(seconds: 20));
+        await _http.send(request).timeout(timeout),
+      ).timeout(timeout);
     } on http.ClientException {
       onApiUnavailable?.call();
       throw NetworkUnavailableException(
@@ -248,10 +281,13 @@ class ApiClient {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      final errorMessage = response.statusCode == 404
+          ? _responseMessage(decoded) ??
+              _errorMessage(response.statusCode, hadToken: hadToken)
+          : _errorMessage(response.statusCode, hadToken: hadToken) ??
+              _responseMessage(decoded);
       throw ApiException(
-        _errorMessage(response.statusCode, hadToken: hadToken) ??
-            _responseMessage(decoded) ??
-            'Não foi possível concluir a solicitação.',
+        errorMessage ?? 'Não foi possível concluir a solicitação.',
         statusCode: response.statusCode,
       );
     }
@@ -286,7 +322,7 @@ class ApiClient {
     }
     if (statusCode == 403) return null;
     if (statusCode == 404) {
-      return 'O registro solicitado não foi encontrado.';
+      return 'A rota ou o recurso solicitado não foi encontrado na API.';
     }
     if (statusCode >= 500) {
       return 'O servidor está temporariamente indisponível.';

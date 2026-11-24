@@ -7,6 +7,38 @@ import 'package:mobile/core/api_client.dart';
 import 'package:mobile/services/rpg_api.dart';
 
 void main() {
+  test('restores a previously persisted JWT into the API client', () async {
+    final store = _MemoryTokenStore()..token = 'saved-token';
+    final client = ApiClient(tokenStore: store);
+
+    await client.restoreToken();
+
+    expect(client.token, 'saved-token');
+    expect(store.token, 'saved-token');
+  });
+
+  test('normalizes API base URLs to exactly one /api prefix', () async {
+    for (final baseUrl in [
+      'https://example.test',
+      'https://example.test/api/',
+      'https://example.test/api/api',
+    ]) {
+      http.BaseRequest? captured;
+      final client = ApiClient(
+        httpClient: _FakeHttpClient((request) {
+          captured = request;
+          return http.Response('{}', 200);
+        }),
+        tokenStore: _MemoryTokenStore(),
+        baseUrl: baseUrl,
+      );
+
+      await client.post('/auth/login', {'identifier': 'dora'});
+
+      expect(captured?.url.path, '/api/auth/login');
+    }
+  });
+
   test('internet probe rejects non-204 captive portal responses', () async {
     http.BaseRequest? captured;
     final client = ApiClient(
@@ -326,6 +358,76 @@ void main() {
               (error) => error.message,
               'message',
               'O servidor está temporariamente indisponível.',
+            ),
+      ),
+    );
+  });
+
+  test('preserva mensagens de rota 404 no login e no envio de chamado',
+      () async {
+    final requests = <http.BaseRequest>[];
+    final api = RpgApi(
+      ApiClient(
+        httpClient: _FakeHttpClient((request) {
+          requests.add(request);
+          return http.Response(
+            jsonEncode({
+              'success': false,
+              'message': 'Rota não encontrada.',
+            }),
+            404,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+        tokenStore: _MemoryTokenStore(),
+        baseUrl: 'https://example.test/api',
+      ),
+    );
+
+    final expectedError = isA<ApiException>()
+        .having((error) => error.statusCode, 'statusCode', 404)
+        .having(
+          (error) => error.message,
+          'message',
+          'Rota não encontrada.',
+        );
+    await expectLater(
+      api.login('dora', 'password123'),
+      throwsA(expectedError),
+    );
+    await expectLater(
+      api.submitSupportTicket(
+        name: 'Dora',
+        email: 'dora@example.test',
+        category: 'Problema técnico',
+        subject: 'Erro no aplicativo',
+        description: 'Não consigo usar o aplicativo.',
+      ),
+      throwsA(expectedError),
+    );
+
+    expect(
+      requests.map((request) => request.url.path),
+      ['/api/auth/login', '/api/support/tickets'],
+    );
+  });
+
+  test('404 sem corpo JSON não é apresentado como registro ausente', () async {
+    final client = ApiClient(
+      httpClient: _FakeHttpClient((_) => http.Response('Not Found', 404)),
+      tokenStore: _MemoryTokenStore(),
+      baseUrl: 'https://example.test/api',
+    );
+
+    await expectLater(
+      client.post('/auth/login', {'identifier': 'dora'}),
+      throwsA(
+        isA<ApiException>()
+            .having((error) => error.statusCode, 'statusCode', 404)
+            .having(
+              (error) => error.message,
+              'message',
+              'A rota ou o recurso solicitado não foi encontrado na API.',
             ),
       ),
     );

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:mobile/core/api_client.dart';
 import 'package:mobile/main.dart';
 import 'package:mobile/models/user_persona.dart';
+import 'package:mobile/services/local_session_service.dart';
 import 'package:mobile/services/persona_service.dart';
 import 'package:mobile/services/rpg_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,9 +25,14 @@ void main() {
       baseUrl: 'https://rpg.test/api',
     ));
     final personaService = PersonaService();
+    final localSessionService = LocalSessionService();
 
     await tester.pumpWidget(
-      RpgManagerApp(api: api, personaService: personaService),
+      RpgManagerApp(
+        api: api,
+        personaService: personaService,
+        localSessionService: localSessionService,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -45,7 +51,11 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpWidget(
-      RpgManagerApp(api: api, personaService: personaService),
+      RpgManagerApp(
+        api: api,
+        personaService: personaService,
+        localSessionService: localSessionService,
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.text('Campanhas · Mestre'), findsOneWidget);
@@ -55,6 +65,7 @@ void main() {
     await tester.tap(find.text('Sair'));
     await tester.pumpAndSettle();
     expect(tokenStore.token, isNull);
+    expect(await localSessionService.loadUser(), isNull);
     expect(find.text('Entrar na sua conta'), findsOneWidget);
 
     await tester.enterText(find.byType(TextFormField).at(0), 'alice');
