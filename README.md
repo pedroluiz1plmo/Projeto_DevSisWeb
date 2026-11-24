@@ -5,6 +5,9 @@ projeto nasceu como trabalho acadêmico das disciplinas de Laboratório de
 Engenharia de Software, Desenvolvimento de Sistemas Web e Desenvolvimento de
 Sistemas para Dispositivos Móveis, no curso de Ciência da Computação da UNEMAT.
 
+**Profa:** Maricy Caregnato - [ Laboratório de Engenharia de Software]
+**Prof:** Marlon Vinicius da Silva - [Desenvolvimento de Sistemas Web e Desenvolvimento de Sistemas para Dispositivos Móveis]
+
 **Equipe:** Danny A. T. Scholze, Pedro L. M. de Oliveira, Lucas R. de B. Jardim,
 Taíse A. de Miranda e Tássia B. Ferreira.
 
