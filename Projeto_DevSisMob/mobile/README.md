@@ -128,27 +128,19 @@ O fluxo de chamadas é:
 
 ```mermaid
 flowchart LR
-  UI[Telas e widgets] --> RPG[RpgApi]
-  RPG --> CLIENT[ApiClient]
-  CLIENT -->|HTTP(S), JSON, Bearer JWT e workspace| API[Backend REST]
-  API -->|validação, autorização e repositórios| PG[(PostgreSQL)]
-  RPG -->|snapshots e dados locais| LOCAL[SQLite / SharedPreferences]
+    UI[Telas e widgets] --> RPG[RpgApi]
+    RPG --> CLIENT[ApiClient]
+    CLIENT -->|HTTP(S), JSON, Bearer JWT e workspace| API[Backend REST]
+    API -->|Validação, autorização e repositórios| PG[(PostgreSQL)]
+    RPG -->|Snapshots e dados locais| LOCAL[SQLite / SharedPreferences]
 ```
 
-- `lib/core/api_client.dart` centraliza URL, transporte HTTP, JSON, timeout,
-  token e erros de API.
-- `lib/services/rpg_api.dart` mapeia operações REST para modelos e atualiza os
-  caches após respostas confirmadas.
-- Chamadas autenticadas enviam `Authorization: Bearer <JWT>`. O workspace
-  (`player` ou `master`) é enviado no cabeçalho `X-Workspace-Type` quando
-  necessário.
-- O JWT é guardado em `flutter_secure_storage`; não é armazenado em
-  SharedPreferences. Login/cadastro são rotas públicas.
-- O backend valida a identidade do JWT e aplica autorização e escopo. O cliente
-  não acessa o banco nem define o proprietário remoto no payload.
-- Uma resposta HTTP `401` invalida a sessão local. `403`, `404`, falhas HTTP e
-  falhas de transporte são tratadas separadamente; respostas HTTP não são
-  convertidas em indicação de que a rede está offline.
+- `lib/core/api_client.dart` centraliza a URL da API, o transporte HTTP, a serialização JSON, o timeout, o gerenciamento do token e o tratamento de erros.
+- `lib/services/rpg_api.dart` mapeia as operações REST para os modelos da aplicação e atualiza os caches após respostas confirmadas.
+- As chamadas autenticadas enviam o token JWT no cabeçalho `Authorization: Bearer <JWT>`. Quando necessário, o workspace (`player` ou `master`) é enviado pelo cabeçalho `X-Workspace-Type`.
+- O JWT é armazenado com `flutter_secure_storage`, não em `SharedPreferences`. As rotas de login e cadastro são públicas.
+- O backend valida a identidade do JWT e aplica as regras de autorização e escopo de acesso. O aplicativo não acessa diretamente o banco de dados nem define o proprietário remoto no payload das requisições.
+- Uma resposta HTTP `401` invalida a sessão local. Respostas `403`, `404`, demais falhas HTTP e falhas de transporte são tratadas separadamente. Erros de resposta HTTP não são interpretados automaticamente como falta de conexão com a internet.
 
 ### Recursos e regras de domínio
 
