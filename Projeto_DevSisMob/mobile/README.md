@@ -128,11 +128,11 @@ O fluxo de chamadas é:
 
 ```mermaid
 flowchart LR
-    UI[Telas e widgets] --> RPG[RpgApi]
-    RPG --> CLIENT[ApiClient]
-    CLIENT -->|HTTP(S), JSON, Bearer JWT e workspace| API[Backend REST]
-    API -->|Validação, autorização e repositórios| PG[(PostgreSQL)]
-    RPG -->|Snapshots e dados locais| LOCAL[SQLite / SharedPreferences]
+    UI["Telas e widgets"] --> RPG["RpgApi"]
+    RPG --> CLIENT["ApiClient"]
+    CLIENT -->|"HTTP, JSON, JWT e workspace"| API["Backend REST"]
+    API -->|"Validacao, autorizacao e repositorios"| PG[("PostgreSQL")]
+    RPG -->|"Snapshots e dados locais"| LOCAL["SQLite / SharedPreferences"]
 ```
 
 - `lib/core/api_client.dart` centraliza a URL da API, o transporte HTTP, a serialização JSON, o timeout, o gerenciamento do token e o tratamento de erros.
