@@ -1,4 +1,4 @@
-# RPG HUB - Sistema de Gerenciamento de Fichas de RPG
+# RPG HUB (RPG Manager)- Sistema de Gerenciamento de Fichas de RPG
 
 Projeto desenvolvido para as disciplinas de **Laboratório de Engenharia de Software**,  **Desenvolvimento de Sistemas Web** e **Desenvolvimento de Sistemas para Dispositivos Móveis** do curso de **Bacharelado em Ciências da Computação** da **UNEMAT (Universidade do Estado de Mato Grosso)**.
 
