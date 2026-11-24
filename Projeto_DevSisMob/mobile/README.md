@@ -1,289 +1,447 @@
 # RPG Manager Mobile
 
-Flutter client for the existing RPG Manager REST API. The app does not connect
-directly to PostgreSQL.
+Cliente Flutter do RPG Manager. O aplicativo acessa os recursos remotos pela
+API REST do projeto; **não se conecta diretamente ao PostgreSQL**. Também pode
+armazenar alguns dados localmente para consulta e edição offline, conforme as
+limitações descritas neste documento.
 
-## Run
+> Para arquitetura geral, Docker e configuração do backend, consulte o
+> [README principal](../../README.md).
 
-Start the backend from `backend/`, then run this project from `mobile/`:
+## Índice
 
-```sh
-flutter pub get
-flutter run -d linux
+- [Recursos do aplicativo](#recursos-do-aplicativo)
+- [Requisitos e execução rápida](#requisitos-e-execução-rápida)
+- [Configuração e comunicação com a API](#configuração-e-comunicação-com-a-api)
+- [Execução Desktop no Linux e Windows](#execução-desktop-no-linux-e-windows)
+- [Arquitetura e dados](#arquitetura-e-dados)
+- [Persistência e modo offline](#persistência-e-modo-offline)
+- [Outbox: implementação e estado da sincronização](#outbox-implementação-e-estado-da-sincronização)
+- [Testes](#testes)
+- [Limitações conhecidas](#limitações-conhecidas)
+
+## Recursos do aplicativo
+
+O Mobile oferece fluxos para os workspaces **Jogador** e **Mestre**, conforme
+os recursos e permissões retornados pelo backend:
+
+- Cadastro, login, validação de sessão, modo visitante e escolha de workspace.
+- Campanhas, personagens, pastas, notas e missões.
+- Monstros associados a campanhas no workspace Mestre.
+- Convites, solicitações de participação e entrada em campanha por código/QR.
+- Consulta de sistemas e versões de RPG.
+- Combates de campanha, participantes e gerenciamento manual de iniciativa.
+- Painel administrativo com seções condicionadas às permissões da conta.
+- Cache de consultas, indicador de conectividade e persistência offline
+  específica para notas e missões.
+
+Os formulários e roladores abrangem **D&D 5E**, **Call of Cthulhu 7ª edição** e
+**Vampiro: A Máscara V5**. O rolador da ficha é local e não grava histórico.
+Regras que não estejam estruturadas para o personagem não são calculadas
+automaticamente. A iniciativa é informada manualmente; o app não aplica
+fórmulas específicas de cada sistema.
+
+## Requisitos e execução rápida
+
+- Flutter SDK compatível com a restrição Dart `^3.6.2` do `pubspec.yaml`. O Dart
+  SDK correspondente acompanha o Flutter.
+- Uma API RPG Manager disponível. Para desenvolvimento, inicie também o
+  backend e configure o PostgreSQL/migrations conforme o
+  [README principal](../../README.md).
+- Para Android, Android SDK configurado (normalmente instalado pelo Android
+  Studio). Android Studio não é requisito para executar o app em Linux ou
+  Windows Desktop.
+
+Na raiz do repositório, abra um terminal para o backend e configure o banco:
+
+```bash
+cd Projeto_DevSisWeb/backend
+npm install
+npm run migrate
+npm run dev
 ```
 
-The default API URL is `http://localhost:3000/api` on desktop and web. Android
-emulators use `http://10.0.2.2:3000/api`. Override it for a device or deployed
-backend with `--dart-define=API_BASE_URL=https://host.example`; the client
-normalizes the URL to include exactly one `/api` suffix. For a physical Android
-device, use the development machine's LAN address and ensure the backend is
-reachable on the network. Cleartext HTTP is allowed only in Android debug
-builds; use HTTPS for release builds.
+Em outro terminal, inicie o Flutter. O padrão do cliente no Android Emulator é
+`http://10.0.2.2:3000/api`; em Desktop e demais alvos é
+`http://localhost:3000/api`.
 
-The Linux secure-storage plugin requires the system package `libsecret-1-dev`.
-Android builds require an installed Android SDK.
+```bash
+cd Projeto_DevSisMob/mobile
+flutter doctor
+flutter pub get
+flutter devices
+flutter run
+```
 
-## Notas e missões
+Para escolher explicitamente um dispositivo, use o identificador listado por
+`flutter devices`, por exemplo `flutter run -d linux` ou
+`flutter run -d windows`. A preparação dos alvos Desktop está descrita em
+[Execução Desktop no Linux e Windows](#execução-desktop-no-linux-e-windows).
 
-Notas e missões são sincronizadas pela API no workspace selecionado. Cada
-registro pertence exclusivamente ao usuário autenticado; associá-lo a uma
-campanha não o compartilha com outros participantes. É possível vincular uma
-pasta ou campanha opcionalmente, editar e excluir registros, concluir/reabrir
-missões e compartilhar uma exportação `.txt`.
+## Configuração e comunicação com a API
 
-## Personagens e monstros
+### URL base
 
-Personagens podem ser associados a uma pasta opcional durante a criação ou
-edição. A tela de pastas mostra personagens não arquivados na raiz e os demais
-na pasta correspondente; a tela de personagens também permite filtrar por
-pasta.
+O `ApiClient` lê `API_BASE_URL` em tempo de compilação usando
+`String.fromEnvironment`. A URL é normalizada para terminar em um único `/api`:
 
-Na ficha do personagem, o botão de dados abre um rolador local, que funciona
-sem conexão e não grava histórico. As opções de ficha seguem o comportamento
-implementado no rolador Web: atributos D&D 5E, testes percentuais de Call of
-Cthulhu 7ª edição e parada de atributo de Vampiro: A Máscara V5. Perícias,
-salvaguardas, ataques e combinações de atributo/habilidade não são calculados
-quando os dados da ficha não estão estruturados ou a regra não existe no
-rolador Web.
-
-No workspace Mestre, a seção Monstros lista somente campanhas próprias.
-Monstros ficam vinculados à campanha, exigem uma seleção explícita de sistema e
-versão, e guardam seus dados específicos como JSON. Eles não são compartilhados
-com participantes da campanha.
-
-## Iniciativa e combate
-
-O proprietário de cada campanha no workspace Mestre pode criar combates,
-adicionar personagens já vinculados à campanha ou participantes manuais do tipo
-monstro/NPC, informar iniciativas e definir a ordem. A ordenação decrescente é
-uma ação explícita; empates preservam a ordem manual. Turnos e rodadas são
-persistidos no backend, e combates encerrados permanecem disponíveis como
-histórico. A edição é validada pelo backend e não é enfileirada offline.
-
-Antes do uso, aplique as migrations do backend (`npm run migrate` em
-`backend/`). A lista consultada pode usar o cache local existente quando a rede
-falha; alterações exigem conexão e só são exibidas como salvas após confirmação
-da API. A iniciativa é manual e não aplica fórmulas específicas de sistemas.
-
-## Convites e acesso a campanhas
-
-No workspace Mestre, os detalhes de uma campanha incluem gerenciamento de
-código/QR, convite direcionado por username e aprovação de solicitações
-pendentes. Compartilhar um código ou QR não dá acesso imediato. No workspace
-Jogador, a opção **Entrar em campanha** permite informar ou escanear o código,
-solicitar participação, acompanhar o estado do pedido e aceitar ou recusar
-convites direcionados.
-
-Os convites por username só criam vínculo após o aceite do jogador; solicitações
-por código só criam vínculo após a aprovação do Mestre. Os códigos não são
-persistidos no cache local. O leitor QR usa a câmera do dispositivo e requer
-permissão de câmera. Os dados e decisões são enviados à API e exigem conexão.
-As tabelas correspondentes são criadas pela migration 019 do backend; aplique
-as migrations com `npm run migrate` após configurar o PostgreSQL.
-
-## Painel administrativo Mobile
-
-As seções administrativas exibidas dependem das permissões retornadas pelo
-backend: painel, usuários, planos, sistemas, assinaturas, pagamentos, despesas,
-relatórios, auditoria e configurações. A busca e os filtros usam os parâmetros
-aceitos pela API. Bloqueios, alterações de permissões, cancelamentos e estornos
-exigem confirmação; o servidor impede bloquear ou retirar a última permissão do
-último administrador ativo. As telas administrativas continuam remotas e não
-usam cache offline.
-
-Pagamentos e relatórios mostram registros internos. Não há checkout ou
-confirmação por provedor externo; valores contratados de assinaturas não são
-tratados como receita recebida, e os relatórios não convertem moedas.
-
-## Atividade 4 — persistência e funcionamento online/offline
-
-### Modelo de dados
-
-Os modelos Flutter validam e serializam JSON para usuários, campanhas,
-participantes e personagens vinculados a campanhas, sistemas e versões,
-personagens, monstros, pastas, notas e missões. Personagens e monstros mantêm
-seus campos específicos do sistema em objetos JSON (`data`). Personagens podem
-referenciar uma pasta; monstros pertencem a uma campanha e exigem sistema e
-versão. Notas e missões podem referenciar uma pasta ou campanha.
-
-| Entidade | Dados principais e relações |
+| Alvo | Padrão do cliente |
 |---|---|
-| Usuário | ID, nome, nome de usuário e e-mail |
-| Campanha | Proprietário, nome, descrição e estado ativo |
-| Participante | Usuário e papel na campanha |
-| Sistema / versão | Nome, slug, versão e relação com o sistema |
-| Personagem | Nome, workspace, sistema/versão, dados JSON e pasta opcional |
-| Monstro | Campanha, sistema/versão e dados JSON |
-| Pasta | Nome e pasta-pai opcional |
-| Nota | Título, conteúdo, data e pasta/campanha opcionais |
-| Missão | Título, descrição, recompensa, estado e pasta/campanha opcionais |
+| Android | `http://10.0.2.2:3000/api` |
+| Linux, Windows, iOS, macOS e demais alvos | `http://localhost:3000/api` |
 
-O PostgreSQL do backend é a fonte de verdade para os registros remotos e suas
-relações, chaves estrangeiras, restrições e autorização; `JSONB` permite
-guardar dados específicos de cada sistema de RPG. O aplicativo Flutter não
-acessa o banco diretamente: usa a API REST, que valida a sessão JWT e o
-workspace.
+`localhost` aponta para a máquina onde o processo está executando. No Android
+Emulator, use `10.0.2.2` para alcançar o computador hospedeiro. Em aparelho
+físico, informe o IP da rede local do computador e permita a conexão na rede e
+no firewall. Para produção, informe o domínio HTTPS real da API.
 
-### Persistência local
+Exemplos:
 
-O aplicativo usa `shared_preferences` para snapshots JSON pequenos das
-consultas de jogo que precisam estar disponíveis sem conexão. Notas e missões
-de contas autenticadas usam SQLite como armazenamento local; no modo visitante,
-continuam em `shared_preferences` e não criam operações autenticadas na Outbox.
-SharedPreferences não é um banco relacional, não substitui o PostgreSQL e não é
-usado para credenciais. O conjunto de registros por chave de cache tem limite
-de 512 KiB. O JWT fica em `flutter_secure_storage`.
+```bash
+# Android Emulator com backend local
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000/api
 
-O cache de consultas fica separado por ID do usuário, workspace (`player` ou
-`master`) e tipo de registro. Cada registro guarda payload JSON, datas,
-versão local e estado (`CACHED` ou `LOCAL_ONLY`). Somente resultados
-confirmados pela API são apresentados como cache remoto. Consultas de
-autenticação, plano, assinatura e administração permanecem remotas.
-`PersonaService` também guarda a preferência de workspace sob uma chave
-específica do usuário; o JWT é mantido separadamente no armazenamento seguro.
+# Linux Desktop com backend local
+flutter run -d linux \
+  --dart-define=API_BASE_URL=http://localhost:3000/api
 
-### Infraestrutura SQLite
+# APK release com API pública; substitua pelo domínio real implantado
+flutter build apk --release \
+  --dart-define=API_BASE_URL=https://SEU-DOMINIO.vercel.app/api
+```
 
-Há uma camada SQLite versionada em `lib/core/database/`, com acesso por
-`LocalRecordDao` e `OutboxDao`. A tabela genérica `local_records` separa
-registros por proprietário, workspace, tipo e ID; a Outbox registra operações
-pendentes no mesmo escopo. A versão 3 do esquema inclui a tabela da Outbox.
-Notas e missões autenticadas tentam primeiro a API; quando há falha de
-transporte, a consulta usa SQLite e as escritas alteram o registro e a Outbox
-atomicamente. Edições pendentes são consolidadas; excluir um CREATE ainda não
-enviado remove o registro e cancela a operação. Uma resposta remota confirmada
-atualiza o SQLite sem enfileirar uma operação já realizada no servidor.
+No PowerShell, use:
 
-Esta etapa não processa nem envia operações da Outbox. Pastas e campanhas
-continuam usando seus fluxos atuais. Em particular,
-`NotesMissionsScreen._load()` aguarda notas, missões, pastas e campanhas em
-conjunto; se pastas ou campanhas não puderem ser carregadas, a tela inteira
-mostra erro mesmo que notas e missões estejam disponíveis em SQLite. Android
-usa `sqflite`; Linux e Windows usam a implementação FFI. iOS e macOS usam o
-plugin nativo. O alvo Web continua compilando, mas não oferece SQLite nesta
-infraestrutura; nele, notas e missões preservam o cache online existente, mas
-não podem enfileirar escritas offline nesta etapa.
+```powershell
+flutter run -d windows --dart-define="API_BASE_URL=http://localhost:3000/api"
+flutter run -d windows --dart-define="API_BASE_URL=https://SEU-DOMINIO.vercel.app/api"
+```
 
-### Persistência de login
+O domínio usado no build de release deve ser o domínio efetivo da API, não
+necessariamente o domínio do frontend. O repositório não confirma um domínio
+de produção ativo. No Android, tráfego HTTP sem TLS está habilitado no
+manifesto de **debug**; para releases, use HTTPS.
 
-Após login ou validação bem-sucedida, o app salva somente o perfil mínimo
-(ID, nome, username e e-mail) em `LocalSessionService`, separado do JWT. Na
-inicialização, o JWT continua sendo lido exclusivamente de
-`flutter_secure_storage`; o perfil local permite abrir a interface e consultar
-os snapshots do mesmo usuário/workspace se a API estiver indisponível. Esse
-estado é identificado pelo ícone de nuvem riscada na barra superior e não é
-considerado autenticação validada pelo servidor.
+### Requisições, sessão e autorização
 
-Uma resposta HTTP 401 remove o JWT e o perfil local e pede novo login. Falhas
-de transporte e respostas HTTP 5xx preservam ambos e a validação é tentada
-quando a conexão retorna, além de novas tentativas enquanto a API estiver
-indisponível. A persona continua armazenada separadamente por ID do usuário.
-Logout remove o JWT e o perfil de sessão, sem apagar os snapshots isolados da
-conta.
-
-No Android, as regras de backup excluem somente o arquivo de preferências
-`FlutterSecureStorage` do backup em nuvem e da transferência entre dispositivos.
-Isso evita restaurar o texto cifrado sem a chave do Android Keystore, preservando
-o backup dos demais dados. Após restaurar o app em outro dispositivo, o usuário
-precisará entrar novamente; reiniciar o mesmo dispositivo não é afetado.
-
-### Arquitetura e fluxo
+O fluxo de chamadas é:
 
 ```mermaid
 flowchart LR
-  UI[Telas Flutter] --> API[RpgApi]
-  API --> CLIENT[ApiClient]
-  CLIENT -->|HTTP(S)/JSON + JWT e workspace| REST[API REST]
-  REST --> DB[(PostgreSQL)]
-  API -->|consulta bem-sucedida| CACHE[LocalStorageService]
-  CACHE --> PREFS[(SharedPreferences: snapshots JSON)]
-  API -->|falha de transporte em consulta| CACHE
+  UI[Telas e widgets] --> RPG[RpgApi]
+  RPG --> CLIENT[ApiClient]
+  CLIENT -->|HTTP(S), JSON, Bearer JWT e workspace| API[Backend REST]
+  API -->|validação, autorização e repositórios| PG[(PostgreSQL)]
+  RPG -->|snapshots e dados locais| LOCAL[SQLite / SharedPreferences]
 ```
 
-Leituras tentam primeiro a API; uma resposta válida atualiza o cache e é
-retornada à tela. Em falha de transporte, o serviço tenta o snapshot do mesmo
-usuário e workspace e informa que os dados locais podem estar desatualizados.
-Erros HTTP, inclusive `401` e `403`, e respostas inválidas não são convertidos
-em falta de conexão.
+- `lib/core/api_client.dart` centraliza URL, transporte HTTP, JSON, timeout,
+  token e erros de API.
+- `lib/services/rpg_api.dart` mapeia operações REST para modelos e atualiza os
+  caches após respostas confirmadas.
+- Chamadas autenticadas enviam `Authorization: Bearer <JWT>`. O workspace
+  (`player` ou `master`) é enviado no cabeçalho `X-Workspace-Type` quando
+  necessário.
+- O JWT é guardado em `flutter_secure_storage`; não é armazenado em
+  SharedPreferences. Login/cadastro são rotas públicas.
+- O backend valida a identidade do JWT e aplica autorização e escopo. O cliente
+  não acessa o banco nem define o proprietário remoto no payload.
+- Uma resposta HTTP `401` invalida a sessão local. `403`, `404`, falhas HTTP e
+  falhas de transporte são tratadas separadamente; respostas HTTP não são
+  convertidas em indicação de que a rede está offline.
 
-`ConnectionService` observa mudanças de rede com `connectivity_plus` e confirma
-acesso real à internet com uma requisição GET sem credenciais para
-`https://www.google.com/generate_204`, usando o transporte já existente no
-`ApiClient`, sem seguir redirecionamentos e com timeout de 3 segundos. A
-verificação ocorre na inicialização, após mudanças de rede, após falhas da API
-e a cada 30 segundos enquanto há rede e o app está ativo. A disponibilidade
-externa e a disponibilidade da API são estados separados.
+### Recursos e regras de domínio
 
-O aviso global é colocado acima do navegador pelo `MaterialApp.builder`: não
-cobre os controles, desaparece quando online, mostra indisponibilidade da API
-separadamente e exibe a reconexão por alguns segundos. O monitor é encerrado
-com o app e pausa as sondagens em segundo plano.
+**Notas e missões** pertencem ao usuário autenticado e ao workspace ativo.
+Pastas e campanhas são associações opcionais: vincular um registro a uma
+campanha não o compartilha com os participantes. O app permite editar/excluir
+registros, concluir/reabrir missões e compartilhar exportações `.txt`.
 
-```mermaid
-sequenceDiagram
-  participant UI as Tela Flutter
-  participant API as RpgApi / ApiClient
-  participant REST as API REST
-  participant DB as PostgreSQL
-  participant Cache as SharedPreferences
-  UI->>API: criar / editar / excluir
-  API->>REST: operação autenticada
-  REST->>DB: persistir alteração
-  DB-->>REST: confirmação
-  REST-->>API: resposta válida
-  API->>Cache: atualizar ou invalidar snapshot
-  API-->>UI: resultado confirmado
+**Personagens** podem ser associados a uma pasta. As fichas e os dados
+específicos do sistema são serializados em JSON. **Monstros** no workspace
+Mestre são vinculados a campanhas próprias e exigem sistema e versão.
+
+**Campanhas e convites:** códigos/QR permitem solicitar entrada, mas não
+concedem acesso automaticamente. Solicitações feitas por código precisam ser
+aprovadas pelo Mestre; convites direcionados por username precisam ser aceitos
+pelo jogador. Os códigos não são persistidos no cache local. Leitura de QR usa
+a câmera e exige a permissão correspondente.
+
+**Combates:** o proprietário da campanha no workspace Mestre pode criar
+combates, adicionar personagens da campanha ou participantes manuais do tipo
+monstro/NPC e informar iniciativas. A ordenação decrescente é explícita;
+empates preservam a ordem manual. Turnos e rodadas são salvos no backend.
+Edições de combate exigem conexão e não entram na Outbox.
+
+**Administração:** telas e ações dependem das permissões retornadas pelo
+backend. Usuários, planos, sistemas, assinaturas, pagamentos, despesas,
+relatórios, auditoria e configurações são recursos remotos, sem cache offline.
+O backend protege as operações e impede remover a última permissão
+administrativa necessária. O aplicativo exibe registros internos de pagamento;
+não há provedor externo de pagamentos integrado. Um simulador de pagamento
+controlado pelo backend pode estar disponível apenas em ambiente de
+desenvolvimento quando habilitado.
+
+As tabelas de campanhas/convites são criadas pelas migrations do backend;
+antes de usá-las, aplique as migrations conforme o README principal.
+
+## Execução Desktop no Linux e Windows
+
+Os diretórios `linux/` e `windows/` contêm runners Flutter, configuração de
+build e registradores de plugins. Portanto, é possível executar o app no
+computador com `flutter run`, sem gerar APK.
+
+### Linux
+
+1. Instale o Flutter SDK e configure o `PATH`. O Dart SDK correspondente vem
+   incluído no Flutter.
+2. Em Debian/Ubuntu, instale as ferramentas de compilação Desktop, GTK e a
+   dependência do plugin Linux de armazenamento seguro:
+
+   ```bash
+   sudo apt-get update
+   sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev libsecret-1-dev
+   ```
+
+3. Confira e habilite o alvo Linux Desktop:
+
+   ```bash
+   flutter doctor
+   flutter config --enable-linux-desktop
+   flutter devices
+   ```
+
+4. Execute a partir da pasta deste projeto:
+
+   ```bash
+   cd Projeto_DevSisMob/mobile
+   flutter pub get
+   flutter run -d linux
+   ```
+
+Para usar o backend local explicitamente:
+
+```bash
+flutter run -d linux \
+  --dart-define=API_BASE_URL=http://localhost:3000/api
 ```
 
-Escritas são enviadas primeiro ao servidor. O cache só é atualizado ou
-invalidado depois de uma resposta confirmada; uma falha de conexão não é
-apresentada como sucesso. Não há fila de sincronização de escritas.
+### Windows
 
-### Organização dos arquivos
+1. Instale o Flutter SDK e configure o `PATH`.
+2. Instale o **Visual Studio** (não somente Visual Studio Code), com a carga
+   de trabalho **Desktop development with C++**, ferramentas C++, CMake e
+   Windows SDK compatível.
+3. No PowerShell, verifique o ambiente e habilite Windows Desktop:
 
-- `lib/models/models.dart`: modelos e conversão JSON.
-- `lib/core/api_client.dart`: cliente HTTP único, cabeçalhos, JWT e erros.
-- `lib/services/rpg_api.dart`: operações REST, modelos, cache de consultas e
-  origem/aviso dos dados.
-- `lib/services/local_storage.dart`: snapshots e metadados em
-  SharedPreferences, com isolamento por usuário/workspace e limite.
-- `lib/services/local_session_service.dart`: perfil não secreto para retomar a
-  identidade local, sem guardar o JWT.
-- `android/app/src/main/res/xml/`: regras que excluem somente o arquivo de
-  preferências do armazenamento seguro dos backups Android.
-- `lib/widgets/local_cache_indicator.dart`: indicador reutilizável de dados
-  locais.
-- `lib/screens/`: estados de carregamento, erro, vazio e dados em cache nas
-  telas de personagens, campanhas, pastas, notas/missões e monstros.
-- `test/`: testes de modelos, armazenamento, cliente/API, cenários offline e
-  widgets.
+   ```powershell
+   flutter doctor
+   flutter config --enable-windows-desktop
+   flutter devices
+   ```
 
-### Limitações conhecidas
+4. Execute a partir da pasta deste projeto:
 
-- O perfil local é apenas uma identidade para acesso offline aos dados
-  armazenados. Operações remotas continuam dependendo de validação online do
-  JWT; autenticação não é simulada quando a API está indisponível.
-- Os snapshots ainda usados por outras consultas são limitados a 512 KiB e não
-  oferecem consultas relacionais nem criptografia própria.
-- O SQLite mantém o UUID em `record_id` e pode associar a ele o ID numérico do
-  servidor em `remote_id`. A persistência oferece uma conclusão transacional de
-  CREATE que grava essa associação no registro e nas operações posteriores. O
-  worker ainda não existe; a Outbox de notas e missões permanece local até uma
-  etapa futura de sincronização.
-- A tela de notas/missões também depende de pastas e campanhas, que não estão
-  disponíveis offline sem snapshots locais utilizáveis.
-- Dados locais podem ficar desatualizados até uma consulta remota bem-sucedida.
-- A restauração após reinicialização física do aparelho e o comportamento de
-  backup Android precisam de validação em dispositivo real; os testes
-  automatizados cobrem recriação da aplicação e regras de sessão.
+   ```powershell
+   cd Projeto_DevSisMob\mobile
+   flutter pub get
+   flutter run -d windows
+   ```
 
-## Validation
+Com API local:
 
-```sh
+```powershell
+flutter run -d windows --dart-define="API_BASE_URL=http://localhost:3000/api"
+```
+
+### Comparação e compatibilidade de plugins
+
+| Sistema | Ferramentas necessárias | Execução | Observações |
+|---|---|---|---|
+| Linux | Flutter, clang, CMake, Ninja, GTK 3, ambiente gráfico e `libsecret-1-dev`. | `flutter run -d linux` | SQLite usa FFI. O plugin secure storage requer Secret Service/libsecret. `connectivity_plus` e `share_plus` não aparecem no registrador Linux gerado. |
+| Windows | Flutter, Visual Studio com **Desktop development with C++**, CMake e Windows SDK. | `flutter run -d windows` | SQLite usa FFI; `connectivity_plus` e `share_plus` aparecem no registrador Windows gerado. |
+
+Os plugins `mobile_scanner` e `image_picker` não aparecem nos registradores
+gerados de Linux e Windows. Assim, leitura QR por câmera e seleção de imagens
+não têm implementação Desktop confirmada. Em Linux, compartilhamento e
+detecção nativa de conectividade também não estão registrados; a camada de
+conectividade trata erros de plugin e faz sondagem externa, mas isso não
+substitui o suporte nativo.
+
+`flutter run` compila e executa uma versão de desenvolvimento com suporte a
+depuração. Para gerar builds Desktop release, os alvos configurados aceitam:
+
+```bash
+flutter build linux --release
+flutter build windows --release
+```
+
+Esses comandos criam artefatos de build; não significam que há instalador,
+assinatura ou pacote de distribuição configurado no repositório.
+
+## Arquitetura e dados
+
+### Organização do código
+
+| Caminho | Responsabilidade |
+|---|---|
+| `lib/core/api_client.dart` | Cliente HTTP, URL base, JWT, cabeçalhos, timeouts e erros. |
+| `lib/core/database/` | Banco SQLite local, migrations, factories por plataforma e DAOs. |
+| `lib/models/` | Modelos e serialização JSON. |
+| `lib/screens/` | Telas e fluxos de interface. |
+| `lib/services/rpg_api.dart` | Chamadas REST, transformação de respostas e coordenação de cache. |
+| `lib/services/local_storage.dart` | Snapshots JSON e metadados em SharedPreferences. |
+| `lib/services/local_session_service.dart` | Perfil local não secreto para retomar a interface. |
+| `lib/services/persona_service.dart` | Preferência de workspace por usuário. |
+| `lib/services/connection_service.dart` | Observação de conectividade e estado de disponibilidade da API. |
+| `lib/services/outbox_sync_service.dart` | Processadores de operações da Outbox; ainda não iniciados automaticamente. |
+| `lib/widgets/` | Componentes compartilhados, formulários e indicadores locais/conectividade. |
+| `test/` | Testes de modelos, API, persistência, fluxos e widgets. |
+
+### Entidades utilizadas
+
+Os modelos Flutter serializam entidades retornadas pela API. Campos
+específicos de sistema em personagens e monstros são preservados em objetos
+JSON.
+
+| Entidade | Relações/dados principais |
+|---|---|
+| Usuário | Identidade, username e e-mail. |
+| Campanha | Proprietário, participantes e estado. |
+| Participante | Usuário e papel na campanha. |
+| Sistema/versão | Nome, slug e versões disponíveis. |
+| Personagem | Workspace, sistema/versão, dados JSON e pasta opcional. |
+| Monstro | Campanha, sistema/versão e dados JSON. |
+| Pasta | Nome e pasta-pai opcional. |
+| Nota | Título, conteúdo e pasta/campanha opcionais. |
+| Missão | Título, descrição, recompensa, estado e pasta/campanha opcionais. |
+
+## Persistência e modo offline
+
+### Caches e sessão
+
+`LocalStorageService` guarda snapshots pequenos das consultas para uso offline
+limitado. Os dados são separados por usuário, workspace e tipo de registro; o
+limite por chave do cache é 512 KiB. Registros marcados `LOCAL_ONLY` não são
+apresentados como dados confirmados pelo servidor. SharedPreferences não é um
+banco relacional, não substitui PostgreSQL e não guarda JWTs.
+
+Após login ou validação bem-sucedida, `LocalSessionService` guarda somente um
+perfil mínimo (ID, nome, username e e-mail), em separado do JWT. Se a API
+estiver indisponível, esse perfil permite abrir a interface e consultar
+snapshots daquele usuário/workspace, mas **não valida a autenticação no
+servidor** nem habilita operações remotas. A tela indica estado de sessão local
+com o ícone de nuvem riscada.
+
+- Um `401` remove o token e o perfil local e exige novo login.
+- Falhas de transporte e respostas `5xx` preservam a sessão local e permitem
+  nova validação quando a conectividade volta.
+- Logout remove JWT e perfil de sessão, mas mantém snapshots isolados da conta.
+- O armazenamento seguro Android não é restaurado no backup/transferência do
+  dispositivo; pode ser necessário autenticar novamente após restaurar em outro
+  aparelho.
+
+### SQLite
+
+`LocalDatabase` usa uma sequência de migrations própria, independente das
+migrations PostgreSQL do backend. A versão atual é **4**:
+
+1. `local_records`, com escopo de usuário/workspace/tipo/ID.
+2. Índice para consultas por escopo e data.
+3. `outbox_operations` e índices de fila/lease.
+4. Campo `remote_id` para associar UUID local ao ID numérico remoto.
+
+Android usa `sqflite`; Linux e Windows usam `sqflite_common_ffi`; iOS e macOS
+usam o plugin nativo. O alvo Web pode compilar, mas esta camada SQLite não está
+disponível nele. Em modo visitante, notas e missões são guardadas localmente
+em SharedPreferences e não criam operações autenticadas na Outbox.
+
+Leituras autenticadas de notas e missões tentam primeiro a API e atualizam o
+SQLite quando recebem resposta válida. Se houver falha de transporte, podem
+usar registros SQLite do mesmo usuário/workspace. A tela de notas/missões
+também carrega pastas e campanhas; se esses recursos necessários à tela não
+estiverem disponíveis, a tela pode apresentar erro mesmo que existam notas e
+missões locais.
+
+Outras consultas de jogo podem usar snapshots de SharedPreferences. Recursos de
+autenticação, plano, assinatura e administração permanecem remotos. Escritas
+em recursos que não usam o fluxo local de notas/missões exigem conexão e só
+são apresentadas como salvas após confirmação da API.
+
+## Outbox: implementação e estado da sincronização
+
+### Fluxo de uma alteração offline
+
+Para notas e missões autenticadas, quando ocorre uma falha de transporte:
+
+1. A operação é persistida em SQLite junto com o registro local, numa
+   transação.
+2. A Outbox registra proprietário, workspace, entidade, ID local, tipo
+   `CREATE`, `UPDATE` ou `DELETE`, payload e estado.
+3. UUIDs identificam registros locais. O `CREATE` inclui um `clientId`, que o
+   backend usa no escopo de usuário/workspace para reconhecer reenvios.
+4. Se o servidor confirmar a criação, a implementação do processador obtém o
+   ID remoto e atualiza `remote_id` no registro e nas operações seguintes.
+   `UPDATE` e `DELETE` usam esse ID remoto.
+
+Edições pendentes podem ser consolidadas. Se um registro criado localmente e
+ainda não enviado for excluído, a operação de criação e o registro local podem
+ser removidos sem emitir um `DELETE` remoto.
+
+### Limite atual: envio não automático
+
+`OutboxSyncService` contém métodos para reivindicar e processar as operações
+CREATE/UPDATE/DELETE de notas e missões. O DAO implementa leases, contagem de
+tentativas, estados de falha e registro de erros; o serviço também persiste
+falhas retentáveis e relança o erro da chamada.
+
+**O serviço não é instanciado/chamado pelo aplicativo nem pelo
+`ConnectionService`.** Portanto, esta versão não inicia um worker, não envia
+automaticamente os registros pendentes e não retoma a fila ao reconectar. A
+conectividade retornar não equivale a sincronização concluída. A Outbox cobre
+somente notas e missões e não implementa sincronização P2P, Bluetooth ou
+transferência entre aparelhos.
+
+`ConnectionService` observa mudanças de rede com `connectivity_plus`, verifica
+acesso externo por uma requisição sem credenciais a
+`https://www.google.com/generate_204` (timeout de 3 segundos) e distingue
+internet disponível de API indisponível. A verificação é feita na inicialização,
+após mudanças/falhas e periodicamente enquanto o app está ativo. Ela atualiza
+o indicador de estado e pode iniciar a validação de sessão; **não consome a
+Outbox**.
+
+## Testes
+
+Na pasta `Projeto_DevSisMob/mobile/`:
+
+```bash
+flutter pub get
 flutter analyze
 flutter test
 ```
 
-JWTs are stored with `flutter_secure_storage`. Authenticated requests attach
-the stored token using the Bearer authorization scheme. A `401` clears the
-stored token and returns to the login screen.
+Os testes cobrem modelos, serialização, cliente HTTP, armazenamento,
+comportamentos offline, Outbox e telas/widgets com dependências simuladas.
+Eles não substituem uma validação ponta a ponta com backend e PostgreSQL
+configurados.
+
+## Limitações conhecidas
+
+- O aplicativo não se conecta diretamente ao banco PostgreSQL; precisa da API
+  para autenticação e operações remotas.
+- Snapshots de consultas podem ficar desatualizados e têm limite de 512 KiB
+  por chave; não oferecem consultas relacionais nem criptografia própria.
+- O perfil local é apenas um estado de interface/cache, não autenticação
+  offline validada pelo backend.
+- A Outbox persiste algumas escritas offline, mas o envio automático ainda não
+  está integrado.
+- Pastas, campanhas, combate, convites, telas administrativas e outras
+  entidades não passam por essa Outbox.
+- A ficha de RPG não implementa todas as regras dos sistemas; iniciativa é
+  manual e o rolador não grava histórico.
+- Recursos que dependem de câmera/leitura QR e seleção de imagens não têm
+  suporte Desktop confirmado; compartilhamento e detecção nativa de
+  conectividade também variam por plataforma.
+- O comportamento de backup/restauração Android e o uso dos plugins Desktop
+  devem ser validados nos dispositivos/sistemas de destino.
+
