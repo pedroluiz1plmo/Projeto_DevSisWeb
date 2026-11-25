@@ -17,6 +17,10 @@ Taíse A. de Miranda e Tássia B. Ferreira.
 [![Flutter](https://img.shields.io/badge/Flutter-Dart%20%3E%3D%203.6.2-02569B?logo=flutter&logoColor=white)](https://flutter.dev/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
+### Documentação do README do projeto Web e Mobile
+- [Projeto Web](.Projeto_DevSisWeb/README.md)
+- [Projeto Mobile](.Projeto_DevSisMob/mobile/README.md)
+
 ## Índice
 
 - [Visão geral](#visão-geral)
