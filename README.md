@@ -18,8 +18,8 @@ Taíse A. de Miranda e Tássia B. Ferreira.
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
 ### Documentação do README do projeto Web e Mobile
-- [Projeto Web](.Projeto_DevSisWeb/README.md)
-- [Projeto Mobile](.Projeto_DevSisMob/mobile/README.md)
+- [Projeto Web](./Projeto_DevSisWeb/README.md)
+- [Projeto Mobile](./Projeto_DevSisMob/mobile/README.md)
 
 ## Índice
 
