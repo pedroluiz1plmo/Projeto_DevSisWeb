@@ -6,6 +6,9 @@ Plataforma web para organizar jogos de RPG. Oferece áreas de jogador e mestre, 
 
 Este documento cobre apenas `web/` e `backend/`. O mobile pode consumir a mesma API, mas não é detalhado aqui.
 
+> Para arquitetura geral, Docker e configuração do backend, consulte o
+> [README principal](../../README.md).
+
 ## Índice
 
 - [Arquitetura](#arquitetura)
